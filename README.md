@@ -3,7 +3,7 @@
 [![GitHub version](https://badge.fury.io/gh/maticnetwork%2Fmatic.js.svg)](https://badge.fury.io/gh/maticnetwork%2Fmatic.js)
 [![Build Status](https://github.com/maticnetwork/matic.js/actions/workflows/ci.yml/badge.svg)](https://github.com/maticnetwork/matic.js/actions/workflows/ci.yml)
 [![npm version](https://badge.fury.io/js/%40maticnetwork%2Fmaticjs.svg)](https://badge.fury.io/js/%40maticnetwork%2Fmaticjs)
-![GitHub](https://img.shields.io/github/license/maticnetwork/matic.js)
+[![License](https://img.shields.io/github/license/maticnetwork/matic.js)](https://github.com/maticnetwork/matic.js/blob/master/LICENSE)
 [![TEST](https://github.com/maticnetwork/matic.js/actions/workflows/test.yml/badge.svg)](https://github.com/maticnetwork/matic.js/actions/workflows/test.yml)
 
 This repository contains the `maticjs` client library. `maticjs` makes it easy for developers, who may not be deeply familiar with smart contract development, to interact with the various components of Matic Network.
