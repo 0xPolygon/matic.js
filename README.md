@@ -1,7 +1,7 @@
 # Matic SDK
 
 [![GitHub version](https://badge.fury.io/gh/maticnetwork%2Fmatic.js.svg)](https://badge.fury.io/gh/maticnetwork%2Fmatic.js)
-![Build Status](https://github.com/maticnetwork/matic.js/workflows/CI/badge.svg?branch=master)
+[![Build Status](https://github.com/maticnetwork/matic.js/actions/workflows/ci.yml/badge.svg)](https://github.com/maticnetwork/matic.js/actions/workflows/ci.yml)
 [![npm version](https://badge.fury.io/js/%40maticnetwork%2Fmaticjs.svg)](https://badge.fury.io/js/%40maticnetwork%2Fmaticjs)
 ![GitHub](https://img.shields.io/github/license/maticnetwork/matic.js)
 [![TEST](https://github.com/maticnetwork/matic.js/actions/workflows/test.yml/badge.svg)](https://github.com/maticnetwork/matic.js/actions/workflows/test.yml)
