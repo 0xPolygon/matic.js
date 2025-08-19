@@ -33,7 +33,7 @@ export class Keccak {
                 return Buffer.from(keccak512(a));
             }
             default: {
-                throw new Error(`Invald algorithm: keccak${bits}`);
+                throw new Error(`Invalid algorithm: keccak${bits}`);
             }
         }
     };
