@@ -21,7 +21,8 @@
     "prepublishOnly": "npm run deploy",
     "lint": "tslint src/**/*.ts",
     "lint:fix": "tslint src/**/*.ts --fix",
-    "debug": "webpack && cd test && npm run link:lib:debug"
+    "debug": "webpack && cd test && npm run link:lib:debug",
+    "semantic-release": "semantic-release"
   },
   "repository": {
     "type": "git",
@@ -52,12 +53,16 @@
     "stream": "^0.0.3"
   },
   "devDependencies": {
+    "@semantic-release/changelog": "^6.0.3",
+    "@semantic-release/git": "^10.0.1",
+    "@semantic-release/github": "^11.0.6",
     "@types/node-fetch": "^2.6.11",
     "@typescript-eslint/parser": "^7.3.1",
     "copy-webpack-plugin": "^12.0.2",
     "cross-env": "^7.0.3",
     "husky": "^9.0.11",
     "lint-staged": "^15.2.2",
+    "semantic-release": "^24.2.9",
     "ts-loader": "^8.0.0",
     "tslint": "^6.1.3",
     "typescript": "^4.9.5",
