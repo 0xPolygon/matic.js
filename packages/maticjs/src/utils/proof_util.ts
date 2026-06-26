@@ -7,7 +7,7 @@ import rlp from 'rlp';
 import type { BaseWeb3Client } from '../abstracts';
 import type { ITransactionReceipt, IBlockWithTransaction } from '../interfaces';
 
-import { Converter, promiseResolve } from '..';
+import { Converter, promiseResolve, retryTransient } from '..';
 import { BufferUtil } from './buffer-utils';
 import { Keccak } from './keccak';
 import { mapPromise } from './map_promise';
@@ -164,40 +164,12 @@ export class ProofUtil {
       });
       receiptPromise = mapPromise(
         txHashes,
-        (hash: string) => {
-          // Retry transient network errors so that a single stale
-          // keep-alive socket or a brief DNS hiccup does not fail the
-          // entire proof.  Node.js 19+ enables keep-alive on the
-          // global HTTPS agent by default; if the server closes an
-          // idle connection while sequential Ethereum RPC calls are
-          // running, the next Polygon receipt fetch hits the stale
-          // socket and receives ECONNRESET.
-          //
-          // Each retry waits a full-jitter exponential backoff delay
-          // in [0, min(2000ms, 250ms * 2^i)] before re-attempting,
-          // so that a burst of simultaneous failures does not hammer
-          // the RPC endpoint with synchronised retries.
-          const MAX_RETRIES = 2;
-          const attempt = (remaining: number): Promise<ITransactionReceipt> =>
-            web3.getTransactionReceipt(hash).catch((err: any) => {
-              const isTransient =
-                err?.code === 'ECONNRESET' ||
-                err?.code === 'ENOTFOUND' ||
-                err?.code === 'ECONNREFUSED' ||
-                err?.code === 'ETIMEDOUT' ||
-                err?.errno === 'ECONNRESET' ||
-                err?.errno === 'ENOTFOUND';
-              if (remaining > 0 && isTransient) {
-                const i = MAX_RETRIES - remaining;
-                const delayMs = Math.random() * Math.min(250, 50 * Math.pow(2, i));
-                return new Promise<void>((resolve) => setTimeout(resolve, delayMs)).then(() =>
-                  attempt(remaining - 1)
-                );
-              }
-              throw err;
-            });
-          return attempt(MAX_RETRIES);
-        },
+        // Retry transient network errors so a single stale keep-alive socket or
+        // a brief DNS hiccup doesn't fail the whole proof. Node.js 19+ keeps
+        // HTTPS connections alive by default, so a server-closed idle socket
+        // surfaces as ECONNRESET (or a node-fetch "Premature close") on the
+        // next reused-socket request — see retryTransient.
+        (hash: string) => retryTransient(() => web3.getTransactionReceipt(hash)),
         {
           concurrency: requestConcurrency
         }

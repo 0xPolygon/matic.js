@@ -1,3 +1,5 @@
+import { retryTransient } from './retry';
+
 const fetch: (input: RequestInfo, init?: RequestInit) => Promise<Response> = (() => {
   if (process.env.BUILD_ENV === 'node') {
     return require('node-fetch').default;
@@ -43,25 +45,31 @@ export class HttpRequest {
         .map((key) => `${encodeURIComponent(key)}=${encodeURIComponent(query[key])}`)
         .join('&');
 
-    return fetch(fullUrl, {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'application/json'
-      }
-    }).then((res) => parseJsonResponse<T>(res, 'GET', fullUrl));
+    // Retry transient connection failures (a stale keep-alive socket surfaces
+    // as a node-fetch "Premature close" / ECONNRESET while reading the body).
+    return retryTransient(() =>
+      fetch(fullUrl, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json'
+        }
+      }).then((res) => parseJsonResponse<T>(res, 'GET', fullUrl))
+    );
   }
 
   post(url = '', body) {
     const fullUrl = this.baseUrl + url;
 
-    return fetch(fullUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'application/json'
-      },
-      body: body ? JSON.stringify(body) : null
-    }).then((res) => parseJsonResponse(res, 'POST', fullUrl));
+    return retryTransient(() =>
+      fetch(fullUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json'
+        },
+        body: body ? JSON.stringify(body) : null
+      }).then((res) => parseJsonResponse(res, 'POST', fullUrl))
+    );
   }
 }

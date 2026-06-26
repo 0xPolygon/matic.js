@@ -7,6 +7,7 @@ export * from './event_bus';
 export * from './logger';
 export * from './merge';
 export * from './map_promise';
+export * from './retry';
 export * from './proof_util';
 export * from './http_request';
 export * from './converter';
