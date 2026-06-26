@@ -23,16 +23,11 @@ permissions:
 jobs:
   release:
     uses: 0xPolygon/pipelines/.github/workflows/apps-npm-release.yml@main
-    # matic.js's default branch is `master`, not `main`. The shared
-    # workflow uses this for the post-publish lockfile commit
-    # (PATCH refs/heads/<branch>) and the pre-tag fast-forward fetch.
-    #
     # `snapshot_tag` is empty on the `push` event (no `inputs.snapshot_tag`
     # to forward), so the reusable workflow runs the standard release
     # job. On `workflow_dispatch` the supplied dist-tag is forwarded
     # and the reusable workflow runs the snapshot job instead.
     with:
-      default_branch: master
       snapshot_tag: ${{ inputs.snapshot_tag || '' }}
     secrets:
       CHANGESET_RELEASE_BOT_APP_ID: ${{ secrets.CHANGESET_RELEASE_BOT_APP_ID }}
