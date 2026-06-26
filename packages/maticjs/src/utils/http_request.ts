@@ -5,6 +5,25 @@ const fetch: (input: RequestInfo, init?: RequestInit) => Promise<Response> = (()
   return window.fetch;
 })();
 
+// Fail with the HTTP status / body on a non-2xx or non-JSON response instead of
+// letting a bare `res.json()` throw a context-free parse error.
+async function parseJsonResponse<T>(res: Response, method: string, url: string): Promise<T> {
+  const text = await res.text();
+  if (!res.ok) {
+    const snippet = text.slice(0, 200);
+    throw new Error(`HTTP ${res.status} ${res.statusText} for ${method} ${url}: ${snippet}`);
+  }
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    const contentType = res.headers.get('content-type') ?? 'unknown';
+    const snippet = text.slice(0, 200);
+    throw new Error(
+      `Expected JSON from ${method} ${url} (content-type: ${contentType}) but parsing failed: ${snippet}`
+    );
+  }
+}
+
 export class HttpRequest {
   baseUrl = '';
 
@@ -30,9 +49,7 @@ export class HttpRequest {
         'Content-Type': 'application/json',
         Accept: 'application/json'
       }
-    }).then((res) => {
-      return res.json();
-    });
+    }).then((res) => parseJsonResponse<T>(res, 'GET', fullUrl));
   }
 
   post(url = '', body) {
@@ -45,8 +62,6 @@ export class HttpRequest {
         Accept: 'application/json'
       },
       body: body ? JSON.stringify(body) : null
-    }).then((res) => {
-      return res.json();
-    });
+    }).then((res) => parseJsonResponse(res, 'POST', fullUrl));
   }
 }

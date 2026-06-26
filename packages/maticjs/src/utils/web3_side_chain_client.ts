@@ -54,8 +54,15 @@ export class Web3SideChainClient<T_CONFIG> {
     const version = normalizedConfig.version;
     const abiManager = (this.abiManager = new ABIManager(network, version));
     this.logger.log('init called', abiManager);
-    return abiManager.init().catch(() => {
-      throw new Error(`network ${network} - ${version} is not supported`);
+    return abiManager.init().catch((err) => {
+      // Preserve the underlying fetch/parse failure instead of discarding it.
+      const reason = err instanceof Error ? err.message : String(err);
+      // `cause` via assignment: the Error(message, { cause }) overload postdates
+      // this package's TS lib target.
+      throw Object.assign(
+        new Error(`network ${network} - ${version} is not supported: ${reason}`),
+        { cause: err }
+      );
     });
   }
 
