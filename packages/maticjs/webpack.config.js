@@ -54,7 +54,12 @@ const clientConfig = {
   },
   resolve: {
     modules: [path.resolve(__dirname, 'src'), 'node_modules'],
-    extensions: ['.json', '.js', '.ts', '.tsx']
+    extensions: ['.json', '.js', '.ts', '.tsx'],
+    // `http`/`https` are referenced only in the Node build (guarded by
+    // BUILD_ENV==='node') to build a keep-alive-disabled agent. The web/UMD
+    // bundles never execute that branch, so map the modules to empty stubs
+    // rather than letting webpack fail trying to resolve Node core modules.
+    fallback: { http: false, https: false }
   },
   plugins: [
     new copyPlugin({

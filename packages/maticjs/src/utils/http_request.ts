@@ -1,10 +1,32 @@
 import { retryTransient } from './retry';
 
-const fetch: (input: RequestInfo, init?: RequestInit) => Promise<Response> = (() => {
+// node-fetch supports an `agent` option that the DOM lib's RequestInit lacks.
+type FetchInit = RequestInit & { agent?: unknown };
+
+const fetch: (input: RequestInfo, init?: FetchInit) => Promise<Response> = (() => {
   if (process.env.BUILD_ENV === 'node') {
     return require('node-fetch').default;
   }
   return window.fetch;
+})();
+
+// Force a non-keep-alive HTTP agent in the Node build. Node 19+ defaults http(s)
+// agents to keepAlive:true; node-fetch then reuses a socket the upstream CDN
+// (Cloudflare) has already idle-closed, and the next gzip response dies
+// mid-decompression as `FetchError: Premature close` — observed 100% from CI,
+// intermittently elsewhere. These network-config and ABI fetches run once per
+// client init and are cached, so a fresh connection per request costs only a TLS
+// handshake at startup. The browser build's `window.fetch` ignores `agent`, and
+// node:http/https are required only inside the BUILD_ENV==='node' branch so they
+// are never bundled for the browser.
+const requestAgent: unknown = (() => {
+  if (process.env.BUILD_ENV === 'node') {
+    const httpAgent = new (require('http').Agent)({ keepAlive: false });
+    const httpsAgent = new (require('https').Agent)({ keepAlive: false });
+    return (parsedUrl: { protocol: string }) =>
+      parsedUrl.protocol === 'http:' ? httpAgent : httpsAgent;
+  }
+  return undefined;
 })();
 
 // Fail with the HTTP status / body on a non-2xx or non-JSON response instead of
@@ -53,7 +75,8 @@ export class HttpRequest {
         headers: {
           'Content-Type': 'application/json',
           Accept: 'application/json'
-        }
+        },
+        agent: requestAgent
       }).then((res) => parseJsonResponse<T>(res, 'GET', fullUrl))
     );
   }
@@ -68,7 +91,8 @@ export class HttpRequest {
           'Content-Type': 'application/json',
           Accept: 'application/json'
         },
-        body: body ? JSON.stringify(body) : null
+        body: body ? JSON.stringify(body) : null,
+        agent: requestAgent
       }).then((res) => parseJsonResponse(res, 'POST', fullUrl))
     );
   }
