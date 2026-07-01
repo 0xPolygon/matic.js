@@ -2,5 +2,5 @@
   "extends": ["@tsconfig/node24", "@tsconfig/node-ts"],
   "compilerOptions": { "noEmit": true },
   "files": [],
-  "references": [{ "path": "packages/maticjs/tsconfig.build.json" }]
+  "references": [{ "path": "packages/pos-sdk/tsconfig.build.json" }]
 }

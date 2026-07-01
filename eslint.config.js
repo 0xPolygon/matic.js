@@ -13,8 +13,7 @@ export default defineConfig([
   ...tsConfigs,
   {
     // Standard convention: parameters prefixed with _ are intentionally unused.
-    // Applied globally so abstract stub implementations (EmptyBigNumber, etc.)
-    // don't require inline disables.
+    // Used in stub implementations during the 1.0 rewrite migration window.
     plugins: { '@typescript-eslint': tsPlugin },
     rules: {
       '@typescript-eslint/no-unused-vars': [
@@ -28,38 +27,38 @@ export default defineConfig([
     }
   },
   {
+    // Ban the `as unknown as X` double-assertion — the escape hatch that
+    // fully overrides the type checker — everywhere in the published SDK
+    // source EXCEPT the adapter boundary. `: any` / `as any` are already
+    // banned globally by the preset's no-explicit-any; this closes the
+    // remaining "lie to the compiler" pattern.
+    //
+    // The carve-out below (`src/adapters/**`) is the single sanctioned
+    // home for these casts: viem / ethers v5 / ethers v6 have type shapes
+    // the SDK's own interfaces can't express without impedance casts at
+    // the call boundary, exactly the "isolate the third-party cast in a
+    // helper at the boundary" allowance in team-standards. Everywhere
+    // else, fix the upstream type instead of asserting through `unknown`.
+    files: ['packages/pos-sdk/src/**/*.ts'],
+    ignores: ['packages/pos-sdk/src/adapters/**'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: 'TSAsExpression > TSUnknownKeyword',
+          message:
+            'Double type-assertion (`as unknown as X`) bypasses the type checker. It is only permitted in src/adapters/** at the viem/ethers boundary; elsewhere, fix the upstream type.'
+        }
+      ]
+    }
+  },
+  {
     ignores: [
       '**/dist/**',
-      // webpack banner helper — uses `package` as a var name (reserved word in strict mode)
-      'packages/maticjs/build_helper/**',
-      // license.js uses `const package = require(...)` which is unparseable
-      'packages/maticjs/license.js',
-      // legacy jest/karma test suite — to be replaced with vitest in a separate PR
-      'packages/maticjs/test/**',
       // standalone consumer-facing reference scripts, not part of the workspace
       'examples/**',
       // manual developer scratch scripts — not automated, not part of the workspace
       'manual/**'
     ]
-  },
-  {
-    // http_request.ts uses a conditional runtime require() to load node-fetch only
-    // in the Node.js webpack bundle (BUILD_ENV === 'node'). A static import would
-    // cause the browser bundle to reference node-fetch at parse time. This is a
-    // webpack-specific build pattern that cannot be replaced with a static import
-    // without splitting the file into separate browser/node entry points.
-    files: ['packages/maticjs/src/utils/http_request.ts'],
-    rules: {
-      '@typescript-eslint/no-require-imports': 'off'
-    }
-  },
-  {
-    // src/index.ts re-exports everything and also has `export default defaultExport`
-    // for backwards compatibility with consumers using default import syntax.
-    // Removing it is a semver-major breaking API change, deferred to a future release.
-    files: ['packages/maticjs/src/index.ts'],
-    rules: {
-      'import-x/no-default-export': 'off'
-    }
   }
 ]);

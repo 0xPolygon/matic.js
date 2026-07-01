@@ -222,23 +222,23 @@ Structural reorganisation only. No source code changes. `pnpm publish` of
 - [x] Remove `husky` hooks block; replace `npm run` with `pnpm run`
 - [x] Add `typecheck` and `test` scripts
 - [x] Add `@ethereumjs/common` and `safe-buffer` as explicit deps (pnpm strict isolation
-      exposed these were direct imports but only transitive under npm)
+  exposed these were direct imports but only transitive under npm)
 - [x] Pin `typescript` to `^5.9.3` (tested clean; earlier apparent TS5 breakage was
-      a mixed npm/pnpm resolution artefact)
+  a mixed npm/pnpm resolution artefact)
 
 ### `packages/maticjs/tsconfig.json` + `tsconfig.build.json`
 
 - [x] Standalone tsconfig (not extending root) — `module: commonjs`,
-      `moduleResolution: node`, `skipLibCheck: true`, `strict: false`
+  `moduleResolution: node`, `skipLibCheck: true`, `strict: false`
 - [x] `tsconfig.build.json` — composite, `rootDir: src`, used by project references
 - [x] `tsconfig.json` includes `src/**/*`, `tests/**/*`, `vitest.config.ts`
 
 ### Tests
 
 - [x] Delete broken nested test project (`test/package.json`, jest@27, npm link,
-      live-RPC dependencies)
+  live-RPC dependencies)
 - [x] Migrate `specs/index.ts` → `packages/maticjs/tests/map-promise.test.ts` (vitest,
-      7 passing unit tests, no network required)
+  7 passing unit tests, no network required)
 - [x] Add `vitest.config.ts`
 
 ### Root `tslint.json` / `.eslintignore` / `package-lock.json`
@@ -252,12 +252,12 @@ Structural reorganisation only. No source code changes. `pnpm publish` of
 ### ESLint + commitlint + markdownlint
 
 - [x] `eslint.config.js` — `@polygonlabs/apps-team-lint@2.0.0`, `@tsconfig/node-ts`
-      plugin extraction for `no-unused-vars` override
+  plugin extraction for `no-unused-vars` override
 - [x] Fix all lint errors in `packages/maticjs/src/` (0 errors; 67 advisory
-      `no-explicit-any` warnings in public plugin interfaces)
+  `no-explicit-any` warnings in public plugin interfaces)
 - [x] Two config-level overrides (not inline disables):
-  - `no-require-imports` off for `http_request.ts` (webpack BUILD_ENV pattern)
-  - `no-default-export` off for `src/index.ts` (semver-major API change, deferred)
+    - `no-require-imports` off for `http_request.ts` (webpack BUILD_ENV pattern)
+    - `no-default-export` off for `src/index.ts` (semver-major API change, deferred)
 - [x] `commitlint.config.js` — conventional commits
 - [x] `markdownlint-cli2@^0.21.0`; fix all violations in existing `.md` files
 - [x] Fix `README.md` (wrong org, npm commands, outdated structure)
@@ -388,19 +388,19 @@ follow; each block ends with what new tests validate it.
 
 - [ ] Folder rename: `packages/maticjs/` → `packages/pos-sdk/`
 - [ ] `package.json`:
-  - `"name": "@polygonlabs/pos-sdk"`, `"version": "1.0.0"`
-  - `"engines": { "node": ">=20" }`
-  - `"type": "module"`
-  - `"repository"` with `directory: packages/pos-sdk`
-  - `"publishConfig": { "access": "public" }`
-  - `"files": ["dist", "MIGRATION.md"]`
-  - `"exports"` — CJS + ESM + types
-  - `"peerDependencies"`: `viem: "^2.0.0"`, `ethers: "^5.5.1 || ^6.0.0"`
-  - `"peerDependenciesMeta"`: all three marked `{ "optional": true }`
-  - `"dependencies"`: `p-limit`, `ethereum-cryptography`, `rlp`
+    - `"name": "@polygonlabs/pos-sdk"`, `"version": "1.0.0"`
+    - `"engines": { "node": ">=20" }`
+    - `"type": "module"`
+    - `"repository"` with `directory: packages/pos-sdk`
+    - `"publishConfig": { "access": "public" }`
+    - `"files": ["dist", "MIGRATION.md"]`
+    - `"exports"` — CJS + ESM + types
+    - `"peerDependencies"`: `viem: "^2.0.0"`, `ethers: "^5.5.1 || ^6.0.0"`
+    - `"peerDependenciesMeta"`: all three marked `{ "optional": true }`
+    - `"dependencies"`: `p-limit`, `ethereum-cryptography`, `rlp`
 - [ ] `tsconfig.json` — extends `@tsconfig/node20`; `target: "es2023"`,
-      `lib: ["es2023"]`, `strict: true`, `erasableSyntaxOnly: true`,
-      `noUncheckedSideEffectImports: true`
+  `lib: ["es2023"]`, `strict: true`, `erasableSyntaxOnly: true`,
+  `noUncheckedSideEffectImports: true`
 - [ ] `tsconfig.build.json` — composite, `rootDir: src`
 - [ ] `tsup.config.ts` — replaces webpack; CJS + ESM + DTS, target es2023
 - [ ] Update root `tsconfig.json` references and `pnpm-workspace.yaml`
@@ -409,19 +409,19 @@ follow; each block ends with what new tests validate it.
 ### B. Vendor ABIs and network config
 
 - [ ] Create `src/abi/` with one TS file per contract, each exporting
-      `as const` for viem ABI inference:
-  - `RootChainManager.ts`, `ChildERC20.ts`, `ChildERC721.ts`,
-    `ChildERC1155.ts`, `ERC20Predicate.ts`, `ERC721Predicate.ts`,
-    `ERC1155Predicate.ts`, `EtherPredicate.ts`, `GasSwapper.ts`
-  - Source: `https://static.polygon.technology/network/{network}/v1/artifacts/pos/{name}.json`
+  `as const` for viem ABI inference:
+    - `RootChainManager.ts`, `ChildERC20.ts`, `ChildERC721.ts`,
+      `ChildERC1155.ts`, `ERC20Predicate.ts`, `ERC721Predicate.ts`,
+      `ERC1155Predicate.ts`, `EtherPredicate.ts`, `GasSwapper.ts`
+    - Source: `https://static.polygon.technology/network/{network}/v1/artifacts/pos/{name}.json`
 - [ ] Create `src/networks.ts` — vendored address index per network
-      (`mainnet` and `amoy`), typed as a `const` map
+  (`mainnet` and `amoy`), typed as a `const` map
 - [ ] Delete: `utils/abi_manager.ts`, `services/abi_service.ts`,
-      `services/network_service.ts`, `services/index.ts`,
-      `utils/http_request.ts`, `config.ts`
+  `services/network_service.ts`, `services/index.ts`,
+  `utils/http_request.ts`, `config.ts`
 - [ ] **Verify (unit test)**: `tests/unit/abi-types.test.ts` —
-      compile-time check that `as const` ABIs produce expected viem
-      `Abi`-typed inference; runtime check that addresses round-trip
+  compile-time check that `as const` ABIs produce expected viem
+  `Abi`-typed inference; runtime check that addresses round-trip
 
 ### C. Adapter layer
 
@@ -437,44 +437,44 @@ follow; each block ends with what new tests validate it.
   }
   ```
 - [ ] `src/adapters/viem.ts` — implements `Adapter` over
-      `PublicClient` + optional `WalletClient`. Native bigint throughout.
+  `PublicClient` + optional `WalletClient`. Native bigint throughout.
 - [ ] `src/adapters/ethers-v5.ts` — implements `Adapter` over
-      v5 `Provider` + optional `Signer`. Boundary conversion:
-      `BigNumber.toBigInt()` on read, accepts `bigint` directly on write
-      (v5 `BigNumberish` includes bigint).
+  v5 `Provider` + optional `Signer`. Boundary conversion:
+  `BigNumber.toBigInt()` on read, accepts `bigint` directly on write
+  (v5 `BigNumberish` includes bigint).
 - [ ] `src/adapters/ethers-v6.ts` — implements `Adapter` over
-      v6 `Provider` + optional `Signer`. Native bigint; `getSigner()`
-      is async — adapter constructor resolves it once.
+  v6 `Provider` + optional `Signer`. Native bigint; `getSigner()`
+  is async — adapter constructor resolves it once.
 - [ ] `src/adapters/select.ts` — discriminated-union config →
-      adapter factory. Throws `POSBridgeError('UNSUPPORTED_PROVIDER', ...)`
-      if config doesn't match any known shape.
+  adapter factory. Throws `POSBridgeError('UNSUPPORTED_PROVIDER', ...)`
+  if config doesn't match any known shape.
 - [ ] `src/adapters/sanitise.ts` — RPC token regex sanitisation applied
-      to errors before they propagate to the consumer's logger
+  to errors before they propagate to the consumer's logger
 - [ ] **Verify (integration test)**: `tests/integration/adapters/{viem,ethers-v5,ethers-v6}.test.ts` —
-      each adapter executes the same test plan against Amoy: `getChainId`,
-      `read` (call `RootChainManager.tokenToType`), `write` (transfer 1 wei
-      of test token), `getTransactionReceipt`. Assert identical observable
-      behaviour across all three adapters.
+  each adapter executes the same test plan against Amoy: `getChainId`,
+  `read` (call `RootChainManager.tokenToType`), `write` (transfer 1 wei
+  of test token), `getTransactionReceipt`. Assert identical observable
+  behaviour across all three adapters.
 
 ### D. Composition refactor (kill `BaseToken` hierarchy)
 
 - [ ] `src/internal/contract-caller.ts` — `ContractCaller` service.
-      Owns: contract loading from vendored ABI + address, gas estimation,
-      nonce, EIP-1559 detection, read/write dispatch via `Adapter`.
+  Owns: contract loading from vendored ABI + address, gas estimation,
+  nonce, EIP-1559 detection, read/write dispatch via `Adapter`.
 - [ ] `src/internal/pos-bridge-helpers.ts` — `POSBridgeHelpers` service.
-      Owns: predicate address resolution, exit hash, `isWithdrawn` checks.
+  Owns: predicate address resolution, exit hash, `isWithdrawn` checks.
 - [ ] Rewrite `src/pos/erc20.ts`, `erc721.ts`, `erc1155.ts` as plain
-      classes composing `ContractCaller` + `POSBridgeHelpers`. No `extends`.
+  classes composing `ContractCaller` + `POSBridgeHelpers`. No `extends`.
 - [ ] Rewrite `src/pos/root_chain_manager.ts`, `root_chain.ts`,
-      `gas_swapper.ts` as plain classes composing only `ContractCaller`.
+  `gas_swapper.ts` as plain classes composing only `ContractCaller`.
 - [ ] Delete: `utils/base_token.ts`, `pos/pos_token.ts`,
-      `abstracts/base_big_number.ts`, `abstracts/base_contract.ts`,
-      `abstracts/base_web3_client.ts`, `abstracts/contract_method.ts`,
-      `abstracts/index.ts`, `implementation/bn.ts`, `implementation/index.ts`,
-      `helpers/contract_write_result.ts`, `helpers/do_nothing.ts`
+  `abstracts/base_big_number.ts`, `abstracts/base_contract.ts`,
+  `abstracts/base_web3_client.ts`, `abstracts/contract_method.ts`,
+  `abstracts/index.ts`, `implementation/bn.ts`, `implementation/index.ts`,
+  `helpers/contract_write_result.ts`, `helpers/do_nothing.ts`
 - [ ] **Verify (integration test)**: `tests/integration/erc20.test.ts` —
-      live `getBalance`, `getAllowance`, `approve` against Amoy test ERC20.
-      Parameterised over all three adapters.
+  live `getBalance`, `getAllowance`, `approve` against Amoy test ERC20.
+  Parameterised over all three adapters.
 
 ### E. POSClient public API redesign
 
@@ -504,13 +504,13 @@ follow; each block ends with what new tests validate it.
   ```
 - [ ] Drop: `version` config field (single canonical ABI set vendored)
 - [ ] Drop: `isParent: boolean` parameter on token factories (replaced by
-      `parent`/`child` namespaces)
+  `parent`/`child` namespaces)
 - [ ] Drop: `UnstoppableDomains` integration entirely. Delete
-      `resolution: unknown = {}` field and `set_proof_api_url.ts`.
+  `resolution: unknown = {}` field and `set_proof_api_url.ts`.
 - [ ] Drop: `log: true` boolean config; replaced by `logger?: Logger`
 - [ ] **Verify (integration test)**: `tests/integration/pos-client-init.test.ts` —
-      construct `POSClient` with each adapter shape, call `parent.erc20(addr)`
-      and `child.erc20(addr)`, verify chain selection.
+  construct `POSClient` with each adapter shape, call `parent.erc20(addr)`
+  and `child.erc20(addr)`, verify chain selection.
 
 ### F. Logger interface and error sanitisation
 
@@ -525,14 +525,14 @@ follow; each block ends with what new tests validate it.
   }
   ```
 - [ ] No runtime dep on `pino` or `@polygonlabs/logger`. Both satisfy
-      the interface structurally — consumers plug in whichever they use.
+  the interface structurally — consumers plug in whichever they use.
 - [ ] Default: `noopLogger` (no-op for every level) when not provided.
 - [ ] RPC token sanitisation — apply regex
-      `/(\?|&)token=[^&\s"]+/g` to error messages before passing to
-      `logger.error()` so consumers using non-sanitising loggers don't leak.
+  `/(\?|&)token=[^&\s"]+/g` to error messages before passing to
+  `logger.error()` so consumers using non-sanitising loggers don't leak.
 - [ ] **Verify (unit test)**: `tests/unit/sanitise.test.ts` — error
-      messages with RPC tokens have tokens replaced with `***` before
-      logging, and original error object's `cause` is preserved.
+  messages with RPC tokens have tokens replaced with `***` before
+  logging, and original error object's `cause` is preserved.
 
 ### G. Transaction result API redesign
 
@@ -541,30 +541,30 @@ follow; each block ends with what new tests validate it.
 - [ ] `confirmed()` returns the receipt promise; resolves on first confirmation
 - [ ] Drop: lazy `getTransactionHash()` pattern entirely
 - [ ] Drop: `option.returnTransaction` mode entirely. Consumers needing
-      to populate-without-sending use their provider library directly
-      (viem `prepareTransactionRequest`, ethers `populateTransaction`).
+  to populate-without-sending use their provider library directly
+  (viem `prepareTransactionRequest`, ethers `populateTransaction`).
 - [ ] Update every method on `ERC20`/`ERC721`/`ERC1155`/`RootChainManager`
-      to return `Promise<TxResult>` directly
+  to return `Promise<TxResult>` directly
 - [ ] **Verify (integration test)**: `tests/integration/tx-result.test.ts` —
-      `await pos.parent.erc20(addr).approve(1n)` returns a `TxResult` with
-      a defined `hash` immediately and a `confirmed()` that resolves to
-      a real receipt within 60s on Sepolia.
+  `await pos.parent.erc20(addr).approve(1n)` returns a `TxResult` with
+  a defined `hash` immediately and a `confirmed()` that resolves to
+  a real receipt within 60s on Sepolia.
 
 ### H. Native bigint pass
 
 - [ ] Replace all `TYPE_AMOUNT` (`string | number | BigNumberish`) on the
-      public API with `bigint`. Update parameter and return types.
+  public API with `bigint`. Update parameter and return types.
 - [ ] Internal adapter boundaries handle:
-  - viem: native bigint, no conversion
-  - ethers v5: input `bigint` → `BigNumber.from(bigint)`; output
-    `BigNumber` → `bn.toBigInt()`
-  - ethers v6: native bigint, no conversion
+    - viem: native bigint, no conversion
+    - ethers v5: input `bigint` → `BigNumber.from(bigint)`; output
+      `BigNumber` → `bn.toBigInt()`
+    - ethers v6: native bigint, no conversion
 - [ ] `utils/converter.ts`:
-  - Keep `toHex(bigint | string | number): \`0x\${string}\``
-  - Drop `toBN`, drop any `BigNumber` references
+    - Keep `toHex(bigint | string | number): \`0x\${string}\``
+    - Drop `toBN`, drop any `BigNumber` references
 - [ ] **Verify (integration test)**: `tests/integration/bigint-roundtrip.test.ts` —
-      pass `1234567890123456789012345n` through approve→getAllowance and
-      assert the same bigint comes back, on all three adapters.
+  pass `1234567890123456789012345n` through approve→getAllowance and
+  assert the same bigint comes back, on all three adapters.
 
 ### I. Error class redesign
 
@@ -589,13 +589,13 @@ follow; each block ends with what new tests validate it.
   }
   ```
 - [ ] Replace every `ErrorHelper.throw()` and `logger.error(...).throw()`
-      callsite with `throw new POSBridgeError('CODE', '...', { ctx })`
+  callsite with `throw new POSBridgeError('CODE', '...', { ctx })`
 - [ ] Delete: `utils/error_helper.ts`, `enums/error_type.ts`,
-      `enums/index.ts`, `enums/log_event_signature.ts` (move event sigs
-      to a const map in `src/constant.ts`)
+  `enums/index.ts`, `enums/log_event_signature.ts` (move event sigs
+  to a const map in `src/constant.ts`)
 - [ ] **Verify (unit test)**: `tests/unit/errors.test.ts` — every code is
-      thrown by at least one source location; `instanceof POSBridgeError`
-      narrowing works for each.
+  thrown by at least one source location; `instanceof POSBridgeError`
+  narrowing works for each.
 
 ### J. Method naming pass
 
@@ -603,9 +603,9 @@ follow; each block ends with what new tests validate it.
 - [ ] `withdrawExit` → `completeWithdraw`
 - [ ] `withdrawExitFaster` → `completeWithdrawFast`
 - [ ] Native ETH ergonomics — audit `depositEther`, `depositEtherWithGas`,
-      `depositWithGas`. Decide during implementation: unify into
-      `pos.eth.deposit(...)` namespace OR fold into a single `deposit`
-      with an `asNative: true` option. Land whichever is cleaner.
+  `depositWithGas`. Decide during implementation: unify into
+  `pos.eth.deposit(...)` namespace OR fold into a single `deposit`
+  with an `asNative: true` option. Land whichever is cleaner.
 - [ ] `etheriumSha3` → `keccak256` on the `Adapter` interface (already in plan)
 - [ ] Document every rename in `MIGRATION.md`
 
@@ -615,32 +615,32 @@ For each, decide during implementation: keep / simplify / delete. Document
 the call in PR description.
 
 - [ ] `pos/gas_swapper.ts` — verify still relevant; check on-chain whether
-      `GasSwapper` is still deployed and used post-POL migration
+  `GasSwapper` is still deployed and used post-POL migration
 - [ ] `pos/find_checkpoint_slot.ts` — bisect-search across checkpoints.
-      `RootChain` exposes `NewHeaderBlock` events; consider replacing
-      bisect with direct event filter (faster, simpler)
+  `RootChain` exposes `NewHeaderBlock` events; consider replacing
+  bisect with direct event filter (faster, simpler)
 - [ ] `services/network_service.ts` — fast-exit proof API client.
-      Has been deleted in section B; replaced by explicit `proofApi` config
+  Has been deleted in section B; replaced by explicit `proofApi` config
 - [ ] `utils/proof_util.ts` — large, central to exit flow. Review for
-      `: any` removals and async/await migration but don't restructure
+  `: any` removals and async/await migration but don't restructure
 - [ ] `utils/exit_util.ts` — same
 - [ ] Comment-removal pass: dead `withdrawExitMany`/`withdrawExitFasterMany`
-      blocks in `pos/erc721.ts`; any other commented code
+  blocks in `pos/erc721.ts`; any other commented code
 
 ### L. Replace custom utilities
 
 - [ ] `utils/map_promise.ts` → `p-limit`. Update call sites in
-      `proof_util.ts` and elsewhere.
+  `proof_util.ts` and elsewhere.
 - [ ] Delete: `utils/promise_resolve.ts`, `utils/event_bus.ts`,
-      `utils/merge.ts`, `utils/not_implemented.ts`, `utils/use.ts`,
-      `utils/resolve.ts`
+  `utils/merge.ts`, `utils/not_implemented.ts`, `utils/use.ts`,
+  `utils/resolve.ts`
 - [ ] Keep: `utils/keccak.ts`, `utils/buffer-utils.ts`,
-      `utils/merkle_tree.ts`
+  `utils/merkle_tree.ts`
 - [ ] Rename `requestConcurrency` → `proofConcurrency` (top-level config
-      field; only affects proof building)
+  field; only affects proof building)
 - [ ] **Verify (unit test)**: `tests/unit/p-limit.test.ts` — concurrent
-      RPC calls in proof building respect `proofConcurrency: 2` (no more
-      than 2 in flight at any time).
+  RPC calls in proof building respect `proofConcurrency: 2` (no more
+  than 2 in flight at any time).
 
 ### M. Source-level cleanup
 
@@ -648,7 +648,7 @@ the call in PR description.
 - [ ] Replace every `: any` with proper type or `unknown`
 - [ ] Remove `signTypedData` from adapter contract (declared, never called)
 - [ ] Delete: `src/default.ts`, `defaultExport`, `src/utils/index.ts`
-      barrel re-exports of deleted modules
+  barrel re-exports of deleted modules
 - [ ] Public `src/index.ts`:
   ```ts
   export { POSClient } from './pos-client';
@@ -661,18 +661,18 @@ the call in PR description.
 ### N. Documentation
 
 - [ ] Top-level `README.md` rewrite — install, init examples for each
-      provider, breaking-change pointer to MIGRATION.md
+  provider, breaking-change pointer to MIGRATION.md
 - [ ] `packages/pos-sdk/MIGRATION.md` — comprehensive 3.9.x → 1.0.0 guide:
-  - Package rename
-  - Plugin removal (`use(...)` → just pass clients in config)
-  - `bigint` everywhere
-  - Method rename table
-  - Error class change
-  - `parent`/`child` namespacing
-  - Dropped: UnstoppableDomains, custom logger flag, `returnTransaction`,
-    `version`, `log`
+    - Package rename
+    - Plugin removal (`use(...)` → just pass clients in config)
+    - `bigint` everywhere
+    - Method rename table
+    - Error class change
+    - `parent`/`child` namespacing
+    - Dropped: UnstoppableDomains, custom logger flag, `returnTransaction`,
+      `version`, `log`
 - [ ] `examples/` — rewrite all to `@polygonlabs/pos-sdk` 1.0 API,
-      one example per provider
+  one example per provider
 - [ ] `manual/` debug scripts updated
 
 ### O. Tests
@@ -682,31 +682,31 @@ lists which test files must exist and pass before merge.)
 
 - [ ] `tests/fixtures/networks.ts` — test ERC20/721/1155 addresses on Amoy
 - [ ] `tests/fixtures/exits/` — at least 3 historical burn → exit-payload
-      fixtures (one per token type)
+  fixtures (one per token type)
 - [ ] `tests/unit/` — proof-util, merkle-tree, errors, sanitise, p-limit,
-      abi-types
+  abi-types
 - [ ] `tests/integration/adapters/{viem,ethers-v5,ethers-v6}.test.ts` —
-      adapter parity
+  adapter parity
 - [ ] `tests/integration/pos-client-init.test.ts`
 - [ ] `tests/integration/erc20.test.ts` — parameterised over adapter
 - [ ] `tests/integration/erc721.test.ts` — parameterised
 - [ ] `tests/integration/erc1155.test.ts` — parameterised
 - [ ] `tests/integration/exit-payload.test.ts` — historical fixtures,
-      byte-for-byte payload assertion
+  byte-for-byte payload assertion
 - [ ] `tests/integration/tx-result.test.ts`
 - [ ] `tests/integration/bigint-roundtrip.test.ts`
 - [ ] `tests/e2e/deposit-withdraw-cycle.test.ts` — full cycle, gated by
-      env var so it doesn't run on every PR
+  env var so it doesn't run on every PR
 - [ ] CI workflow updates: split `ci-trigger.yml` into PR-fast and
-      nightly-full; pass test wallet credentials via secrets
+  nightly-full; pass test wallet credentials via secrets
 
 ### P. Changeset
 
 - [ ] `pnpm exec changeset add` — major bump (`1.0.0`) documenting the
-      rename + complete API redesign. Body leads with:
-      "**`@maticnetwork/maticjs` is renamed to `@polygonlabs/pos-sdk`** —
-      install the new package. The 1.0 release is a complete API redesign;
-      see MIGRATION.md for the full guide."
+  rename + complete API redesign. Body leads with:
+  "**`@maticnetwork/maticjs` is renamed to `@polygonlabs/pos-sdk`** —
+  install the new package. The 1.0 release is a complete API redesign;
+  see MIGRATION.md for the full guide."
 
 ---
 
@@ -720,15 +720,15 @@ when zkEVM is wound down. Ships clean (not deprecated) at 1.0.0.
 - [ ] Create `packages/zkevm-sdk/`
 - [ ] Copy `packages/pos-sdk/src/zkevm/` → `packages/zkevm-sdk/src/`
 - [ ] Apply the same architectural patterns from Phase 2a:
-  - Composition over inheritance (parallel `ContractCaller` for zkEVM
-    contracts; if substantially identical to the POS-SDK one, factor
-    into an internal-only shared package or just duplicate)
-  - Native bigint throughout
-  - Vendored ABIs (`PolygonZkEVMBridge.ts`, etc.)
-  - Same `Adapter` interface and adapter implementations
-  - `POSBridgeError`-equivalent `ZkEvmBridgeError`
+    - Composition over inheritance (parallel `ContractCaller` for zkEVM
+      contracts; if substantially identical to the POS-SDK one, factor
+      into an internal-only shared package or just duplicate)
+    - Native bigint throughout
+    - Vendored ABIs (`PolygonZkEVMBridge.ts`, etc.)
+    - Same `Adapter` interface and adapter implementations
+    - `POSBridgeError`-equivalent `ZkEvmBridgeError`
 - [ ] Public surface: `ZkEvmClient` (renamed from `ZkEvmClient`, capital
-      EVM consistent). Decide naming during implementation.
+  EVM consistent). Decide naming during implementation.
 
 ### `packages/zkevm-sdk/package.json`
 
@@ -738,17 +738,17 @@ when zkEVM is wound down. Ships clean (not deprecated) at 1.0.0.
 - [ ] `"publishConfig": { "access": "public" }`
 - [ ] `"files": ["dist", "MIGRATION.md"]`
 - [ ] Same `peerDependencies` shape as `pos-sdk` (viem / ethers v5 / v6,
-      all optional)
+  all optional)
 - [ ] Same tsup / tsconfig / vitest config as `pos-sdk`
 
 ### Code-share decision
 
 - [ ] During implementation, decide whether to factor the `Adapter`
-      interface and adapter implementations into an internal,
-      unpublished workspace package (`packages/internal-adapters/`)
-      consumed by both `pos-sdk` and `zkevm-sdk`. Prefer duplication if
-      the shared surface is small enough (<300 lines) — easier to evolve
-      independently.
+  interface and adapter implementations into an internal,
+  unpublished workspace package (`packages/internal-adapters/`)
+  consumed by both `pos-sdk` and `zkevm-sdk`. Prefer duplication if
+  the shared surface is small enough (<300 lines) — easier to evolve
+  independently.
 
 ### Tests
 
@@ -756,7 +756,7 @@ Same testing strategy as Phase 2a, scaled to zkEVM operations:
 
 - [ ] `tests/unit/` — pure-function tests for zkEVM-specific encoding
 - [ ] `tests/integration/` — live zkEVM Cardona testnet (or successor),
-      adapter parity per zkEVM bridge operation
+  adapter parity per zkEVM bridge operation
 - [ ] `tests/e2e/` — full bridge cycle on testnet, nightly only
 
 ### Core SDK update
@@ -764,14 +764,14 @@ Same testing strategy as Phase 2a, scaled to zkEVM operations:
 - [ ] Remove `packages/pos-sdk/src/zkevm/` entirely
 - [ ] Remove zkEVM exports from `packages/pos-sdk/src/index.ts`
 - [ ] Document in `pos-sdk/MIGRATION.md`: "zkEVM support moved to
-      `@polygonlabs/zkevm-sdk` — `import { ZkEvmClient } from '@polygonlabs/zkevm-sdk'`"
+  `@polygonlabs/zkevm-sdk` — `import { ZkEvmClient } from '@polygonlabs/zkevm-sdk'`"
 
 ### Changeset
 
 - [ ] `pnpm exec changeset add` — minor bump for new `@polygonlabs/zkevm-sdk`
 - [ ] `pnpm exec changeset add` — patch bump for `@polygonlabs/pos-sdk`
-      noting the zkEVM extraction (already covered in Phase 2a's MIGRATION
-      if 2a and 2b ship together; otherwise dedicated entry)
+  noting the zkEVM extraction (already covered in Phase 2a's MIGRATION
+  if 2a and 2b ship together; otherwise dedicated entry)
 
 ---
 
@@ -783,12 +783,12 @@ Manual / out-of-PR. Runs after Phases 2a + 2b are merged and the
 ### GitHub repo rename
 
 - [ ] Rename `0xPolygon/matic.js` → `0xPolygon/pos-sdk` via Settings →
-      General → Repository name
+  General → Repository name
 - [ ] Verify GitHub redirects work for old URL (web + git clone)
 - [ ] Update local workspace remote: `git -C ... remote set-url origin
       git@github.com:0xPolygon/pos-sdk.git`
 - [ ] Update `repositories/apps-team-ops/src/registry.json` references
-      if any
+  if any
 - [ ] Update repo URL in any other workspace cross-references
 
 ### npm deprecations
@@ -811,11 +811,11 @@ Manual / out-of-PR. Runs after Phases 2a + 2b are merged and the
 ### Verification
 
 - [ ] Install `@polygonlabs/pos-sdk` and `@polygonlabs/zkevm-sdk` in a
-      scratch project; run a deposit + withdraw flow against Amoy
+  scratch project; run a deposit + withdraw flow against Amoy
 - [ ] `npm view @maticnetwork/maticjs` shows the deprecation message
 - [ ] `npm view @maticnetwork/maticjs-ethers` shows the deprecation message
 - [ ] `git clone https://github.com/0xPolygon/matic.js.git` redirects to
-      `pos-sdk` and clones successfully
+  `pos-sdk` and clones successfully
 
 ---
 

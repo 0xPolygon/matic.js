@@ -1,0 +1,41 @@
+name: CI Nightly
+
+# Runs the full pos-sdk integration suite plus the slow deposit→
+# checkpoint→withdraw e2e cycle test once a day. Every adapter run in
+# the cycle takes ~30–90 minutes (Amoy↔Sepolia checkpoint inclusion is
+# slow), so the worst-case wallclock approaches 4 hours; that's why the
+# cycle is gated behind `POS_SDK_TEST_E2E_ENABLED=true` and only enabled
+# on this nightly workflow.
+#
+# `workflow_dispatch` is included so a maintainer can manually kick off
+# the cycle when investigating a regression — no need to wait for the
+# next scheduled run.
+
+on:
+  schedule:
+    # 03:00 UTC daily — chosen to land on Polygon team off-hours so a
+    # ~4h run does not crowd PR-driven CI.
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  nightly:
+    name: Nightly - full integration + e2e cycle
+    runs-on: ubuntu-latest
+    # 5h ceiling — comfortably above the 4h test timeout. If a single
+    # run exceeds this it indicates an upstream RPC slowdown rather
+    # than the test pipeline; investigate the chain, not the workflow.
+    timeout-minutes: 300
+    env:
+      POS_SDK_TEST_PARENT_RPC: ${{ secrets.POS_SDK_TEST_PARENT_RPC }}
+      POS_SDK_TEST_CHILD_RPC: ${{ secrets.POS_SDK_TEST_CHILD_RPC }}
+      POS_SDK_TEST_PRIVATE_KEY: ${{ secrets.POS_SDK_TEST_PRIVATE_KEY }}
+      # Opt into the slow deposit→checkpoint→withdraw cycle test. The
+      # PR-trigger CI workflow leaves this unset so its 5–10 min budget
+      # is not blown by checkpoint waits.
+      POS_SDK_TEST_E2E_ENABLED: 'true'
+    steps:
+      - uses: 0xPolygon/pipelines/.github/actions/ci@main
