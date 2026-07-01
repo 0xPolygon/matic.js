@@ -1,0 +1,6 @@
+{
+  "RECORDING_INSTRUCTIONS": "This fixture is intentionally a placeholder. See erc20-burn-1.json for the recording procedure; the only difference is to use `pos.child.erc721(addr).startWithdraw(tokenId)` to burn an ERC-721 token rather than wei of an ERC-20, and to use the ERC-721 burn-event signature when capturing the payload.",
+  "burnTxHash": null,
+  "network": "amoy",
+  "expectedPayloadHex": null
+}

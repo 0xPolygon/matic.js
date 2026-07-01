@@ -1,0 +1,12 @@
+name: Codegen drift check
+
+on:
+  pull_request:
+    branches: [master]
+
+permissions:
+  contents: read
+
+jobs:
+  drift-check:
+    uses: 0xPolygon/pipelines/.github/workflows/apps-codegen-drift-check.yml@main
