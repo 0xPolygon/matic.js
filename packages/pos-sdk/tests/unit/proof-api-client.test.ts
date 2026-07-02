@@ -27,8 +27,9 @@ function mockFetch(
       ok: status >= 200 && status < 300,
       status,
       statusText: status === 404 ? 'Not Found' : 'OK',
-      json: () => Promise.resolve(body)
-    } as Response);
+      headers: { get: () => 'application/json' },
+      text: () => Promise.resolve(JSON.stringify(body))
+    } as unknown as Response);
   });
 }
 

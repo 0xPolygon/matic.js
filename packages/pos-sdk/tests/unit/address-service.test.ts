@@ -96,8 +96,8 @@ function installMockFetch(): MockFetchHandle {
       if (next === undefined) {
         throw new Error('resolveNext called with no pending request');
       }
-      const json = async (): Promise<unknown> => value;
-      next.resolve({ ok: true, json } as unknown as Response);
+      const text = async (): Promise<string> => JSON.stringify(value);
+      next.resolve({ ok: true, text } as unknown as Response);
       await drainMicrotasks();
     },
     async rejectNext(err: Error): Promise<void> {

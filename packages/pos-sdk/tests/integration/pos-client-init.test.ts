@@ -190,8 +190,8 @@ describe.skipIf(!HAS_CREDS)('POSClient.init', { timeout: 60_000 }, () => {
         const recordingFetch = vi.fn(async (_url: string) => {
           calls++;
           const body: typeof FAKE_ADDRESSES = FAKE_ADDRESSES;
-          const json = async (): Promise<unknown> => body;
-          return { ok: true, json } as unknown as Response;
+          const text = async (): Promise<string> => JSON.stringify(body);
+          return { ok: true, text } as unknown as Response;
         });
         vi.stubGlobal('fetch', recordingFetch);
         const client = await POSClient.init({
