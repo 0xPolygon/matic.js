@@ -1,0 +1,6 @@
+{
+  "RECORDING_INSTRUCTIONS": "This fixture is intentionally a placeholder. To record real bytes: (1) burn 1 wei of the test ERC-20 on Amoy via `pos.child.erc20(addr).startWithdraw(1n)`; (2) wait until the burn block has been checkpointed onto the parent chain (use `RootChain.getLastChildBlock()` to verify); (3) call `pos.parent.erc20(addr).completeWithdraw(burnTxHash)` in dry-run mode (i.e. via `bridge.buildExitPayload`) and capture the returned hex bytes; (4) populate this file with `{ burnTxHash, network, expectedPayloadHex }`. The exit-payload byte-snapshot test in `tests/integration/exit-payload.test.ts` skips while the `RECORDING_INSTRUCTIONS` key is present.",
+  "burnTxHash": null,
+  "network": "amoy",
+  "expectedPayloadHex": null
+}

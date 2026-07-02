@@ -11,14 +11,27 @@ jobs:
   ci:
     name: CI - lint / typecheck / test
     runs-on: ubuntu-latest
+    # Forward Stage-5 integration-test secrets into the CI environment.
+    # The shared `0xPolygon/pipelines/.github/actions/ci@main` composite
+    # action runs `pnpm test`; vars composed here in `job.env` reach
+    # vitest automatically, where the SDK's integration tests gate on
+    # `process.env.POS_SDK_TEST_PRIVATE_KEY` etc. via `describe.skipIf`.
+    #
+    # When a secret is unset (forks, contributor PRs without secret
+    # access) the integration suite skips silently and only the unit
+    # layer runs. The `e2e` cycle test is NEVER enabled on this PR
+    # workflow — it lives on the nightly schedule (see ci-nightly.yml)
+    # because each adapter run takes ~30–90 minutes.
+    env:
+      POS_SDK_TEST_PARENT_RPC: ${{ secrets.POS_SDK_TEST_PARENT_RPC }}
+      POS_SDK_TEST_CHILD_RPC: ${{ secrets.POS_SDK_TEST_CHILD_RPC }}
+      POS_SDK_TEST_PRIVATE_KEY: ${{ secrets.POS_SDK_TEST_PRIVATE_KEY }}
     steps:
       - uses: 0xPolygon/pipelines/.github/actions/ci@main
 
   build:
-    # Verify the library webpack build succeeds across the Node versions
-    # consumers are likely to be running. Tooling (ESLint, vitest) requires
-    # Node 18+, so 16.x is excluded — the library's engines field still
-    # declares >=8.0.0 for runtime compatibility.
+    # Verify the tsup build succeeds across the Node versions the SDK
+    # declares as supported (`engines.node: ">=20"`).
     #
     # The `!startsWith(github.head_ref, 'changeset-release/')` guard is
     # applied to every step rather than the job: a job-level `if:` produces
@@ -29,7 +42,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        node-version: [18.x, 20.x, 22.x, 24.x]
+        node-version: [20.x, 22.x, 24.x]
     steps:
       - name: Skip build on changeset-release branches
         if: startsWith(github.head_ref, 'changeset-release/')
@@ -50,5 +63,5 @@ jobs:
       - run: pnpm install --frozen-lockfile
         if: "!startsWith(github.head_ref, 'changeset-release/')"
 
-      - run: pnpm --filter @maticnetwork/maticjs run build
+      - run: pnpm --filter @polygonlabs/pos-sdk run build
         if: "!startsWith(github.head_ref, 'changeset-release/')"

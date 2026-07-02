@@ -1,58 +1,74 @@
 # Examples
 
-This folder contains example scripts for various matic.js use cases.
+Runnable scripts demonstrating `@polygonlabs/pos-sdk` against the
+Polygon PoS bridge. Each file is self-contained — you can copy any of
+them into your own project and adjust the imports.
 
-- `pos/` — PoS bridge examples
-- `zkevm/` — zkEVM bridge examples
+| File              | Parent client | Child client |
+| ----------------- | ------------- | ------------ |
+| `viem.ts`         | viem          | viem         |
+| `ethers-v5.ts`    | ethers v5     | ethers v5    |
+| `ethers-v6.ts`    | ethers v6     | ethers v6    |
 
-## How to use
+All three perform the same flow:
 
-### 1. Set configuration
+1. Build a `POSClient` against Amoy (testnet).
+2. Read the parent-chain ERC-20 balance.
+3. Submit an `approve(...)` to the bridge predicate.
+4. Wait for the receipt via `result.confirmed()`.
 
-Copy `.env.example` to `.env` and fill in your values. Contract addresses and
-RPC URLs are pre-filled for testnet in `config.js` — change them as needed.
+The actual `deposit(...)` call is left commented in `viem.ts` — uncomment
+once you are happy with the wiring; on Amoy a deposit costs sepolia ETH.
 
-**Note:** Never commit your private key or share it publicly.
+## Running
 
-### 2. Install dependencies
+These examples are intentionally **not** part of the pnpm workspace —
+they import `@polygonlabs/pos-sdk` exactly the way an external consumer
+would. Two options for running them locally:
 
-This directory is a standalone project — install with npm directly (it is not
-part of the pnpm workspace):
-
-```bash
-npm install
-```
-
-### 3. Run a script
-
-```bash
-node pos/erc20/balance.js
-```
-
-## Run against local source
-
-To test against a local build of the library rather than the published npm version:
-
-### 1. Build the package
-
-From the monorepo root:
+### Against the workspace source
 
 ```bash
-pnpm --filter @maticnetwork/maticjs run build
+# build the SDK once
+pnpm --filter @polygonlabs/pos-sdk run build
+
+# from the workspace root
+PARENT_RPC=https://...sepolia.example \
+CHILD_RPC=https://rpc-amoy.polygon.technology \
+PARENT_TOKEN=0xYourTestERC20OnSepolia \
+PRIVATE_KEY=0xYourTestPrivateKey \
+  node --conditions=@polygonlabs/source examples/viem.ts
 ```
 
-### 2. Point the dependency at the local package
+The `--conditions=@polygonlabs/source` flag is harmless when the SDK's
+exports map doesn't declare it — Node falls through to the default
+`import` condition and runs the built `dist/` output. Future stages of
+the rewrite may add a `@polygonlabs/source` condition that points at
+`src/` for build-free local development.
 
-In `examples/package.json`, change:
+### Against the published npm package
 
-```json
-"@maticnetwork/maticjs": "^3.9.2"
+If you copy one of these files into your own project:
+
+```bash
+pnpm add @polygonlabs/pos-sdk viem    # or ethers
+node --experimental-strip-types yourfile.ts   # Node 20+
+node yourfile.js                              # Node 24+ (native TS)
 ```
 
-to:
+## Required environment variables
 
-```json
-"@maticnetwork/maticjs": "file:../packages/maticjs"
-```
+Every example reads these — running without them prints a clear
+`set <NAME>=...` and exits non-zero:
 
-Then re-run `npm install`. No linking required.
+| Variable       | Purpose |
+| -------------- | ------- |
+| `PARENT_RPC`   | RPC URL for the parent chain (sepolia for `network: 'amoy'`, mainnet for `network: 'mainnet'`) |
+| `CHILD_RPC`    | RPC URL for the Polygon chain (`https://rpc-amoy.polygon.technology` for amoy) |
+| `PARENT_TOKEN` | Address of the bridged ERC-20 on the parent chain |
+| `PRIVATE_KEY`  | Hex private key for the account submitting the approve |
+
+**Use a fresh test-only key.** None of these scripts hold or read
+funds from anything other than the account you supply, but the value
+you pass in is loaded into a `Wallet` / `account` object and used to
+sign live transactions.

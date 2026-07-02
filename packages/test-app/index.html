@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>@polygonlabs/pos-sdk browser smoke test</title>
+  </head>
+  <body>
+    <h1>@polygonlabs/pos-sdk smoke test</h1>
+    <p>
+      This page exercises the bundled SDK in a real browser and writes a
+      JSON result blob into the <code>#result</code> element. The
+      Playwright spec under <code>tests/</code> reads that blob and
+      asserts on it. Open the browser console to see the run progress.
+    </p>
+    <pre id="result" data-state="pending">pending</pre>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

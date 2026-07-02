@@ -1,0 +1,104 @@
+{
+  "name": "@polygonlabs/pos-sdk",
+  "version": "1.0.0",
+  "description": "TypeScript SDK for the Polygon PoS bridge — supports viem, ethers v5, and ethers v6",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "@polygonlabs/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./viem": {
+      "@polygonlabs/source": "./src/adapters/viem.ts",
+      "types": "./dist/adapters/viem.d.ts",
+      "import": "./dist/adapters/viem.js"
+    },
+    "./ethers-v5": {
+      "@polygonlabs/source": "./src/adapters/ethers-v5.ts",
+      "types": "./dist/adapters/ethers-v5.d.ts",
+      "import": "./dist/adapters/ethers-v5.js"
+    },
+    "./ethers-v6": {
+      "@polygonlabs/source": "./src/adapters/ethers-v6.ts",
+      "types": "./dist/adapters/ethers-v6.d.ts",
+      "import": "./dist/adapters/ethers-v6.js"
+    },
+    "./abi": {
+      "@polygonlabs/source": "./src/abi/index.ts",
+      "types": "./dist/abi/index.d.ts",
+      "import": "./dist/abi/index.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/0xPolygon/matic.js.git",
+    "directory": "packages/pos-sdk"
+  },
+  "files": [
+    "dist",
+    "MIGRATION.md"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "clean": "rimraf dist",
+    "codegen": "node scripts/generate-abis.ts",
+    "codegen-drift-check": "pnpm run codegen && git diff --exit-code -- src/abi",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "keywords": [
+    "polygon",
+    "pos",
+    "bridge",
+    "ethereum",
+    "viem",
+    "ethers"
+  ],
+  "author": "Polygon Labs",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "bugs": {
+    "url": "https://github.com/0xPolygon/matic.js/issues"
+  },
+  "homepage": "https://github.com/0xPolygon/matic.js#readme",
+  "engines": {
+    "node": ">=20"
+  },
+  "peerDependencies": {
+    "ethers": "^5.5.1 || ^6.0.0",
+    "viem": "^2.0.0"
+  },
+  "peerDependenciesMeta": {
+    "viem": {
+      "optional": true
+    },
+    "ethers": {
+      "optional": true
+    }
+  },
+  "dependencies": {
+    "@ethereumjs/block": "^5.2.0",
+    "@ethereumjs/common": "^4.4.0",
+    "@ethereumjs/trie": "^6.2.0",
+    "@ethereumjs/util": "^9.0.3",
+    "@polygonlabs/verror": "^1.0.3",
+    "ethereum-cryptography": "^2.2.1",
+    "p-limit": "^6.0.0",
+    "rlp": "^3.0.0"
+  },
+  "devDependencies": {
+    "@polygonlabs/meta": "^1.1.1",
+    "@tsconfig/node20": "^20.0.0",
+    "ethers-v5": "npm:ethers@^5.8.0",
+    "rimraf": "^5.0.0",
+    "tsup": "8.3.0",
+    "typescript": "^5.9.3",
+    "vitest": "^3.0.0"
+  }
+}

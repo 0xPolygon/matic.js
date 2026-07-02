@@ -1,0 +1,5 @@
+# Codegenned from @polygonlabs/meta by scripts/generate-abis.ts — tracked
+# (so reviewers see exactly what ships) but generated, never hand-edited.
+# Collapsed by default in GitHub diffs; drift-gated by the codegen-drift-check
+# workflow.
+packages/pos-sdk/src/abi/** linguist-generated=true

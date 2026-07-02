@@ -11,14 +11,20 @@
     "typecheck": "pnpm -r run typecheck",
     "ci:publish": "pnpm exec changeset publish"
   },
+  "pnpm": {
+    "overrides": {
+      "@types/node": "^25.5.0"
+    }
+  },
   "devDependencies": {
     "@changesets/changelog-github": "^0.7.0",
     "@changesets/cli": "^2.27.1",
     "@commitlint/cli": "^19.0.0",
     "@commitlint/config-conventional": "^19.0.0",
     "@polygonlabs/apps-team-lint": "^2.0.0",
-    "@tsconfig/node24": "^24.0.0",
     "@tsconfig/node-ts": "^23.0.0",
+    "@tsconfig/node20": "^20.1.9",
+    "@tsconfig/node24": "^24.0.0",
     "eslint": "^10.0.0",
     "husky": "^9.0.0",
     "lint-staged": "^15.0.0",

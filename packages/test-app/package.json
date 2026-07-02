@@ -1,0 +1,26 @@
+{
+  "name": "@polygonlabs/pos-sdk-test-app",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Browser smoke test for @polygonlabs/pos-sdk. Bundles the SDK through Vite and exercises its public surface in a real browser via Playwright to catch any reliance on Node built-ins, polyfills, or non-browser-safe APIs.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "playwright test",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@polygonlabs/pos-sdk": "workspace:*",
+    "ethereum-cryptography": "^2.2.1",
+    "viem": "^2.0.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.48.0",
+    "@tsconfig/node20": "^20.0.0",
+    "@tsconfig/strictest": "^2.0.5",
+    "typescript": "^5.9.3",
+    "vite": "^6.0.0"
+  }
+}

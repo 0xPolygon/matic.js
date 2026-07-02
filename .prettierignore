@@ -1,3 +1,9 @@
 node_modules
 build
 dist
+
+# Codegenned `as const` ABI modules — regenerate via `pnpm run codegen`,
+# never hand-format. The codegen-drift-check gate compares raw codegen output
+# against these files; Prettier reformatting them would diverge from that
+# output and fail the gate on a false positive.
+packages/pos-sdk/src/abi/
