@@ -88,8 +88,8 @@ importers:
         version: 2.54.0(typescript@5.9.3)
     devDependencies:
       '@polygonlabs/meta':
-        specifier: ^1.1.0
-        version: 1.1.0
+        specifier: ^1.1.1
+        version: 1.1.1
       '@tsconfig/node20':
         specifier: ^20.0.0
         version: 20.1.9
@@ -1006,9 +1006,9 @@ packages:
       typescript:
         optional: true
 
-  '@polygonlabs/meta@1.1.0':
-    resolution: {integrity: sha512-NznmQOZ4B60xOSxrDf0mwfjhTOaUR/3XxIuDNYpBpgVjoeZY47ZhhH7KrMCvYzEoTdmPDCsSra3WPCyiiRY4bQ==}
-    engines: {node: '>=24'}
+  '@polygonlabs/meta@1.1.1':
+    resolution: {integrity: sha512-q+4jQ85zpUXlyjt+bxfI0o/ZZo7e+3RVIMflr58vZHR6IpG6pK3PgsXL9zWxlGpnHSuaaBZBf8Fe/h6h1vryzg==}
+    engines: {node: '>=20'}
 
   '@polygonlabs/verror@1.0.3':
     resolution: {integrity: sha512-m5sk16GxXH2ZebIy4eYUNG72QUuoVuJNP0Y1mX35ix4WjGWhTcnbBXKA/8wCoZPoPUcx6Q7RXNFm9umqKqJ/7w==}
@@ -4249,7 +4249,7 @@ snapshots:
       - eslint-plugin-import
       - supports-color
 
-  '@polygonlabs/meta@1.1.0': {}
+  '@polygonlabs/meta@1.1.1': {}
 
   '@polygonlabs/verror@1.0.3': {}
 

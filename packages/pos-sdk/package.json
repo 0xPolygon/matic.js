@@ -93,7 +93,7 @@
     "rlp": "^3.0.0"
   },
   "devDependencies": {
-    "@polygonlabs/meta": "^1.1.0",
+    "@polygonlabs/meta": "^1.1.1",
     "@tsconfig/node20": "^20.0.0",
     "ethers-v5": "npm:ethers@^5.8.0",
     "rimraf": "^5.0.0",
