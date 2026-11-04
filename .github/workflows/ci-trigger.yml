@@ -11,14 +11,27 @@ jobs:
   ci:
     name: CI - lint / typecheck / test
     runs-on: ubuntu-latest
+    # Forward Stage-5 integration-test secrets into the CI environment.
+    # The shared `0xPolygon/pipelines/.github/actions/ci@main` composite
+    # action runs `pnpm test`; vars composed here in `job.env` reach
+    # vitest automatically, where the SDK's integration tests gate on
+    # `process.env.POS_SDK_TEST_PRIVATE_KEY` etc. via `describe.skipIf`.
+    #
+    # When a secret is unset (forks, contributor PRs without secret
+    # access) the integration suite skips silently and only the unit
+    # layer runs. The `e2e` cycle test is NEVER enabled on this PR
+    # workflow — it lives on the nightly schedule (see ci-nightly.yml)
+    # because each adapter run takes ~30–90 minutes.
+    env:
+      POS_SDK_TEST_PARENT_RPC: ${{ secrets.POS_SDK_TEST_PARENT_RPC }}
+      POS_SDK_TEST_CHILD_RPC: ${{ secrets.POS_SDK_TEST_CHILD_RPC }}
+      POS_SDK_TEST_PRIVATE_KEY: ${{ secrets.POS_SDK_TEST_PRIVATE_KEY }}
     steps:
       - uses: 0xPolygon/pipelines/.github/actions/ci@main
 
   build:
-    # Verify the library webpack build succeeds across the Node versions
-    # consumers are likely to be running. Tooling (ESLint, vitest) requires
-    # Node 18+, so 16.x is excluded — the library's engines field still
-    # declares >=8.0.0 for runtime compatibility.
+    # Verify the tsup build succeeds across the Node versions the SDK
+    # declares as supported (`engines.node: ">=20"`).
     #
     # The `!startsWith(github.head_ref, 'changeset-release/')` guard is
     # applied to every step rather than the job: a job-level `if:` produces
@@ -29,7 +42,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        node-version: [18.x, 20.x, 22.x, 24.x]
+        node-version: [20.x, 22.x, 24.x]
     steps:
       - name: Skip build on changeset-release branches
         if: startsWith(github.head_ref, 'changeset-release/')
@@ -50,5 +63,59 @@ jobs:
       - run: pnpm install --frozen-lockfile
         if: "!startsWith(github.head_ref, 'changeset-release/')"
 
-      - run: pnpm --filter @maticnetwork/maticjs run build
+      - run: pnpm --filter @polygonlabs/maticjs run build
+        if: "!startsWith(github.head_ref, 'changeset-release/')"
+
+      # Packed-tarball smoke test: packs the SDK and installs the tarball
+      # into clean npm consumers (viem+ethers6, ethers5), then imports
+      # every subpath at runtime and typechecks a probe with
+      # skipLibCheck:false. This gates the class of defect only visible
+      # in the published artifact — dist-less tarballs, declaration files
+      # referencing build-time-only packages, broken exports conditions.
+      # Logic lives in packages/maticjs/scripts/pack-smoke.ts (runnable
+      # locally via `pnpm run test:pack`).
+      - run: pnpm --filter @polygonlabs/maticjs run test:pack
+        if: "!startsWith(github.head_ref, 'changeset-release/')"
+
+  browser-smoke:
+    # Real-browser verification of the BUILT artifact: packages/test-app
+    # bundles the SDK dist through Vite with no Node polyfills and loads
+    # it in Chromium via Playwright, exercising the public surface and
+    # failing on any console error. This is the cross-environment gate
+    # the Node-based vitest suites can't provide.
+    name: browser smoke (test-app)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Skip on changeset-release branches
+        if: startsWith(github.head_ref, 'changeset-release/')
+        run: echo "Skipping — Release / Deploy PRs only contain version bumps and changelog entries."
+
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        if: "!startsWith(github.head_ref, 'changeset-release/')"
+
+      - uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4
+        if: "!startsWith(github.head_ref, 'changeset-release/')"
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        if: "!startsWith(github.head_ref, 'changeset-release/')"
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+        if: "!startsWith(github.head_ref, 'changeset-release/')"
+
+      - run: pnpm --filter @polygonlabs/maticjs run build
+        if: "!startsWith(github.head_ref, 'changeset-release/')"
+
+      # Vite-bundle the SDK dist for the browser (this build alone fails
+      # if a Node builtin creeps into the dependency graph), then run the
+      # Playwright smoke against the preview server.
+      - run: pnpm --filter @polygonlabs/maticjs-test-app run build
+        if: "!startsWith(github.head_ref, 'changeset-release/')"
+
+      - run: pnpm --filter @polygonlabs/maticjs-test-app exec playwright install --with-deps chromium
+        if: "!startsWith(github.head_ref, 'changeset-release/')"
+
+      - run: pnpm --filter @polygonlabs/maticjs-test-app run test:browser
         if: "!startsWith(github.head_ref, 'changeset-release/')"
