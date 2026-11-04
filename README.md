@@ -4,10 +4,13 @@
 [![CI](https://github.com/0xPolygon/matic.js/actions/workflows/ci-trigger.yml/badge.svg?branch=master)](https://github.com/0xPolygon/matic.js/actions/workflows/ci-trigger.yml)
 [![License: MIT](https://img.shields.io/npm/l/@polygonlabs/maticjs.svg)](LICENSE)
 
-TypeScript SDK for the Polygon PoS bridge. Drives ERC-20, ERC-721,
-ERC-1155 and native-ETH deposits, child-chain withdrawals, and exit
-proofs against `RootChainManager`. Works with `viem`, `ethers v5`, and
-`ethers v6` — pick whichever you already have; the SDK adapts.
+TypeScript SDK for the Polygon PoS bridge and PoS staking. Drives ERC-20,
+ERC-721, ERC-1155 and native-ETH deposits, child-chain withdrawals, and
+exit proofs against `RootChainManager`, and — from
+`@polygonlabs/maticjs/staking` — validator and delegator staking against
+`StakeManager` and the per-validator `ValidatorShare` contracts. Works with
+`viem`, `ethers v5`, and `ethers v6` — pick whichever you already have; the
+SDK adapts.
 
 This repository is the home of `@polygonlabs/maticjs` (4.0+) — the
 continuation of maticjs under the `@polygonlabs` npm scope. Versions

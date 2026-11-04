@@ -47,12 +47,20 @@ describe('live CDN address index', { timeout: 30_000 }, () => {
       expect(addresses).property('ERC1155Predicate').equals(pos.ERC1155PredicateProxy);
       expect(addresses).property('EtherPredicate').equals(pos.EtherPredicateProxy);
       expect(addresses).property('RootChain').equals(snapshot.Main.Contracts.RootChainProxy);
+      const contracts = snapshot.Main.Contracts as unknown as Record<string, unknown>;
+      expect(addresses).property('StakeManager').equals(contracts.StakeManagerProxy);
+      expect(addresses).property('MaticToken').equals(snapshot.Main.Contracts.Tokens.MaticToken);
+      expect(addresses).property('PolToken').equals(contracts.PolygonEcosystemToken);
       if (hasGasSwapper) {
-        expect(addresses).property('GasSwapper').match(/^0x[0-9a-fA-F]{40}$/);
+        expect(addresses)
+          .property('GasSwapper')
+          .match(/^0x[0-9a-fA-F]{40}$/);
       } else {
         expect(addresses).not.property('GasSwapper');
       }
-      expect(addresses).property('MintableERC1155Predicate').match(/^0x[0-9a-fA-F]{40}$/);
+      expect(addresses)
+        .property('MintableERC1155Predicate')
+        .match(/^0x[0-9a-fA-F]{40}$/);
     });
   }
 });

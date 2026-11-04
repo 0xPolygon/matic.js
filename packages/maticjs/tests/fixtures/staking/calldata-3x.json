@@ -1,0 +1,232 @@
+{
+  "PROVENANCE": "Calldata the 3.x staking plugin encodes for fixed inputs: @maticnetwork/maticjs-staking@1.2.0-beta.5 on @maticnetwork/maticjs@3.9.13 with @maticnetwork/maticjs-web3@1.0.5 (web3 1.10.4), mainnet address index, recorded 2026-11-04 (re-captured with distinct inputs). Every write was called with returnTransaction: true, so nothing was signed or broadcast; to and data are exactly what the plugin returned. Inputs are fixed (see inputs) and, within every write, all arguments of the same ABI type are pairwise distinct, so a swapped argument changes the calldata; validatorShareFixture is an arbitrary address, since ValidatorShare calldata does not depend on it. Row 18 (approveMaxForStakingManager) is captured for both tokens; 3.x has no amount-taking approve. Re-capture: see README.md.",
+  "network": "mainnet",
+  "addresses": {
+    "StakeManager": "0x5e3Ef299fDDf15eAa0432E6e66473ace8c13D908",
+    "MaticToken": "0x7D1AfA7B718fb893dB30A3aBc0Cfc608AaCfeBB0",
+    "PolToken": "0x455e53CBB86018Ac2B8092FdCd39d8444aFFC3F6",
+    "validatorShareFixture": "0x3333333333333333333333333333333333333333"
+  },
+  "inputs": {
+    "from": "0x1111111111111111111111111111111111111111",
+    "user": "0x2222222222222222222222222222222222222222",
+    "amount": "1000000000000000001",
+    "minSharesToMint": "5",
+    "maxSharesToBurn": "3000000000000000007",
+    "heimdallFee": "2000000000000000003",
+    "validatorId": 7,
+    "fromValidatorId": 11,
+    "toValidatorId": 13,
+    "nonce": 17,
+    "commissionRate": 19,
+    "signerPubkey": "0x04abababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababab",
+    "deadline": 1700000023,
+    "v": 27,
+    "r": "0x1111111111111111111111111111111111111111111111111111111111111111",
+    "s": "0x2222222222222222222222222222222222222222222222222222222222222222",
+    "acceptDelegation": true,
+    "stakeRewards": true,
+    "validatorShareAddress": "0x3333333333333333333333333333333333333333"
+  },
+  "writes": [
+    {
+      "row": 1,
+      "method3x": "delegateAmount",
+      "contract": "ValidatorShare",
+      "functionName": "buyVoucher",
+      "args": ["1000000000000000001", "5"],
+      "to": "0x3333333333333333333333333333333333333333",
+      "data": "0x6ab150710000000000000000000000000000000000000000000000000de0b6b3a76400010000000000000000000000000000000000000000000000000000000000000005"
+    },
+    {
+      "row": 2,
+      "method3x": "delegateAmountPOL",
+      "contract": "ValidatorShare",
+      "functionName": "buyVoucherPOL",
+      "args": ["1000000000000000001", "5"],
+      "to": "0x3333333333333333333333333333333333333333",
+      "data": "0xe4457a8a0000000000000000000000000000000000000000000000000de0b6b3a76400010000000000000000000000000000000000000000000000000000000000000005"
+    },
+    {
+      "row": 3,
+      "method3x": "delegateAmountPOLwithPermit",
+      "contract": "ValidatorShare",
+      "functionName": "buyVoucherWithPermit",
+      "args": [
+        "1000000000000000001",
+        "5",
+        "1700000023",
+        "27",
+        "0x1111111111111111111111111111111111111111111111111111111111111111",
+        "0x2222222222222222222222222222222222222222222222222222222222222222"
+      ],
+      "to": "0x3333333333333333333333333333333333333333",
+      "data": "0xeaf43bb50000000000000000000000000000000000000000000000000de0b6b3a76400010000000000000000000000000000000000000000000000000000000000000005000000000000000000000000000000000000000000000000000000006553f117000000000000000000000000000000000000000000000000000000000000001b11111111111111111111111111111111111111111111111111111111111111112222222222222222222222222222222222222222222222222222222222222222"
+    },
+    {
+      "row": 4,
+      "method3x": "claimDelegatedAmountPOL",
+      "contract": "ValidatorShare",
+      "functionName": "unstakeClaimTokens_newPOL",
+      "args": ["17"],
+      "to": "0x3333333333333333333333333333333333333333",
+      "data": "0x8759c2340000000000000000000000000000000000000000000000000000000000000011"
+    },
+    {
+      "row": 5,
+      "method3x": "removeDelegatedAmountPOL",
+      "contract": "ValidatorShare",
+      "functionName": "sellVoucher_newPOL",
+      "args": ["1000000000000000001", "3000000000000000007"],
+      "to": "0x3333333333333333333333333333333333333333",
+      "data": "0xe570b78b0000000000000000000000000000000000000000000000000de0b6b3a764000100000000000000000000000000000000000000000000000029a2241af62c0007"
+    },
+    {
+      "row": 6,
+      "method3x": "restakeRewardPOL",
+      "contract": "ValidatorShare",
+      "functionName": "restakePOL",
+      "args": [],
+      "to": "0x3333333333333333333333333333333333333333",
+      "data": "0x9ad5f5a4"
+    },
+    {
+      "row": 7,
+      "method3x": "withdrawRewardsPOL",
+      "contract": "ValidatorShare",
+      "functionName": "withdrawRewardsPOL",
+      "args": [],
+      "to": "0x3333333333333333333333333333333333333333",
+      "data": "0xe0db556b"
+    },
+    {
+      "row": 8,
+      "method3x": "migrateDelegation",
+      "contract": "StakeManager",
+      "functionName": "migrateDelegation",
+      "args": ["11", "13", "1000000000000000001"],
+      "to": "0x5e3Ef299fDDf15eAa0432E6e66473ace8c13D908",
+      "data": "0xfb1ef52c000000000000000000000000000000000000000000000000000000000000000b000000000000000000000000000000000000000000000000000000000000000d0000000000000000000000000000000000000000000000000de0b6b3a7640001"
+    },
+    {
+      "row": 9,
+      "method3x": "reStakePOL",
+      "contract": "StakeManager",
+      "functionName": "restakePOL",
+      "args": ["7", "1000000000000000001", true],
+      "to": "0x5e3Ef299fDDf15eAa0432E6e66473ace8c13D908",
+      "data": "0x96a9322400000000000000000000000000000000000000000000000000000000000000070000000000000000000000000000000000000000000000000de0b6b3a76400010000000000000000000000000000000000000000000000000000000000000001"
+    },
+    {
+      "row": 10,
+      "method3x": "withdrawRewardForValidatorPOL",
+      "contract": "StakeManager",
+      "functionName": "withdrawRewardsPOL",
+      "args": ["7"],
+      "to": "0x5e3Ef299fDDf15eAa0432E6e66473ace8c13D908",
+      "data": "0x1c404cec0000000000000000000000000000000000000000000000000000000000000007"
+    },
+    {
+      "row": 11,
+      "method3x": "addTopUpForHeimdallFee",
+      "contract": "StakeManager",
+      "functionName": "topUpForFee",
+      "args": ["0x2222222222222222222222222222222222222222", "2000000000000000003"],
+      "to": "0x5e3Ef299fDDf15eAa0432E6e66473ace8c13D908",
+      "data": "0x6365679800000000000000000000000022222222222222222222222222222222222222220000000000000000000000000000000000000000000000001bc16d674ec80003"
+    },
+    {
+      "row": 12,
+      "method3x": "unstakePOL",
+      "contract": "StakeManager",
+      "functionName": "unstakePOL",
+      "args": ["7"],
+      "to": "0x5e3Ef299fDDf15eAa0432E6e66473ace8c13D908",
+      "data": "0x30cbe5710000000000000000000000000000000000000000000000000000000000000007"
+    },
+    {
+      "row": 13,
+      "method3x": "claimStakedAmountPOL",
+      "contract": "StakeManager",
+      "functionName": "unstakeClaimPOL",
+      "args": ["7"],
+      "to": "0x5e3Ef299fDDf15eAa0432E6e66473ace8c13D908",
+      "data": "0xff3db8e30000000000000000000000000000000000000000000000000000000000000007"
+    },
+    {
+      "row": 14,
+      "method3x": "stakeFor",
+      "contract": "StakeManager",
+      "functionName": "stakeFor",
+      "args": [
+        "0x2222222222222222222222222222222222222222",
+        "1000000000000000001",
+        "2000000000000000003",
+        true,
+        "0x04abababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababab"
+      ],
+      "to": "0x5e3Ef299fDDf15eAa0432E6e66473ace8c13D908",
+      "data": "0x4fdd20f100000000000000000000000022222222222222222222222222222222222222220000000000000000000000000000000000000000000000000de0b6b3a76400010000000000000000000000000000000000000000000000001bc16d674ec80003000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000a0000000000000000000000000000000000000000000000000000000000000004104abababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababab00000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "row": 15,
+      "method3x": "stakeForPOL",
+      "contract": "StakeManager",
+      "functionName": "stakeForPOL",
+      "args": [
+        "0x2222222222222222222222222222222222222222",
+        "1000000000000000001",
+        "2000000000000000003",
+        true,
+        "0x04abababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababab"
+      ],
+      "to": "0x5e3Ef299fDDf15eAa0432E6e66473ace8c13D908",
+      "data": "0x81254e1200000000000000000000000022222222222222222222222222222222222222220000000000000000000000000000000000000000000000000de0b6b3a76400010000000000000000000000000000000000000000000000001bc16d674ec80003000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000a0000000000000000000000000000000000000000000000000000000000000004104abababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababab00000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "row": 16,
+      "method3x": "updateCommissionRate",
+      "contract": "StakeManager",
+      "functionName": "updateCommissionRate",
+      "args": ["7", "19"],
+      "to": "0x5e3Ef299fDDf15eAa0432E6e66473ace8c13D908",
+      "data": "0xdcd962b200000000000000000000000000000000000000000000000000000000000000070000000000000000000000000000000000000000000000000000000000000013"
+    },
+    {
+      "row": 17,
+      "method3x": "updateSigner",
+      "contract": "StakeManager",
+      "functionName": "updateSigner",
+      "args": [
+        "7",
+        "0x04abababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababab"
+      ],
+      "to": "0x5e3Ef299fDDf15eAa0432E6e66473ace8c13D908",
+      "data": "0xf41a964200000000000000000000000000000000000000000000000000000000000000070000000000000000000000000000000000000000000000000000000000000040000000000000000000000000000000000000000000000000000000000000004104abababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababab00000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "row": 18,
+      "method3x": "approveMaxForStakingManager",
+      "contract": "MaticToken",
+      "functionName": "approve",
+      "args": [
+        "0x5e3Ef299fDDf15eAa0432E6e66473ace8c13D908",
+        "115792089237316195423570985008687907853269984665640564039457584007913129639935"
+      ],
+      "to": "0x7D1AfA7B718fb893dB30A3aBc0Cfc608AaCfeBB0",
+      "data": "0x095ea7b30000000000000000000000005e3ef299fddf15eaa0432e6e66473ace8c13d908ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+      "row": 18,
+      "method3x": "approveMaxForStakingManager",
+      "contract": "PolToken",
+      "functionName": "approve",
+      "args": [
+        "0x5e3Ef299fDDf15eAa0432E6e66473ace8c13D908",
+        "115792089237316195423570985008687907853269984665640564039457584007913129639935"
+      ],
+      "to": "0x455e53CBB86018Ac2B8092FdCd39d8444aFFC3F6",
+      "data": "0x095ea7b30000000000000000000000005e3ef299fddf15eaa0432e6e66473ace8c13d908ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+    }
+  ]
+}
