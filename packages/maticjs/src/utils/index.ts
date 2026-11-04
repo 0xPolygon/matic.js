@@ -1,32 +1,15 @@
-import { BaseWeb3Client } from '../abstracts';
-import { EmptyBigNumber } from '../implementation';
-import { Converter } from './converter';
-
-export * from './use';
-export * from './event_bus';
-export * from './logger';
-export * from './merge';
-export * from './map_promise';
-export * from './retry';
-export * from './proof_util';
-export * from './http_request';
-export * from './converter';
-export * from './web3_side_chain_client';
-export * from './base_token';
-export * from './set_proof_api_url';
-export * from './resolve';
-export * from './promise_resolve';
-export * from './bridge_client';
-export * from './abi_manager';
-export * from './not_implemented';
-export * from './zkevm_bridge_client';
-export * from './buffer-utils';
-export * from './keccak';
-export * from './types';
-
-export const utils = {
-  converter: Converter,
-  Web3Client: BaseWeb3Client,
-  BN: EmptyBigNumber,
-  UnstoppableDomains: Object
-};
+// Utility re-exports kept after Stage 2's composition refactor.
+//
+// `proof_util` and `merkle_tree` carry the bridge's RLP / MPT primitives;
+// `buffer-utils` and `keccak` are their dependencies. Everything else
+// (`map_promise`, `web3_side_chain_client`, `base_token`, `error_helper`,
+// `logger`, `legacy_stubs`, `converter`) was deleted in Stage 0 / Stage 2.
+//
+// `zkevm_bridge_client` lives on disk but is excluded from the compile
+// pass via tsconfig — Stage 7 extracts the zkEVM flow into its own
+// package and removes both this comment and the underlying file.
+export * from './proof_util.js';
+export * from './buffer-utils.js';
+export * from './keccak.js';
+export * from './merkle_tree.js';
+export * from './types.js';

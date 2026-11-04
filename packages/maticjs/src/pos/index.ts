@@ -1,92 +1,33 @@
-import type { IPOSClientConfig, IPOSContracts, ITransactionOption } from '../interfaces';
-import type { TYPE_AMOUNT } from '../types';
-
-import { BridgeClient } from '../utils';
-import { ERC20 } from './erc20';
-import { ERC721 } from './erc721';
-import { ERC1155 } from './erc1155';
-import { ExitUtil } from './exit_util';
-import { GasSwapper } from './gas_swapper';
-import { RootChain } from './root_chain';
-import { RootChainManager } from './root_chain_manager';
-
-export * from './exit_util';
-export * from './root_chain_manager';
-export * from './root_chain';
-export * from './gas_swapper';
-
-export class POSClient extends BridgeClient<IPOSClientConfig> {
-  rootChainManager: RootChainManager;
-  gasSwapper: GasSwapper;
-
-  init(config: IPOSClientConfig) {
-    const client = this.client;
-
-    return client.init(config).then(() => {
-      const mainPOSContracts = client.mainPOSContracts;
-      const mergedConfig = Object.assign(
-        {
-          rootChainManager: mainPOSContracts.RootChainManagerProxy,
-          rootChain: client.mainPlasmaContracts.RootChainProxy,
-          gasSwapper: mainPOSContracts.GasSwapper
-        } as IPOSClientConfig,
-        config
-      );
-      client.config = mergedConfig;
-
-      this.rootChainManager = new RootChainManager(this.client, mergedConfig.rootChainManager);
-
-      const rootChain = new RootChain(this.client, mergedConfig.rootChain);
-
-      this.exitUtil = new ExitUtil(this.client, rootChain);
-
-      this.gasSwapper = new GasSwapper(this.client, mergedConfig.gasSwapper);
-
-      return this;
-    });
-  }
-
-  erc20(tokenAddress, isParent?: boolean) {
-    return new ERC20(tokenAddress, isParent, this.client, this.getContracts_.bind(this));
-  }
-
-  erc721(tokenAddress, isParent?: boolean) {
-    return new ERC721(tokenAddress, isParent, this.client, this.getContracts_.bind(this));
-  }
-
-  erc1155(tokenAddress, isParent?: boolean) {
-    return new ERC1155(tokenAddress, isParent, this.client, this.getContracts_.bind(this));
-  }
-
-  depositEther(amount: TYPE_AMOUNT, userAddress: string, option: ITransactionOption) {
-    return new ERC20('', true, this.client, this.getContracts_.bind(this))['depositEther_'](
-      amount,
-      userAddress,
-      option
-    );
-  }
-
-  depositEtherWithGas(
-    amount: TYPE_AMOUNT,
-    userAddress: string,
-    swapEthAmount: TYPE_AMOUNT,
-    swapCallData: string,
-    option: ITransactionOption
-  ) {
-    return new ERC20('', true, this.client, this.getContracts_.bind(this))['depositEtherWithGas_'](
-      amount,
-      userAddress,
-      swapEthAmount,
-      swapCallData,
-      option
-    );
-  }
-
-  private getContracts_() {
-    return {
-      exitUtil: this.exitUtil,
-      rootChainManager: this.rootChainManager,
-      gasSwapper: this.gasSwapper
-    } as IPOSContracts;
-  }
-}
+/**
+ * Public surface of the `pos/` directory after Stage 2's composition refactor.
+ *
+ * The legacy `POSClient extends BridgeClient<...>` is gone — Stage 3
+ * builds the new top-level `POSClient` orchestrator. Until then, this
+ * file simply re-exports the surviving typed wrappers so consumers can
+ * import them by name:
+ *
+ *   import { ERC20, ERC721, ERC1155, RootChainManager, RootChain, GasSwapper }
+ *     from '@polygonlabs/maticjs';
+ *
+ * `exit_util.ts` and `pos_token.ts` were folded into
+ * `internal/pos-bridge-helpers.ts` and deleted from disk.
+ */
+export { ERC20 } from './erc20.js';
+export type { ERC20Config } from './erc20.js';
+export { ERC721 } from './erc721.js';
+export type { ERC721Config } from './erc721.js';
+export { ERC1155 } from './erc1155.js';
+export type {
+  ERC1155Config,
+  POSERC1155DepositParam,
+  POSERC1155DepositBatchParam,
+  POSERC1155TransferParam
+} from './erc1155.js';
+export { RootChainManager } from './root_chain_manager.js';
+export type { RootChainManagerConfig } from './root_chain_manager.js';
+export { RootChain } from './root_chain.js';
+export type { RootChainConfig } from './root_chain.js';
+export { GasSwapper } from './gas_swapper.js';
+export type { GasSwapperConfig } from './gas_swapper.js';
+export { findCheckpointSlot } from './find_checkpoint_slot.js';
+export type { CheckpointSlotInputs } from './find_checkpoint_slot.js';

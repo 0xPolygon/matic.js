@@ -1,4 +1,4 @@
-import type { IBaseClientConfig } from './base_client_config';
+import type { IBaseClientConfig } from './base_client_config.js';
 
 export interface IPOSERC1155Address {
   mintablePredicate?: string;
