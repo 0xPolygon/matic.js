@@ -176,3 +176,35 @@ staking plugin produced rather than to what "looks equivalent":
   credentials and make no network calls, and always run with the unit suite.
 - When one fails, find out why the encoding changed. Never re-record a fixture
   to turn the test green; the fixtures are the specification.
+
+The staking suite has three tiers, from cheapest to most demanding:
+
+- **Calldata ground truth** (`tests/unit/staking-calldata-ground-truth.test.ts`)
+  encodes the 19 recorded writes through each of the viem, ethers v5 and
+  ethers v6 adapters and compares the bytes with `calldata-3x.json`. It also
+  checks that `preparePermit` hashes to the recorded permit digest. It needs
+  no network.
+- **Live reads** (`tests/integration/staking-reads.test.ts`) replay every read
+  at a pinned finalized block (mainnet `26343957`, Sepolia `12064934`) and
+  compare the decoded values with `reads-mainnet.json` and `reads-sepolia.json`.
+  They need no credentials, but they do need an **archive-capable** RPC,
+  because a pruned node cannot serve a historical block. The defaults are
+  `https://eth.drpc.org` and `https://sepolia.gateway.tenderly.co`; override
+  them with `POS_SDK_TEST_MAINNET_PARENT_RPC` (mainnet) and
+  `POS_SDK_TEST_PARENT_RPC` (Sepolia). State at a finalized block never
+  changes, so a mismatch means decoding changed.
+- **Writes** (`tests/integration/staking-write.test.ts`) are skipped unless the
+  same `POS_SDK_TEST_*` credentials as the other integration tests are set.
+  For each adapter they broadcast a 1-wei POL `approveStakeManager`, wait for
+  confirmation and read the allowance back. They also check that
+  `prepareApproveStakeManager` returns the bytes the adapter library's own
+  encoder produces, and that a mainnet adapter holding a Sepolia signer is
+  refused with `UNSUPPORTED_NETWORK` before anything is broadcast. The
+  broadcast case is currently skipped for ethers v5, whose adapter rejects the
+  `chainId` override every chain-pinned staking write carries; the prepare and
+  wrong-chain cases still run for v5.
+
+Re-record the read fixtures only after an intentional decoding change, by
+building the package and running
+`node packages/maticjs/scripts/record-staking-read-fixtures.mjs` from the
+workspace root. Never re-record a ground-truth fixture to make a test pass.
