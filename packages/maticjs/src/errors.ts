@@ -51,7 +51,9 @@ export type POSBridgeErrorCode =
   | 'BRIDGE_EVENT_DECODE_FAILED'
   | 'NULL_SPENDER_ADDRESS'
   | 'ALLOWED_ON_NON_NATIVE_TOKENS'
-  | 'ONLY_ALLOWED_ON_MAINNET';
+  | 'ONLY_ALLOWED_ON_MAINNET'
+  // `preparePermit` was called on a staking token with no EIP-2612 `permit`.
+  | 'PERMIT_NOT_SUPPORTED';
 
 /**
  * The 0.x `ERROR_TYPE` enum values, verbatim — including the two

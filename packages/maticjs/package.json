@@ -35,6 +35,12 @@
       "import": "./dist/abi/index.js",
       "default": "./dist/abi/index.js"
     },
+    "./staking": {
+      "@polygonlabs/source": "./src/staking/index.ts",
+      "types": "./dist/staking/index.d.ts",
+      "import": "./dist/staking/index.js",
+      "default": "./dist/staking/index.js"
+    },
     "./package.json": "./package.json"
   },
   "main": "./dist/index.js",
@@ -66,7 +72,8 @@
     "bridge",
     "ethereum",
     "viem",
-    "ethers"
+    "ethers",
+    "staking"
   ],
   "author": "Polygon Labs",
   "license": "MIT",
@@ -97,6 +104,11 @@
         "types": "./dist/abi/index.d.ts",
         "import": "./dist/abi/index.js",
         "default": "./dist/abi/index.js"
+      },
+      "./staking": {
+        "types": "./dist/staking/index.d.ts",
+        "import": "./dist/staking/index.js",
+        "default": "./dist/staking/index.js"
       },
       "./package.json": "./package.json"
     }
