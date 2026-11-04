@@ -138,12 +138,14 @@ export class ProofApiClient {
         { url }
       );
     }
-    return body.result;
+    return requirePayloadHex(body.result, url);
   }
 
   /** Fetch every exit payload for a multi-token burn tx. */
   async getAllExitPayloads(burnTxHash: string, eventSignature: string): Promise<string[]> {
-    const url = this.url(`/all-exit-payloads/${encodeURIComponent(burnTxHash)}?eventSignature=${encodeURIComponent(eventSignature)}`);
+    const url = this.url(
+      `/all-exit-payloads/${encodeURIComponent(burnTxHash)}?eventSignature=${encodeURIComponent(eventSignature)}`
+    );
     const body = await httpGet<RawAllExitPayloads>(url);
     if (!Array.isArray(body.result)) {
       throw new POSBridgeError(
@@ -152,7 +154,7 @@ export class ProofApiClient {
         { url }
       );
     }
-    return body.result;
+    return body.result.map((payload) => requirePayloadHex(payload, url));
   }
 
   /**
@@ -188,11 +190,17 @@ export class ProofApiClient {
         { url }
       );
     }
-    return {
-      headerBlockNumber: toBigInt(body.headerBlockNumber),
-      start: toBigInt(body.start),
-      end: toBigInt(body.end)
-    };
+    const headerBlockNumber = parseQuantity(body.headerBlockNumber, 'headerBlockNumber', url);
+    const start = parseQuantity(body.start, 'start', url);
+    const end = parseQuantity(body.end, 'end', url);
+    if (end < start) {
+      throw new POSBridgeError(
+        'HTTP_REQUEST_FAILED',
+        'proof API block-included response has end < start',
+        { url, start: start.toString(), end: end.toString() }
+      );
+    }
+    return { headerBlockNumber, start, end };
   }
 
   /** Fetch the block-inclusion Merkle proof hex for a header range. */
@@ -206,6 +214,68 @@ export class ProofApiClient {
         { url }
       );
     }
+    // The proof is RLP-encoded straight into the exit payload, and
+    // `@ethereumjs/rlp` encodes ANY string (UTF-8 for non-hex, zero-padded
+    // for odd-length hex) — so a malformed body would become an exit
+    // payload that can never verify. Reject it here instead; the caller
+    // then falls back to local construction. The on-chain verifier walks
+    // one 32-byte sibling per level of the checkpoint's Merkle tree, so
+    // the proof's length is fixed by the range: `ceil(log2(end − start + 1))`
+    // words, exactly what the local builder emits.
+    const expectedWords = Math.ceil(Math.log2(end - start + 1));
+    if (
+      !/^0x(?:[0-9a-fA-F]{64})*$/.test(body.proof) ||
+      (body.proof.length - 2) / 64 !== expectedWords
+    ) {
+      throw new POSBridgeError(
+        'HTTP_REQUEST_FAILED',
+        `proof API fast-merkle-proof response is not ${expectedWords} 32-byte hex words`,
+        { url, expectedWords, proof: body.proof.slice(0, 80) }
+      );
+    }
     return body.proof;
   }
+}
+
+/**
+ * An exit payload is submitted verbatim as the `bytes` argument of
+ * `RootChainManager.exit`, so anything but non-empty even-length hex can
+ * never be a payload. Rejecting here keeps a malformed API body from
+ * reaching the consumer's contract call as an opaque library error.
+ */
+function requirePayloadHex(payload: string, url: string): string {
+  if (!/^0x(?:[0-9a-fA-F]{2})+$/.test(payload)) {
+    throw new POSBridgeError(
+      'HTTP_REQUEST_FAILED',
+      'proof API exit payload is not a non-empty 0x-prefixed hex string',
+      { url, payload: payload.slice(0, 80) }
+    );
+  }
+  return payload;
+}
+
+/**
+ * `BigInt(...)` throws a bare `SyntaxError` on a non-numeric string and
+ * accepts negatives, neither of which is a checkpoint quantity; both
+ * become the typed HTTP failure the caller already handles.
+ */
+function parseQuantity(value: string | number, field: string, url: string): bigint {
+  let parsed: bigint;
+  try {
+    parsed = toBigInt(value);
+  } catch {
+    throw new POSBridgeError(
+      'HTTP_REQUEST_FAILED',
+      `proof API block-included field \`${field}\` is not a number`,
+      { url, field, value: String(value).slice(0, 80) }
+    );
+  }
+  if (parsed < 0n) {
+    throw new POSBridgeError(
+      'HTTP_REQUEST_FAILED',
+      `proof API block-included field \`${field}\` is negative`,
+      { url, field, value: parsed.toString() }
+    );
+  }
+  return parsed;
 }

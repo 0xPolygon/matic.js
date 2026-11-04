@@ -43,7 +43,7 @@ afterEach(() => {
 
 describe('ProofApiClient — URL construction + network mapping', () => {
   it('maps mainnet to the `matic` network segment', async () => {
-    mockFetch(() => ({ body: { message: 'ok', result: '0xpayload' } }));
+    mockFetch(() => ({ body: { message: 'ok', result: '0xdeadbeef' } }));
     const client = new ProofApiClient({
       baseUrl: 'https://proof-generator.polygon.technology',
       network: 'mainnet'
@@ -55,7 +55,7 @@ describe('ProofApiClient — URL construction + network mapping', () => {
   });
 
   it('keeps the `amoy` segment for amoy', async () => {
-    mockFetch(() => ({ body: { message: 'ok', result: '0xpayload' } }));
+    mockFetch(() => ({ body: { message: 'ok', result: '0xdeadbeef' } }));
     const client = new ProofApiClient({ baseUrl: 'https://example.test', network: 'amoy' });
     await client.getExitPayload('0xburn', '0xsig');
     expect(calls[0]?.url).to.equal(
@@ -64,7 +64,7 @@ describe('ProofApiClient — URL construction + network mapping', () => {
   });
 
   it('strips a trailing slash from the base URL', async () => {
-    mockFetch(() => ({ body: { message: 'ok', result: '0xpayload' } }));
+    mockFetch(() => ({ body: { message: 'ok', result: '0xdeadbeef' } }));
     const client = new ProofApiClient({ baseUrl: 'https://example.test/', network: 'amoy' });
     await client.getExitPayload('0xburn', '0xsig');
     expect(calls[0]?.url).to.equal(
@@ -73,7 +73,7 @@ describe('ProofApiClient — URL construction + network mapping', () => {
   });
 
   it('appends tokenIndex only when provided', async () => {
-    mockFetch(() => ({ body: { message: 'ok', result: '0xpayload' } }));
+    mockFetch(() => ({ body: { message: 'ok', result: '0xdeadbeef' } }));
     const client = new ProofApiClient({ baseUrl: 'https://example.test', network: 'amoy' });
     await client.getExitPayload('0xburn', '0xsig', 2);
     expect(calls[0]?.url).to.contain('&tokenIndex=2');
@@ -82,8 +82,8 @@ describe('ProofApiClient — URL construction + network mapping', () => {
   it('builds the all-exit-payloads and fast-merkle-proof routes', async () => {
     mockFetch((url) =>
       url.includes('all-exit-payloads')
-        ? { body: { message: 'ok', result: ['0xa', '0xb'] } }
-        : { body: { proof: '0xproof' } }
+        ? { body: { message: 'ok', result: ['0xaa', '0xbb'] } }
+        : { body: { proof: `0x${'ab'.repeat(32).repeat(4)}` } }
     );
     const client = new ProofApiClient({ baseUrl: 'https://example.test', network: 'amoy' });
     await client.getAllExitPayloads('0xburn', '0xsig');
