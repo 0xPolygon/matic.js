@@ -164,3 +164,15 @@ In CI the cycle test runs only on the nightly schedule defined in
   Mocking the upstream HTTP fetch in `tests/unit/address-service.test.ts`
   is fine because that file deliberately exercises the cache layer in
   isolation.
+
+## Staking tests
+
+Staking writes move funds, so the suite pins the encoding to what the 3.x
+staking plugin produced rather than to what "looks equivalent":
+
+- The ground-truth tests (`tests/unit/staking-*.test.ts`) compare the calldata
+  and the permit typed data and digest against the captured 3.x output in
+  [`fixtures/staking/`](./fixtures/staking/README.md). They need no
+  credentials and make no network calls, and always run with the unit suite.
+- When one fails, find out why the encoding changed. Never re-record a fixture
+  to turn the test green; the fixtures are the specification.

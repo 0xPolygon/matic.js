@@ -23,6 +23,7 @@
  */
 
 import { chromium, expect, test } from '@playwright/test';
+import { toFunctionSelector } from 'viem';
 
 let browserLaunchable = false;
 
@@ -84,6 +85,15 @@ test.describe('SDK browser smoke test', () => {
     expect(typeof result.prepareApproveData, 'prepareApproveData is not a string').toBe('string');
     expect(result.prepareApproveData as string).toMatch(/^0x[0-9a-f]+$/);
     expect((result.prepareApproveData as string).length).toBeGreaterThan(10);
+
+    expect(result.stakingClientReady, 'StakingClient.init failed').toBe(true);
+    // `buyVoucherPOL(uint256,uint256)` — derived with viem so the spec
+    // tracks the ABI signature rather than a pasted constant.
+    const buyVoucherPolSelector = toFunctionSelector('buyVoucherPOL(uint256,uint256)');
+    expect(result.stakingPrepareDelegateData as string).toMatch(/^0x[0-9a-f]+$/);
+    expect((result.stakingPrepareDelegateData as string).startsWith(buyVoucherPolSelector)).toBe(
+      true
+    );
 
     expect(result.posBridgeErrorCode).toBe('BURN_TX_NOT_CHECKPOINTED');
     expect(result.posBridgeErrorInfo).toEqual({ txHash: '0xdead', blockNumber: 42 });

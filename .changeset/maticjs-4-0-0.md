@@ -34,3 +34,15 @@ The bridge protocol itself — predicates, the RootChainManager, exit proofs, th
 - **`POSBridgeError` extends `VError`.** A TypeScript-first, browser-friendly port of Joyent's canonical Node `verror` library — same `findCauseByName` / `findCauseByType` / `info` / `fullStack` helpers, zero runtime dependencies. Structured `info` is an own enumerable property so any logger that serializes own properties on Error instances (pino, winston, Sentry, custom) picks it up. The constructor's third arg is renamed `context` → `info` to match the VError convention; positional call sites keep working unchanged.
 
 See [MIGRATION.md](https://github.com/0xPolygon/matic.js/blob/master/packages/maticjs/MIGRATION.md) for the full upgrade walkthrough with before/after code blocks, including a comprehensive replacement table for every removed API (`signTypedData`, `etheriumSha3`, `encode`, `sendRPCRequest`, etc.).
+
+## Staking
+
+Validator and delegator staking now ships in this package behind `@polygonlabs/maticjs/staking`, with its own `StakingClient`. The 3.x `@maticnetwork/maticjs-staking` plugin is frozen and has no 4.0 peer. Staking uses a single parent-chain adapter (no `child`), every write returns a `TxResult` and has an unsigned `prepareXxx` sibling, amounts are `bigint`, and both the MATIC and POL token namespaces are available as `staking.matic` and `staking.pol`. Permit delegation is sign-free: `preparePermit` returns the EIP-712 payload, your own wallet signs it, and `splitSignature` feeds `delegateWithPermit`.
+
+Renames from the 3.x plugin:
+
+- `delegateAmountPOL` → `delegate({ amount, minSharesToMint })`
+- `stakeForPOL` → `stakeFor({ user, amount, heimdallFee, acceptDelegation, signerPubkey })` — a params object with all five fields required, so a missing field is a compile error
+- `approveMaxForStakingManager` → `approveMaxForStakeManager`
+- `getPermitData` → `preparePermit` + `splitSignature`
+- `client.getConfig(...)` → `getAddresses()`

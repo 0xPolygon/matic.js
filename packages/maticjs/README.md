@@ -211,6 +211,49 @@ flow) live in the workspace
 [`examples/`](https://github.com/0xPolygon/matic.js/tree/master/examples)
 directory.
 
+## Staking
+
+Validator and delegator staking ships in the same package behind its own
+subpath, so bridge-only consumers carry no staking code. Staking lives on the
+parent chain, so `StakingClient.init` takes a single `parent` adapter built the
+same way as above:
+
+```ts
+import { StakingClient } from '@polygonlabs/maticjs/staking';
+import { viemAdapter } from '@polygonlabs/maticjs/viem';
+
+const staking = await StakingClient.init({
+  network: 'mainnet',
+  parent: viemAdapter({ public: publicClient, wallet: walletClient })
+});
+
+// Delegate POL to a validator: approve the StakeManager, then buy shares.
+const validatorId = await staking.stakeManager.getValidatorId({ user: validatorOwner });
+const share = staking.validatorShare(
+  await staking.stakeManager.getValidatorContract({ validatorId })
+);
+const amount = 10n * 10n ** 18n;
+
+await (await staking.pol.approveStakeManager({ amount })).confirmed();
+const result = await share.delegate({ amount, minSharesToMint: 0n });
+console.log(result.hash);
+await result.confirmed();
+```
+
+Every staking write has an unsigned sibling for smart wallets and batchers —
+`await share.prepareDelegate({ amount, minSharesToMint: 0n })` returns
+`{ to, data }` — and reads return `bigint` or typed structs:
+
+```ts
+const info = await staking.stakeManager.getValidator({ validatorId });
+const { stake } = await share.getTotalStake({ user: delegator });
+const rewards = await share.getLiquidRewards({ user: delegator });
+```
+
+Coming from `@maticnetwork/maticjs-staking`? See the
+[migration guide](./MIGRATION.md#staking-migrating-from-maticnetworkmaticjs-staking)
+for the method mapping and the permit flow.
+
 ## Errors
 
 Every failure raised by the SDK is a `POSBridgeError` with a stable

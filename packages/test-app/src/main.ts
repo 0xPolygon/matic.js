@@ -45,11 +45,15 @@ import { sepolia } from 'viem/chains';
 import type { NetworkAddresses as PosNetworkAddresses } from '@polygonlabs/maticjs';
 
 import { noopLogger, POSBridgeError, POSClient, sanitiseError } from '@polygonlabs/maticjs';
+import { StakingClient } from '@polygonlabs/maticjs/staking';
 import { viemAdapter } from '@polygonlabs/maticjs/viem';
 
 interface SmokeResult {
   posClientReady: boolean;
   prepareApproveData: string;
+  stakingClientReady: boolean;
+  /** Calldata of an offline `prepareDelegate`; starts with the `buyVoucherPOL` selector. */
+  stakingPrepareDelegateData: string;
   posBridgeErrorCode: string;
   /**
    * `info` payload retrieved from the constructed `POSBridgeError`.
@@ -94,7 +98,12 @@ const AMOY_ADDRESSES: PosNetworkAddresses = {
   ERC721Predicate: '0xd4D5D0D03E1cb2E03Db1B45f06F90b6c12d52f7E',
   ERC1155Predicate: '0xCcb59D5340d3F8e90A09c9D8b6e6E9d0F88f7a5d',
   EtherPredicate: '0xb50B4F4A89cAb9CFa3aCC6E7Ee9Ec2B61bE5C3a4',
-  RootChain: '0x2890bA17EfE978480615e330ecB65333b880928e'
+  RootChain: '0x2890bA17EfE978480615e330ecB65333b880928e',
+  // Staking keys are optional on NetworkAddresses; StakingClient.init
+  // requires all three.
+  StakeManager: '0x4AE8f648B1Ec892B6cc68C89cc088583964d08bE',
+  MaticToken: '0x3fd0A53F4Bf853985a95F4Eb3F9C9FDE1F8e2b53',
+  PolToken: '0x44499312f493F62f2DFd3C6435Ca3603EbFCeeBA'
 };
 
 const PARENT_TOKEN: `0x${string}` = ('0x' + 'a'.repeat(40)) as `0x${string}`;
@@ -155,6 +164,30 @@ async function runSmokeTest(): Promise<SmokeResult> {
     } catch (err) {
       recordError('prepareApprove', err);
     }
+  }
+
+  // -----------------------------------------------------------------
+  // StakingClient — exercises the `@polygonlabs/maticjs/staking`
+  // subpath: init against pre-resolved addresses, then an unsigned
+  // delegate encode. Both are offline; `prepareDelegate` on a share
+  // address we supply never reads the chain.
+  // -----------------------------------------------------------------
+  let stakingClientReady = false;
+  let stakingPrepareDelegateData = '';
+  try {
+    const staking = await StakingClient.init({
+      network: 'amoy',
+      parent: viemAdapter({ public: parentPublic, wallet: parentWallet, account: FAKE_ACCOUNT }),
+      addresses: AMOY_ADDRESSES,
+      logger: noopLogger
+    });
+    stakingClientReady = true;
+    const prepared = await staking
+      .validatorShare(FAKE_SPENDER)
+      .prepareDelegate({ amount: 1_000_000n, minSharesToMint: 0n });
+    stakingPrepareDelegateData = prepared.data;
+  } catch (err) {
+    recordError('StakingClient', err);
   }
 
   // -----------------------------------------------------------------
@@ -258,6 +291,8 @@ async function runSmokeTest(): Promise<SmokeResult> {
   return {
     posClientReady,
     prepareApproveData,
+    stakingClientReady,
+    stakingPrepareDelegateData,
     posBridgeErrorCode,
     posBridgeErrorInfo,
     posBridgeErrorCauseMessage,
