@@ -13,9 +13,16 @@ import { ValidatorShareABI } from '../abi/ValidatorShare.js';
 import { ContractCaller } from '../internal/contract-caller.js';
 import { pinChainId, toBigInt, toTuple } from './stake-manager.js';
 
-/** One unbonding request: shares burned and the epoch they unlock at. */
+/**
+ * One unbonding request: shares burned and the epoch the request was made
+ * in. The contract stores the request epoch, not the unlock epoch: the
+ * claim succeeds once `withdrawEpoch + WITHDRAWAL_DELAY <= currentEpoch`
+ * (`stakeManager.getWithdrawalDelay()`), so a UI computing the unlock
+ * time must add the delay itself.
+ */
 export interface Unbond {
   shares: bigint;
+  /** Epoch the undelegation was requested in (`sellVoucher_newPOL`), as stored on-chain. */
   withdrawEpoch: bigint;
 }
 
