@@ -23,7 +23,10 @@ const REQUIRED_ABIS = [
   'ERC1155PredicateABI',
   'EtherPredicateABI',
   'GasSwapperABI',
-  'RootChainABI'
+  'RootChainABI',
+  'StakeManagerABI',
+  'ValidatorShareABI',
+  'PolTokenABI'
 ] as const;
 
 describe('vendored ABIs', () => {
@@ -63,6 +66,19 @@ describe('vendored ABIs', () => {
     expect(inputArr[0]).property('name').equals('user');
     expect(inputArr[1]).property('name').equals('rootToken');
     expect(inputArr[2]).property('name').equals('depositData');
+  });
+
+  it('viem-typed inference works on StakeManager.stakeFor', () => {
+    // `stakeFor` takes five inputs (user, amount, heimdallFee,
+    // acceptDelegation, signerPubkey); a four-input shape would mean the
+    // ABI was abridged or the wrong overload was picked up.
+    const stakeFor = abi.StakeManagerABI.find(
+      (entry): entry is typeof entry & { readonly name: 'stakeFor' } =>
+        'name' in entry && entry.name === 'stakeFor'
+    );
+    expect(stakeFor).not.equals(undefined);
+    expect(stakeFor).property('name').equals('stakeFor');
+    expect(stakeFor).property('inputs').lengthOf(5);
   });
 
   it('every ABI entry has a `type` discriminator', () => {

@@ -181,6 +181,12 @@ function parseNestedIndex(obj: Record<string, unknown>): NetworkAddresses {
   if (gasSwapper !== undefined) out.GasSwapper = gasSwapper;
   const mintable1155 = optionalAddress(pos.MintableERC1155PredicateProxy);
   if (mintable1155 !== undefined) out.MintableERC1155Predicate = mintable1155;
+  const stakeManager = optionalAddress(contracts.StakeManagerProxy);
+  if (stakeManager !== undefined) out.StakeManager = stakeManager;
+  const maticToken = optionalAddress(asRecord(contracts.Tokens).MaticToken);
+  if (maticToken !== undefined) out.MaticToken = maticToken;
+  const polToken = optionalAddress(contracts.PolygonEcosystemToken);
+  if (polToken !== undefined) out.PolToken = polToken;
   return out;
 }
 
@@ -202,6 +208,12 @@ function parseFlatIndex(obj: Record<string, unknown>): NetworkAddresses {
   if (gasSwapper !== undefined) out.GasSwapper = gasSwapper;
   const mintable1155 = optionalAddress(obj.MintableERC1155Predicate);
   if (mintable1155 !== undefined) out.MintableERC1155Predicate = mintable1155;
+  const stakeManager = optionalAddress(obj.StakeManager);
+  if (stakeManager !== undefined) out.StakeManager = stakeManager;
+  const maticToken = optionalAddress(obj.MaticToken);
+  if (maticToken !== undefined) out.MaticToken = maticToken;
+  const polToken = optionalAddress(obj.PolToken);
+  if (polToken !== undefined) out.PolToken = polToken;
   return out;
 }
 

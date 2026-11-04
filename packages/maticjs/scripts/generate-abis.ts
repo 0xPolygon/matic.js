@@ -19,7 +19,9 @@
  *
  * The bridge ABIs are byte-identical across networks (only addresses
  * differ, resolved separately via the address index), so each is read from
- * its `mainnet/v1` path and serves mainnet and amoy alike.
+ * its `mainnet/v1` path and serves mainnet and amoy alike. The staking ABIs
+ * are read from `mainnet/v1` too; amoy's StakeManager only adds `drain` and
+ * `drainValidatorShares`, which the SDK never calls.
  *
  * Run: `pnpm run codegen`. Do not hand-edit `src/abi/<Contract>.ts`.
  */
@@ -39,6 +41,9 @@ const ABIS: Record<string, string> = {
   EtherPredicate: '@polygonlabs/meta/abi/mainnet/v1/pos/EtherPredicate',
   GasSwapper: '@polygonlabs/meta/abi/mainnet/v1/pos/GasSwapper',
   RootChain: '@polygonlabs/meta/abi/mainnet/v1/plasma/RootChain',
+  StakeManager: '@polygonlabs/meta/abi/mainnet/v1/plasma/StakeManager',
+  ValidatorShare: '@polygonlabs/meta/abi/mainnet/v1/plasma/ValidatorShare',
+  PolToken: '@polygonlabs/meta/abi/mainnet/v1/plasma/PolToken',
   StateReceiver: '@polygonlabs/meta/abi/mainnet/v1/genesis/StateReceiver'
 };
 
