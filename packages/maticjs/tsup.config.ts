@@ -43,7 +43,10 @@ export default defineConfig({
     // Vendored `as const` ABIs, exposed at `@polygonlabs/maticjs/abi` so
     // consumers can call contract methods the SDK doesn't wrap directly,
     // pairing them with `pos.getAddresses()`.
-    'abi/index': 'src/abi/index.ts'
+    'abi/index': 'src/abi/index.ts',
+    // Staking is its own entry so bridge bundles carry no staking ABI and
+    // staking bundles none of the bridge's proof machinery (MPT, RLP).
+    'staking/index': 'src/staking/index.ts'
   },
   // viem / ethers are optional peer deps and must never be bundled into
   // the adapter outputs — tsup externalises everything in `dependencies`
