@@ -9,7 +9,7 @@ import type { Hex, PreparedTx, TxResult } from '../adapter.js';
 import type { TxOptions } from '../types.js';
 import type { StakingContractConfig } from './stake-manager.js';
 
-import { ValidatorShareABI } from '../abi/index.js';
+import { ValidatorShareABI } from '../abi/ValidatorShare.js';
 import { ContractCaller } from '../internal/contract-caller.js';
 import { pinChainId, toBigInt, toTuple } from './stake-manager.js';
 

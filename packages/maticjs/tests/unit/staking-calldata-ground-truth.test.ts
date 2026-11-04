@@ -3,7 +3,14 @@ import { join } from 'node:path';
 
 import { JsonRpcProvider, Network } from 'ethers';
 import { providers } from 'ethers-v5';
-import { createPublicClient, hashTypedData, http, toFunctionSelector } from 'viem';
+import {
+  createPublicClient,
+  decodeAbiParameters,
+  hashTypedData,
+  http,
+  parseAbiParameters,
+  toFunctionSelector
+} from 'viem';
 import { describe, expect, it } from 'vitest';
 
 import type {
@@ -45,6 +52,11 @@ import { StakingClient } from '../../src/staking/staking-client.ts';
  * `approveStakeManager({ amount })` has no 3.x counterpart (the plugin
  * only had the max-approve), so it is checked for self-consistency: at
  * `MAX_AMOUNT` it must encode identically to the captured max-approve.
+ *
+ * Within every write, the fixture's same-typed arguments are pairwise
+ * distinct (a load-time guard below enforces it). Equal values would let
+ * a port that swaps two arguments, say `amount` and `heimdallFee`, encode
+ * identical bytes and pass.
  *
  * No network: preparing a write never touches the provider, so every
  * adapter points at an unroutable local URL.
@@ -251,7 +263,7 @@ const PREPARE_BY_ROW: Record<string, { label: string; prepare: Prepare }> = {
   '11': {
     label: 'stakeManager.prepareTopUpHeimdallFee',
     prepare: (c) =>
-      c.stakeManager.prepareTopUpHeimdallFee({ user: INPUTS.user, amount: INPUTS.amount })
+      c.stakeManager.prepareTopUpHeimdallFee({ user: INPUTS.user, heimdallFee: INPUTS.heimdallFee })
   },
   '12': {
     label: 'stakeManager.prepareUnstake',
@@ -451,6 +463,30 @@ function functionSignature(w: FixtureWrite): string {
   const sig = SIGNATURES[`${w.contract}.${w.functionName}`];
   if (sig === undefined) throw new Error(`no signature for ${w.contract}.${w.functionName}`);
   return sig;
+}
+
+// A byte-for-byte match proves argument order only if the arguments that
+// could be swapped differ. A re-capture with repeated values (e.g. amount
+// equal to heimdallFee) would let a swap pass silently, so fail at load
+// instead. The values are decoded from the captured `data`, the bytes the
+// tests compare against. Booleans are exempt: no write takes two of them.
+for (const w of WRITES) {
+  const sig = functionSignature(w);
+  const types = sig.slice(sig.indexOf('(') + 1, -1);
+  if (types === '') continue;
+  const values = decodeAbiParameters(parseAbiParameters(types), `0x${w.data.slice(10)}`);
+  const seen = new Map<string, string>();
+  types.split(',').forEach((type, i) => {
+    if (type === 'bool') return;
+    const key = `${type}:${String(values[i]).toLowerCase()}`;
+    const clash = seen.get(key);
+    if (clash !== undefined) {
+      throw new Error(
+        `fixture row ${keyFor(w)}: ${type} arguments ${clash} and ${i} are equal; a swap would go undetected`
+      );
+    }
+    seen.set(key, String(i));
+  });
 }
 
 /**

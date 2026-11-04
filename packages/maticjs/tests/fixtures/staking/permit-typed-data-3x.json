@@ -1,5 +1,5 @@
 {
-  "PROVENANCE": "EIP-712 Permit typed data the 3.x staking plugin (@maticnetwork/maticjs-staking@1.2.0-beta.5, PolToken getPermitData(amount, stakeManager)) passed to eth_signTypedData_v4, intercepted verbatim and never signed by a real key, recorded 2026-11-04 on mainnet. owner is the fixed from address; nonce was read on-chain at blockNumber; the clock was frozen so the plugin's now + 1800 s deadline equals 1700000000. digest is the EIP-712 hash of typedData, computed with viem and independently by hand; the domain separator it implies equals the token's on-chain DOMAIN_SEPARATOR(). Re-capture: see README.md.",
+  "PROVENANCE": "EIP-712 Permit typed data the 3.x staking plugin (@maticnetwork/maticjs-staking@1.2.0-beta.5, PolToken getPermitData(amount, stakeManager)) passed to eth_signTypedData_v4, intercepted verbatim and never signed by a real key, recorded 2026-11-04 on mainnet (re-captured with distinct inputs). owner is the fixed from address; nonce was read on-chain at blockNumber; the clock was frozen so the plugin's now + 1800 s deadline equals 1700000023. digest is the EIP-712 hash of typedData, computed with viem and independently by hand; the domain separator it implies equals the token's on-chain DOMAIN_SEPARATOR(). Re-capture: see README.md.",
   "typedData": {
     "types": {
       "Permit": [
@@ -53,12 +53,12 @@
     "message": {
       "owner": "0x1111111111111111111111111111111111111111",
       "spender": "0x5e3Ef299fDDf15eAa0432E6e66473ace8c13D908",
-      "value": "0xde0b6b3a7640000",
+      "value": "0xde0b6b3a7640001",
       "nonce": "0",
-      "deadline": 1700000000
+      "deadline": 1700000023
     }
   },
-  "digest": "0xcac70e4cb8858fc8df4c96853a43302bc305905b81f2546d76e7ab0b8a4d6c8e",
+  "digest": "0xfac3805d16fcfb013e58789d0510cf38b6e8402ed128444623d6d3c821adbef1",
   "nonceAtCapture": "0",
-  "blockNumber": 26343852
+  "blockNumber": 26344151
 }

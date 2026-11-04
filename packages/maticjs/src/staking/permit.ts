@@ -48,16 +48,22 @@ export interface PermitMessage {
  * Typed data ready to hand to a wallet's `signTypedData`. `types`
  * deliberately omits `EIP712Domain`: viem and ethers derive it from
  * `domain` and ethers rejects a `types` map that includes it.
+ *
+ * `Permit` is a mutable tuple of literal fields: ethers v5 and v6 type
+ * their `types` argument as a mutable `TypedDataField[]`, which a
+ * `readonly` tuple cannot be passed to, while viem needs the literal
+ * `type` strings to infer the message shape. A mutable literal tuple
+ * satisfies both.
  */
 export interface PermitTypedData {
   domain: PermitDomain;
   types: {
-    Permit: readonly [
-      { readonly name: 'owner'; readonly type: 'address' },
-      { readonly name: 'spender'; readonly type: 'address' },
-      { readonly name: 'value'; readonly type: 'uint256' },
-      { readonly name: 'nonce'; readonly type: 'uint256' },
-      { readonly name: 'deadline'; readonly type: 'uint256' }
+    Permit: [
+      { name: 'owner'; type: 'address' },
+      { name: 'spender'; type: 'address' },
+      { name: 'value'; type: 'uint256' },
+      { name: 'nonce'; type: 'uint256' },
+      { name: 'deadline'; type: 'uint256' }
     ];
   };
   primaryType: 'Permit';
@@ -71,15 +77,22 @@ export interface PermitSignature {
   s: Hex;
 }
 
-const PERMIT_TYPES: PermitTypedData['types'] = {
-  Permit: [
-    { name: 'owner', type: 'address' },
-    { name: 'spender', type: 'address' },
-    { name: 'value', type: 'uint256' },
-    { name: 'nonce', type: 'uint256' },
-    { name: 'deadline', type: 'uint256' }
-  ]
-};
+/**
+ * A fresh object per call: the returned typed data is mutable, so a
+ * shared constant would let one consumer's edit change every later
+ * permit's digest.
+ */
+function permitTypes(): PermitTypedData['types'] {
+  return {
+    Permit: [
+      { name: 'owner', type: 'address' },
+      { name: 'spender', type: 'address' },
+      { name: 'value', type: 'uint256' },
+      { name: 'nonce', type: 'uint256' },
+      { name: 'deadline', type: 'uint256' }
+    ]
+  };
+}
 
 /** Assemble EIP-2612 permit typed data from already-resolved inputs. */
 export function buildPermitTypedData(params: {
@@ -92,7 +105,7 @@ export function buildPermitTypedData(params: {
 }): PermitTypedData {
   return {
     domain: params.domain,
-    types: PERMIT_TYPES,
+    types: permitTypes(),
     primaryType: 'Permit',
     message: {
       owner: params.owner,

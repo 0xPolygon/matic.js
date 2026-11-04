@@ -130,6 +130,15 @@ function fetchAddresses(
  */
 const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
 
+/**
+ * Type-guard form of the same shape check, for callers that validate a
+ * subset of the index themselves (the staking client's staking-only
+ * override) and must reject exactly what this parser rejects.
+ */
+export function isIndexAddress(value: unknown): value is `0x${string}` {
+  return typeof value === 'string' && ADDRESS_RE.test(value);
+}
+
 /** Narrow an unknown value to a 0x-address string or throw with the full key path. */
 function requireAddress(value: unknown, path: string): `0x${string}` {
   if (typeof value !== 'string' || !ADDRESS_RE.test(value)) {

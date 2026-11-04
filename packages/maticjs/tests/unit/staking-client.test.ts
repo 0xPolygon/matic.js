@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type {
   Adapter,
@@ -10,8 +10,11 @@ import type {
   WriteRequest
 } from '../../src/adapter.ts';
 import type { NetworkAddresses } from '../../src/networks.ts';
+import type { StakingAddresses } from '../../src/staking/staking-client.ts';
 
 import { POSBridgeError } from '../../src/errors.ts';
+import { POSClient } from '../../src/pos-client.ts';
+import { __resetAddressCacheForTesting } from '../../src/services/address-service.ts';
 import { StakingClient } from '../../src/staking/staking-client.ts';
 
 /**
@@ -159,5 +162,153 @@ describe('StakingClient accessors', () => {
     const other: Hex = '0xcCCccccCCCCCCCcccccCcCCcCcCcCcCCccCccCcC';
     expect(client.validatorShare(SHARE)).property('address').equals(SHARE);
     expect(client.validatorShare(other)).property('address').equals(other);
+  });
+});
+
+const STAKING_ONLY: StakingAddresses = {
+  StakeManager: '0x7777777777777777777777777777777777777777',
+  MaticToken: '0x8888888888888888888888888888888888888888',
+  PolToken: '0x9999999999999999999999999999999999999999'
+};
+
+async function rejection(promise: Promise<unknown>): Promise<POSBridgeError> {
+  try {
+    await promise;
+  } catch (err) {
+    if (err instanceof POSBridgeError) return err;
+    throw err;
+  }
+  throw new Error('expected a POSBridgeError');
+}
+
+describe('staking-only addresses override', () => {
+  it('initialises from the three staking addresses alone, with no bridge keys', async () => {
+    const adapter = new RecordingAdapter();
+    const client = await StakingClient.init({
+      network: 'mainnet',
+      parent: adapter,
+      addresses: STAKING_ONLY
+    });
+    expect(await client.getAddresses()).deep.equals(STAKING_ONLY);
+    expect(await client.stakeManager.getAddress()).equals(STAKING_ONLY.StakeManager);
+    expect(await client.matic.getAddress()).equals(STAKING_ONLY.MaticToken);
+    const tx = await client.pol.prepareApproveStakeManager({ amount: 1n });
+    expect(tx).property('to').equals(STAKING_ONLY.PolToken);
+    expect(adapter.prepares[0]).nested.property('args[0]').equals(STAKING_ONLY.StakeManager);
+  });
+
+  it('fails init with CONTRACT_NOT_AVAILABLE_ON_NETWORK for an absent or malformed staking key', async () => {
+    const { MaticToken: _omit, ...withoutMatic } = STAKING_ONLY;
+    const missing = await rejection(
+      StakingClient.init({
+        network: 'mainnet',
+        parent: new RecordingAdapter(),
+        // @ts-expect-error — a plain-JS consumer can omit a key the type requires
+        addresses: withoutMatic
+      })
+    );
+    expect(missing).property('code').equals('CONTRACT_NOT_AVAILABLE_ON_NETWORK');
+    expect(missing).nested.property('info.missing').deep.equals(['MaticToken']);
+
+    const malformed = await rejection(
+      StakingClient.init({
+        network: 'mainnet',
+        parent: new RecordingAdapter(),
+        addresses: { ...STAKING_ONLY, PolToken: '0x1234' }
+      })
+    );
+    expect(malformed).property('code').equals('CONTRACT_NOT_AVAILABLE_ON_NETWORK');
+    expect(malformed).nested.property('info.missing').deep.equals(['PolToken']);
+  });
+
+  it('still validates an override carrying any bridge key as a full index', async () => {
+    const { RootChain: _omit, ...partialBridge } = FULL;
+    const err = await rejection(
+      StakingClient.init({
+        network: 'mainnet',
+        parent: new RecordingAdapter(),
+        // @ts-expect-error — a plain-JS consumer can pass a full index missing a bridge key
+        addresses: partialBridge
+      })
+    );
+    expect(err).property('code').equals('BRIDGE_EVENT_DECODE_FAILED');
+    expect(err).property('message').contains('RootChain');
+  });
+
+  it('leaves POSClient requiring every bridge key', async () => {
+    const err = await rejection(
+      POSClient.init({
+        network: 'mainnet',
+        parent: new RecordingAdapter(),
+        child: new RecordingAdapter(),
+        // @ts-expect-error — POSClient takes a full NetworkAddresses, never the staking subset
+        addresses: STAKING_ONLY
+      })
+    );
+    expect(err).property('code').equals('BRIDGE_EVENT_DECODE_FAILED');
+    expect(err).property('message').contains('RootChainManager');
+  });
+});
+
+describe('StakingClient after a background address refresh', () => {
+  // A base URL of its own keeps this suite's cache entry apart from any
+  // other test's; TTL 0 makes every call after init stale, so each call
+  // serves the cached index and starts a refresh for the next one.
+  const BASE_URL = 'https://address-index.test/staking-refresh';
+  let served: NetworkAddresses = FULL;
+
+  beforeEach(() => {
+    __resetAddressCacheForTesting();
+    served = FULL;
+    vi.stubGlobal('fetch', () =>
+      Promise.resolve(new Response(JSON.stringify(served), { status: 200 }))
+    );
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    __resetAddressCacheForTesting();
+  });
+
+  async function refreshedClient(next: NetworkAddresses): Promise<{
+    client: StakingClient;
+    adapter: RecordingAdapter;
+  }> {
+    const adapter = new RecordingAdapter();
+    const client = await StakingClient.init({
+      network: 'mainnet',
+      parent: adapter,
+      addressIndexUrl: BASE_URL,
+      addressTTLMs: 0
+    });
+    served = next;
+    // Served from the stale cache; kicks off the refresh that fetches `next`.
+    await client.getAddresses();
+    await vi.waitFor(async () => {
+      expect(await client.getAddresses()).deep.equals(next);
+    });
+    return { client, adapter };
+  }
+
+  it('fails a call with CONTRACT_NOT_AVAILABLE_ON_NETWORK once a refresh drops its key', async () => {
+    const { PolToken: _omit, ...withoutPol } = FULL;
+    const { client } = await refreshedClient(withoutPol);
+
+    const err = await rejection(client.pol.prepareApproveStakeManager({ amount: 1n }));
+    expect(err).property('code').equals('CONTRACT_NOT_AVAILABLE_ON_NETWORK');
+    expect(err).nested.property('info.missing').deep.equals(['PolToken']);
+    // Keys the refresh kept still resolve.
+    expect(await client.stakeManager.getAddress()).equals(FULL.StakeManager);
+  });
+
+  it('targets the new address once a refresh changes a key', async () => {
+    const moved: Hex = '0x7777777777777777777777777777777777770001';
+    const { client, adapter } = await refreshedClient({ ...FULL, StakeManager: moved });
+
+    const unstake = await client.stakeManager.prepareUnstake({ validatorId: 1n });
+    expect(unstake).property('to').equals(moved);
+    // The POL approval's spender follows the moved StakeManager too.
+    await client.pol.prepareApproveStakeManager({ amount: 1n });
+    expect(adapter.prepares.at(-1)).nested.property('args[0]').equals(moved);
   });
 });

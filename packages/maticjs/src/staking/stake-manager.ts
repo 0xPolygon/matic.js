@@ -14,7 +14,7 @@ import type { Adapter, Hex, PreparedTx, TxResult } from '../adapter.js';
 import type { Logger } from '../logger.js';
 import type { TxOptions } from '../types.js';
 
-import { StakeManagerABI } from '../abi/index.js';
+import { StakeManagerABI } from '../abi/StakeManager.js';
 import { POSBridgeError } from '../errors.js';
 import { ContractCaller } from '../internal/contract-caller.js';
 
@@ -122,9 +122,14 @@ export interface RestakeParams {
   stakeRewards: boolean;
 }
 
+/**
+ * `heimdallFee`, not `amount`: the same name `stakeFor` uses for this
+ * quantity, so a fee can't be mistaken for (or swapped with) a stake
+ * amount at a call site.
+ */
 export interface TopUpHeimdallFeeParams {
   user: Hex;
-  amount: bigint;
+  heimdallFee: bigint;
 }
 
 export interface ValidatorIdParams {
@@ -239,9 +244,9 @@ export class StakeManager {
     return this.prepare('withdrawRewardsPOL', [params.validatorId], options);
   }
 
-  /** Calls `topUpForFee(user, amount)`. */
+  /** Calls `topUpForFee(user, heimdallFee)`. */
   topUpHeimdallFee(params: TopUpHeimdallFeeParams, options?: TxOptions): Promise<TxResult> {
-    return this.write('topUpForFee', [params.user, params.amount], options);
+    return this.write('topUpForFee', [params.user, params.heimdallFee], options);
   }
 
   /** Unsigned {@link topUpHeimdallFee}. */
@@ -249,7 +254,7 @@ export class StakeManager {
     params: TopUpHeimdallFeeParams,
     options?: TxOptions
   ): Promise<PreparedTx> {
-    return this.prepare('topUpForFee', [params.user, params.amount], options);
+    return this.prepare('topUpForFee', [params.user, params.heimdallFee], options);
   }
 
   /** Calls `unstakePOL(validatorId)`. */

@@ -15,7 +15,7 @@ import type { TxOptions } from '../types.js';
 import type { PermitTypedData } from './permit.js';
 import type { StakingContractConfig } from './stake-manager.js';
 
-import { PolTokenABI } from '../abi/index.js';
+import { PolTokenABI } from '../abi/PolToken.js';
 import { MAX_AMOUNT } from '../constant.js';
 import { POSBridgeError } from '../errors.js';
 import { ContractCaller } from '../internal/contract-caller.js';

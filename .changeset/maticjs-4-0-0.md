@@ -46,3 +46,8 @@ Renames from the 3.x plugin:
 - `approveMaxForStakingManager` → `approveMaxForStakeManager`
 - `getPermitData` → `preparePermit` + `splitSignature`
 - `client.getConfig(...)` → `getAddresses()`
+
+Two 3.x names now mean something different, so check every call site:
+
+- `stakeFor(...)` (MATIC) → `stakeForMatic({ ... })`. In 4.0, `stakeFor` stakes POL. A 3.x positional call no longer compiles, so this one is caught at build time.
+- `validatorShare.withdrawRewards()` now calls the POL variant (`withdrawRewardsPOL`) and pays out POL. The call shape is unchanged, so a 3.x call compiles and runs without error. The MATIC `withdrawRewards` is not ported.

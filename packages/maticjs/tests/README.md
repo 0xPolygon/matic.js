@@ -170,10 +170,13 @@ In CI the cycle test runs only on the nightly schedule defined in
 Staking writes move funds, so the suite pins the encoding to what the 3.x
 staking plugin produced rather than to what "looks equivalent":
 
-- The ground-truth tests (`tests/unit/staking-*.test.ts`) compare the calldata
-  and the permit typed data and digest against the captured 3.x output in
-  [`fixtures/staking/`](./fixtures/staking/README.md). They need no
-  credentials and make no network calls, and always run with the unit suite.
+- The ground-truth test (`tests/unit/staking-calldata-ground-truth.test.ts`)
+  compares the calldata and the permit typed data and digest against the
+  captured 3.x output in [`fixtures/staking/`](./fixtures/staking/README.md).
+  It needs no credentials, makes no network calls, and always runs with the
+  unit suite. The other `tests/unit/staking-*.test.ts` files (routing, client,
+  permit, types) check the 4.0 behaviour on its own terms and are not ground
+  truth.
 - When one fails, find out why the encoding changed. Never re-record a fixture
   to turn the test green; the fixtures are the specification.
 
@@ -202,7 +205,9 @@ The staking suite has three tiers, from cheapest to most demanding:
   refused with `UNSUPPORTED_NETWORK` before anything is broadcast. The
   broadcast case is currently skipped for ethers v5, whose adapter rejects the
   `chainId` override every chain-pinned staking write carries; the prepare and
-  wrong-chain cases still run for v5.
+  wrong-chain cases still run for v5. No delegation write is broadcast: that
+  needs funded POL and a live validator share on Sepolia, so delegation
+  calldata is covered by the ground-truth tier only.
 
 Re-record the read fixtures only after an intentional decoding change, by
 building the package and running

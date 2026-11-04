@@ -3,7 +3,10 @@
  * staking.
  *
  * A separate entry so bridge consumers carry no staking ABI and staking
- * consumers no bridge proof machinery. Contract wrappers are exported
+ * consumers no bridge proof machinery. Staking modules import each ABI
+ * from its own module, never the `../abi/index.js` barrel, so the staking
+ * ABIs land in a chunk the bridge entry does not load (checked by
+ * `scripts/check-entry-isolation.mjs`). Contract wrappers are exported
  * as types only: instances come from `StakingClient.init`, which wires
  * the address index and the parent-chain adapter.
  */
@@ -11,7 +14,7 @@
 export { StakingClient } from './staking-client.js';
 export { splitSignature } from './permit.js';
 
-export type { StakingClientConfig } from './staking-client.js';
+export type { StakingAddresses, StakingClientConfig } from './staking-client.js';
 export type {
   MigrateDelegationParams,
   RestakeParams,

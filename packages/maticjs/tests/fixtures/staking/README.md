@@ -30,14 +30,31 @@ date.
 
 ## Fixed inputs
 
-The sender is `0x1111…1111` and the user argument is `0x2222…2222`. Amounts,
-the Heimdall fee and the maximum shares to burn are `10^18`. The minimum shares
-to mint is `0`. Validator ids are `7` and `8`, the unbond nonce is `1` and the
-commission rate is `10`. The signer public key is `0x04` followed by 64 `0xab`
-bytes. The permit deadline is `1700000000`, with `v = 27`, `r = 0x11…11` and
-`s = 0x22…22`. Both boolean flags are `true`. The validator share address is
-`0x3333…3333`; ValidatorShare calldata does not depend on it. The full set is
-in the `inputs` block of `calldata-3x.json`.
+The sender is `0x1111…1111` and the user argument is `0x2222…2222`. The amount
+is `1000000000000000001`, the Heimdall fee is `2000000000000000003`, the
+maximum shares to burn is `3000000000000000007` and the minimum shares to mint
+is `5`. The validator id is `7`, the source and destination validator ids for a
+migration are `11` and `13`, the unbond nonce is `17` and the commission rate is
+`19`. The signer public key is `0x04` followed by 64 `0xab` bytes. The permit
+deadline is `1700000023`, with `v = 27`, `r = 0x11…11` and `s = 0x22…22`. Both
+boolean flags are `true`. The validator share address is `0x3333…3333`;
+ValidatorShare calldata does not depend on it. The full set is in the `inputs`
+block of `calldata-3x.json`.
+
+### Why every value is different
+
+A byte-for-byte match proves the arguments are in the right order only when
+the arguments that could be swapped have different values. If the amount and
+the Heimdall fee were equal, a port that passed them to `stakeFor` the wrong way
+round would still produce the recorded bytes and pass. So, within every write,
+all arguments of the same ABI type are pairwise distinct, and the numeric
+inputs are distinct across the whole set. The values are odd and uneven on
+purpose, so one cannot stand in for another.
+
+The calldata test enforces this when it loads: it decodes each recorded `data`
+and fails if two same-typed arguments of one write are equal. Booleans are the
+one exception. A boolean has only two values, but no write takes two booleans,
+so a boolean can never be swapped with a sibling of the same type.
 
 ## How they were captured
 
@@ -55,7 +72,7 @@ Every write was called with `returnTransaction: true`. In that mode the 3.x
 core returns the transaction config (`to`, `data`) instead of sending it. Gas
 limit and gas price were supplied, so no estimation ran. The permit typed data
 came from the POL token's `getPermitData(amount, stakeManager)`, with the clock
-frozen so its `now + 30 min` deadline is the fixed `1700000000`.
+frozen so its `now + 30 min` deadline is the fixed `1700000023`.
 
 The capture was cross-checked in three ways:
 

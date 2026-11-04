@@ -832,6 +832,24 @@ staking write is pinned to the parent chain id (`1` on mainnet, `11155111`
 on Sepolia), so a wallet still connected to Polygon is refused before
 broadcast; pass `chainId` in `TxOptions` to override it for a fork.
 
+To skip the address-index fetch (air-gapped deployments, pinned addresses,
+tests), pass `addresses`. Staking reads only three contracts, so a
+staking-only app passes just those three. It does not need to invent
+placeholder bridge addresses:
+
+```ts
+const staking = await StakingClient.init({
+  network: 'mainnet',
+  parent,
+  addresses: { StakeManager: '0x…', MaticToken: '0x…', PolToken: '0x…' }
+});
+```
+
+A full `NetworkAddresses` index that also carries the three staking keys
+works as well. An override that contains any bridge key is validated as a
+full index, bridge keys included, so a typo in a bridge key still fails
+loudly. `POSClient` still requires every bridge key.
+
 The 3.x plugin exposed `stakeManager`, `maticToken` and `polToken`
 properties and a `validatorShare(address)` factory. 4.0 keeps the shape:
 `staking.stakeManager`, `staking.matic`, `staking.pol` and
@@ -882,7 +900,7 @@ Writes (each also has a `prepareXxx` sibling returning `{ to, data, value? }`):
 | `stakeManager.stakeForPOL(user, amount, fee, accept, pubkey)`   | `stakeManager.stakeFor({ user, amount, heimdallFee, acceptDelegation, signerPubkey })`                                                                       |
 | `stakeManager.reStakePOL(validatorId, amount, stakeRewards)`    | `stakeManager.restake({ validatorId, amount, stakeRewards })`                                                                                                |
 | `stakeManager.withdrawRewardForValidatorPOL(validatorId)`       | `stakeManager.withdrawValidatorRewards({ validatorId })`                                                                                                     |
-| `stakeManager.addTopUpForHeimdallFee(user, amount)`             | `stakeManager.topUpHeimdallFee({ user, amount })`                                                                                                            |
+| `stakeManager.addTopUpForHeimdallFee(user, amount)`             | `stakeManager.topUpHeimdallFee({ user, heimdallFee })`                                                                                                       |
 | `stakeManager.unstakePOL(validatorId)`                          | `stakeManager.unstake({ validatorId })`                                                                                                                      |
 | `stakeManager.claimStakedAmountPOL(validatorId)`                | `stakeManager.claimUnstaked({ validatorId })`                                                                                                                |
 | `stakeManager.migrateDelegation(from, to, amount)`              | `stakeManager.migrateDelegation({ fromValidatorId, toValidatorId, amount })`                                                                                 |
@@ -920,7 +938,7 @@ Reads:
 
 4.0 also adds reads the plugin did not wrap: `stakeManager.getValidatorContract`,
 `getValidatorId({ user })` (resolves the owner of the validator NFT, not the
-signer key), `getDelegatedAmount`, `getValidatorStake`, `getCheckpointReward`;
+signer key), `getDelegatedAmount`, `getValidatorStake`;
 `validatorShare(a).getTotalStake({ user })`, `getUnbondNonce({ user })`,
 `getValidatorId()`; and `pol.getNonce({ owner })`. Reads accept the same
 `TxOptions` as the bridge (for example `blockTag`).
@@ -984,12 +1002,21 @@ to `27`/`28`, which the contract's `ecrecover` expects. Only POL implements
 EIP-2612: `staking.matic.preparePermit` throws `POSBridgeError` with code
 `PERMIT_NOT_SUPPORTED`.
 
+Use permit only with an externally owned account (EOA). Smart-contract
+wallets and ERC-1271 wallets, including Sequence v3 smart wallets, should
+call `staking.pol.approveStakeManager` and then `validatorShare(a).delegate`
+instead. These wallets return a contract signature, which the token checks
+with `ecrecover`, and that check fails. If the wallet's signature happens to
+be 65 bytes long, `splitSignature` accepts it and `delegateWithPermit`
+reverts on-chain, so the failure costs gas.
+
 ### Looking up contract addresses
 
 `client.getConfig('Main.Contracts.StakeManagerProxy')` and the other
 config-path lookups are replaced by `await staking.getAddresses()`, which
 returns the resolved address index (`StakeManager`, `MaticToken` and
-`PolToken` included):
+`PolToken` included; only those three when the client was built from a
+staking-only `addresses` override):
 
 ```ts
 // 3.x
@@ -1003,7 +1030,8 @@ const { StakeManager: stakeManager } = await staking.getAddresses();
 
 Staking throws the same `POSBridgeError` as the bridge. The two staking
 cases to handle are `CONTRACT_NOT_AVAILABLE_ON_NETWORK` (thrown at `init`
-when the address index lacks a staking contract) and `PERMIT_NOT_SUPPORTED`
+when the address index lacks a staking contract, and by a later call if a
+background address refresh drops one) and `PERMIT_NOT_SUPPORTED`
 (permit helpers on the MATIC token). Confirmation and revert handling come
 from `TxResult`, exactly as for bridge writes.
 

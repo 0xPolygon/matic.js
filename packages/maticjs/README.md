@@ -250,6 +250,10 @@ const { stake } = await share.getTotalStake({ user: delegator });
 const rewards = await share.getLiquidRewards({ user: delegator });
 ```
 
+To pin addresses instead of fetching the address index, pass
+`addresses: { StakeManager, MaticToken, PolToken }` to `StakingClient.init`.
+Staking needs only those three, not the bridge addresses `POSClient` requires.
+
 Coming from `@maticnetwork/maticjs-staking`? See the
 [migration guide](./MIGRATION.md#staking-migrating-from-maticnetworkmaticjs-staking)
 for the method mapping and the permit flow.

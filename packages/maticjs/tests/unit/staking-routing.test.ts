@@ -201,8 +201,8 @@ const WRITES: readonly WriteCase[] = [
     to: STAKE_MANAGER,
     functionName: 'topUpForFee',
     args: [USER, 6n],
-    write: (c, o) => c.stakeManager.topUpHeimdallFee({ user: USER, amount: 6n }, o),
-    prepare: (c, o) => c.stakeManager.prepareTopUpHeimdallFee({ user: USER, amount: 6n }, o)
+    write: (c, o) => c.stakeManager.topUpHeimdallFee({ user: USER, heimdallFee: 6n }, o),
+    prepare: (c, o) => c.stakeManager.prepareTopUpHeimdallFee({ user: USER, heimdallFee: 6n }, o)
   },
   {
     name: 'stakeManager.unstake',

@@ -44,6 +44,14 @@ const ok = (msg) => {
 try {
   // 1. Build + pack.
   run('pnpm run build', pkgDir);
+  // Bridge entry must not load staking ABIs; staking entry must not load
+  // the bridge's MPT/RLP proof deps. Exits non-zero on a leak.
+  try {
+    run('node scripts/check-entry-isolation.mjs', pkgDir);
+    ok('entry isolation (bridge ↔ staking)');
+  } catch {
+    fail('entry isolation FAILED (see scripts/check-entry-isolation.mjs output above)');
+  }
   const tarball = join(work, 'maticjs.tgz');
   run(`pnpm pack --out ${tarball}`, pkgDir);
   ok('built and packed');
