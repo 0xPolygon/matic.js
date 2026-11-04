@@ -12,4 +12,7 @@ export { ERC1155PredicateABI } from './ERC1155Predicate.js';
 export { EtherPredicateABI } from './EtherPredicate.js';
 export { GasSwapperABI } from './GasSwapper.js';
 export { RootChainABI } from './RootChain.js';
+export { StakeManagerABI } from './StakeManager.js';
+export { ValidatorShareABI } from './ValidatorShare.js';
+export { PolTokenABI } from './PolToken.js';
 export { StateReceiverABI } from './StateReceiver.js';
