@@ -27,13 +27,14 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { Trie } from '@ethereumjs/trie';
+import { MerklePatriciaTrie as Trie } from '@ethereumjs/mpt';
+import { bytesToHex } from 'ethereum-cryptography/utils';
 import rlp from 'rlp';
 import { describe, expect, it } from 'vitest';
 
-import type { ITransactionReceipt } from '../src/interfaces';
+import type { ITransactionReceipt } from '../src/interfaces/index.js';
 
-import { ProofUtil } from '../src/utils/proof_util';
+import { ProofUtil } from '../src/utils/proof_util.js';
 
 const HEX_BLOOM_256 = '0x' + '00'.repeat(256);
 
@@ -58,8 +59,7 @@ const baseReceipt = (
 });
 
 /** Decode the encoded receipt body, transparently skipping any EIP-2718 type prefix. */
-function decodeReceiptBody(encoded: Buffer | Uint8Array): unknown[] {
-  const bytes = encoded instanceof Uint8Array ? Buffer.from(encoded) : encoded;
+function decodeReceiptBody(bytes: Uint8Array): unknown[] {
   // Typed receipts: a leading byte < 0xc0 is the EIP-2718 type prefix; the
   // RLP list starts at byte 1. Legacy receipts begin with the RLP list header
   // (0xc0..0xff).
@@ -84,15 +84,15 @@ describe('ProofUtil.getReceiptBytes — legacy receipts (status field via string
     const bytes = ProofUtil.getReceiptBytes(baseReceipt({ cumulativeGasUsed: 0x21000 }));
     const decoded = decodeReceiptBody(bytes);
     const cumulativeGasUsedBytes = decoded[1] as Uint8Array;
-    expect(Buffer.from(cumulativeGasUsedBytes).toString('hex')).to.equal('021000');
+    expect(bytesToHex(cumulativeGasUsedBytes)).to.equal('021000');
   });
 
   it('produces a valid RLP receipt that round-trips via decode/encode unchanged', () => {
     const receipt = baseReceipt({ cumulativeGasUsed: 0 });
     const bytes = ProofUtil.getReceiptBytes(receipt);
     const decoded = rlp.decode(bytes);
-    const reEncoded = Buffer.from(rlp.encode(decoded));
-    expect(Buffer.from(bytes).toString('hex')).to.equal(reEncoded.toString('hex'));
+    const reEncoded = rlp.encode(decoded);
+    expect(bytesToHex(bytes)).to.equal(bytesToHex(reEncoded));
   });
 
   it('still encodes status=false canonically as 0x80 (regression guard for the string trick)', () => {
@@ -125,9 +125,9 @@ describe('ProofUtil.getReceiptBytes — legacy receipts (status field via string
     const decoded = decodeReceiptBody(bytes) as [Uint8Array, Uint8Array, Uint8Array, unknown[]];
     expect(decoded[3], 'logs array preserved').to.have.length(1);
     const [encodedLog] = decoded[3] as Array<[Uint8Array, Uint8Array[], Uint8Array]>;
-    expect(Buffer.from(encodedLog![0]).toString('hex'), 'log address').to.equal('11'.repeat(20));
+    expect(bytesToHex(encodedLog![0]), 'log address').to.equal('11'.repeat(20));
     expect(encodedLog![1], 'log topics').to.have.length(2);
-    expect(Buffer.from(encodedLog![2]).toString('hex'), 'log data').to.equal('cc'.repeat(64));
+    expect(bytesToHex(encodedLog![2]), 'log data').to.equal('cc'.repeat(64));
   });
 });
 
@@ -216,8 +216,8 @@ describe('ProofUtil.getReceiptBytes — Amoy block 37337056 (real on-chain fixtu
     // receipt produces a different keccak and a root mismatch.
     const bytes = ProofUtil.getReceiptBytes(receipt);
     const trie = new Trie();
-    await trie.put(rlp.encode(receipt.transactionIndex) as Uint8Array, bytes);
-    const rootHex = Buffer.from(trie.root()).toString('hex');
+    await trie.put(rlp.encode(receipt.transactionIndex), bytes);
+    const rootHex = bytesToHex(trie.root());
     expect(rootHex).to.equal(RECEIPTS_ROOT_HEX);
   });
 });

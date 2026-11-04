@@ -1,12 +1,37 @@
-import type { ITransformableToArray, PrefixedHexString, ITransformableToBuffer } from './types';
+/**
+ * Bytes / hex coercion helpers used across the proof-building pipeline.
+ *
+ * # Why a BufferUtil class
+ *
+ * The legacy SDK had these as free functions in `utils/`; the class form
+ * is preserved purely so that consumer call sites that already imported
+ * `BufferUtil` keep working. Every method is `static`; there is no state
+ * and no reason to instantiate one.
+ *
+ * # Uint8Array, not Buffer
+ *
+ * The 1.0 rewrite drops Node's `Buffer` so the SDK runs unchanged in
+ * browsers and Node >= 20. The conversion helpers produce and accept
+ * `Uint8Array`; `toBuffer` keeps the name (consumer source-compat) but
+ * returns a `Uint8Array`. Hex <-> bytes goes through
+ * `ethereum-cryptography`'s `hexToBytes` / `bytesToHex`.
+ *
+ * # bigint, not BN
+ *
+ * Stage 2 retired the BN.js wrapper. `toBuffer` accepts native `bigint`
+ * directly and refuses negative values via `POSBridgeError` — the legacy
+ * surface used to do the same with BN.js's `isNeg()` check.
+ */
 
-import { BN } from './types';
+import type { ITransformableToArray, ITransformableToBuffer, PrefixedHexString } from './types.js';
+
+import { POSBridgeError } from '../errors.js';
+import { bytesToHex, hexToBytes } from './bytes.js';
 
 export type ToBufferInputTypes =
   | PrefixedHexString
   | number
-  | BN
-  | Buffer
+  | bigint
   | Uint8Array
   | number[]
   | ITransformableToArray
@@ -15,9 +40,13 @@ export type ToBufferInputTypes =
   | undefined;
 
 export class BufferUtil {
-  static intToHex = function (i: number) {
+  static intToHex = function (i: number): string {
     if (!Number.isSafeInteger(i) || i < 0) {
-      throw new Error(`Received an invalid integer type: ${i}`);
+      throw new POSBridgeError(
+        'INVALID_NUMERIC_VALUE',
+        `Received an invalid integer type: ${i}`,
+        { value: i }
+      );
     }
     return `0x${i.toString(16)}`;
   };
@@ -26,7 +55,11 @@ export class BufferUtil {
     let a = value;
 
     if (typeof a !== 'string') {
-      throw new Error(`[padToEven] value must be type 'string', received ${typeof a}`);
+      throw new POSBridgeError(
+        'INVALID_HEX_STRING',
+        `[padToEven] value must be type 'string', received ${typeof a}`,
+        { received: typeof a }
+      );
     }
 
     if (a.length % 2) a = `0${a}`;
@@ -36,7 +69,11 @@ export class BufferUtil {
 
   static isHexPrefixed(str: string): boolean {
     if (typeof str !== 'string') {
-      throw new Error(`[isHexPrefixed] input must be type 'string', received type ${typeof str}`);
+      throw new POSBridgeError(
+        'INVALID_HEX_STRING',
+        `[isHexPrefixed] input must be type 'string', received type ${typeof str}`,
+        { received: typeof str }
+      );
     }
 
     return str[0] === '0' && str[1] === 'x';
@@ -44,20 +81,22 @@ export class BufferUtil {
 
   static stripHexPrefix = (str: string): string => {
     if (typeof str !== 'string') {
-      throw new Error(`[stripHexPrefix] input must be type 'string', received ${typeof str}`);
+      throw new POSBridgeError(
+        'INVALID_HEX_STRING',
+        `[stripHexPrefix] input must be type 'string', received ${typeof str}`,
+        { received: typeof str }
+      );
     }
 
     return BufferUtil.isHexPrefixed(str) ? str.slice(2) : str;
   };
 
   /**
-   * Converts an `Number` to a `Buffer`
-   * @param {Number} i
-   * @return {Buffer}
+   * Converts a non-negative number to a `Uint8Array`.
    */
-  static intToBuffer = function (i: number) {
+  static intToBuffer = function (i: number): Uint8Array {
     const hex = BufferUtil.intToHex(i);
-    return Buffer.from(BufferUtil.padToEven(hex.slice(2)), 'hex');
+    return hexToBytes(BufferUtil.padToEven(hex.slice(2)));
   };
 
   static isHexString(value: string, length?: number): boolean {
@@ -68,57 +107,81 @@ export class BufferUtil {
     return true;
   }
 
-  static toBuffer = function (v: ToBufferInputTypes): Buffer {
+  /**
+   * Convert any of the accepted input types to a `Uint8Array`. Throws a
+   * structured `POSBridgeError` when the input cannot be represented
+   * (negative bigint, malformed hex, unknown shape).
+   *
+   * Array / `Uint8Array` inputs are copied (not viewed) to match the
+   * legacy `Buffer.from(...)` behaviour — callers rely on the result
+   * being independent of the source.
+   */
+  static toBuffer = function (v: ToBufferInputTypes): Uint8Array {
     if (v === null || v === undefined) {
-      return Buffer.allocUnsafe(0);
+      return new Uint8Array(0);
     }
 
-    if (Buffer.isBuffer(v)) {
-      return Buffer.from(v);
+    if (v instanceof Uint8Array) {
+      return Uint8Array.from(v);
     }
 
-    if (Array.isArray(v) || v instanceof Uint8Array) {
-      return Buffer.from(v as Uint8Array);
+    if (Array.isArray(v)) {
+      return Uint8Array.from(v);
     }
 
     if (typeof v === 'string') {
       if (!BufferUtil.isHexString(v)) {
-        throw new Error(
-          `Cannot convert string to buffer. toBuffer only supports 0x-prefixed hex strings and this string was given: ${v}`
+        throw new POSBridgeError(
+          'INVALID_HEX_STRING',
+          `Cannot convert string to bytes. toBuffer only supports 0x-prefixed hex strings and this string was given: ${v}`,
+          { value: v }
         );
       }
-      return Buffer.from(BufferUtil.padToEven(BufferUtil.stripHexPrefix(v)), 'hex');
+      return hexToBytes(BufferUtil.padToEven(BufferUtil.stripHexPrefix(v)));
     }
 
     if (typeof v === 'number') {
       return BufferUtil.intToBuffer(v);
     }
 
-    if (BN.isBN(v)) {
-      if (v.isNeg()) {
-        throw new Error(`Cannot convert negative BN to buffer. Given: ${v}`);
+    if (typeof v === 'bigint') {
+      if (v < 0n) {
+        throw new POSBridgeError(
+          'NEGATIVE_BIG_NUMBER',
+          `Cannot convert negative bigint to bytes. Given: ${v}`,
+          { value: v.toString() }
+        );
       }
-      return v.toArrayLike(Buffer);
+      // Encode as the minimal big-endian byte array (matches BN's default behaviour).
+      const hex = v.toString(16);
+      const padded = hex.length % 2 === 0 ? hex : `0${hex}`;
+      return hexToBytes(padded);
     }
 
-    if (v.toArray) {
-      // converts a BN to a Buffer
-      return Buffer.from(v.toArray());
+    // Structural fallbacks for ethers v5 BigNumber / bn.js BN, which
+    // expose `.toArray()` or `.toBuffer()`. Consumers that pass these
+    // values are expected to live alongside the bigint surface during
+    // the migration window; future stages can drop these branches.
+    if (typeof (v as ITransformableToArray).toArray === 'function') {
+      return Uint8Array.from((v as ITransformableToArray).toArray());
     }
 
-    if (v.toBuffer) {
-      return Buffer.from(v.toBuffer());
+    if (typeof (v as ITransformableToBuffer).toBuffer === 'function') {
+      return Uint8Array.from((v as ITransformableToBuffer).toBuffer());
     }
 
-    throw new Error('invalid type');
+    throw new POSBridgeError(
+      'BUFFER_TYPE_REQUIRED',
+      'invalid type for toBuffer; expected hex string, number, bigint, Uint8Array, or BN-shaped object',
+      { received: typeof v }
+    );
   };
 
   /**
-   * Converts a `Buffer` into a `0x`-prefixed hex `String`.
-   * @param buf `Buffer` object to convert
+   * Converts a `Uint8Array` into a `0x`-prefixed hex `String`.
    */
-  static bufferToHex = function (buf: Buffer): string {
+  static bufferToHex = function (buf: Uint8Array): string {
     const normalized = BufferUtil.toBuffer(buf);
-    return '0x' + normalized.toString('hex');
+    return '0x' + bytesToHex(normalized);
   };
 }
