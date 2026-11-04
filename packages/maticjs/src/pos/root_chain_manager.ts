@@ -1,47 +1,88 @@
-import type { IPOSClientConfig, ITransactionOption } from '../interfaces';
-import type { Web3SideChainClient } from '../utils';
+/**
+ * `RootChainManager` — typed wrapper around the parent-chain
+ * `RootChainManager` contract.
+ *
+ * This is the entry-point for every cross-chain operation: deposits
+ * (every variant of `depositFor`), the global `exit` call, and the
+ * `processedExits` map readback. The class composes a single
+ * `ContractCaller`; the corresponding contract address is fetched via
+ * `getAddress` so address-index TTL refreshes are honoured.
+ */
 
-import { BaseToken } from '../utils';
+import type { Hex, Adapter, PreparedTx, TxResult } from '../adapter.js';
+import type { ContractCallerOptions } from '../internal/contract-caller.js';
+import type { Logger } from '../logger.js';
 
-export class RootChainManager extends BaseToken<IPOSClientConfig> {
-  constructor(client_: Web3SideChainClient<IPOSClientConfig>, address: string) {
-    super(
-      {
-        address: address,
-        name: 'RootChainManager',
-        bridgeType: 'pos',
-        isParent: true
-      },
-      client_
-    );
-  }
+import { RootChainManagerABI } from '../abi/index.js';
+import { ContractCaller } from '../internal/contract-caller.js';
 
-  method(methodName: string, ...args) {
-    return this.getContract().then((contract) => {
-      return contract.method(methodName, ...args);
+export interface RootChainManagerConfig {
+  adapter: Adapter;
+  getAddress: () => Promise<Hex>;
+  logger: Logger;
+  defaultFrom?: Hex;
+}
+
+export class RootChainManager {
+  /**
+   * @internal — wiring hook for POSClient's construction of the bridge
+   * helpers. ContractCaller is not part of the public API contract and
+   * may change shape in any release; consumers should treat this
+   * member as non-existent.
+   */
+  readonly caller: ContractCaller;
+
+  constructor(config: RootChainManagerConfig) {
+    this.caller = new ContractCaller({
+      adapter: config.adapter,
+      getAddress: config.getAddress,
+      abi: RootChainManagerABI,
+      isParent: true,
+      logger: config.logger,
+      defaultFrom: config.defaultFrom
     });
   }
 
-  deposit(
+  /**
+   * Deposit `depositData` against `tokenAddress` for `userAddress`.
+   * The `depositData` shape is type-specific — ABI-encoded amount for
+   * ERC-20, encoded tokenId for ERC-721, encoded tuple for ERC-1155.
+   */
+  async deposit(
     userAddress: string,
     tokenAddress: string,
     depositData: string,
-    option?: ITransactionOption
-  ) {
-    return this.method('depositFor', userAddress, tokenAddress, depositData).then((method) => {
-      return this.processWrite(method, option);
-    });
+    options: ContractCallerOptions = {}
+  ): Promise<TxResult> {
+    return this.caller.write('depositFor', [userAddress, tokenAddress, depositData], options);
   }
 
-  exit(exitPayload: string, option: ITransactionOption) {
-    return this.method('exit', exitPayload).then((method) => {
-      return this.processWrite(method, option);
-    });
+  /** Same as {@link deposit} but returns the unsigned `{ to, data, value? }`. */
+  async prepareDeposit(
+    userAddress: string,
+    tokenAddress: string,
+    depositData: string,
+    options: ContractCallerOptions = {}
+  ): Promise<PreparedTx> {
+    return this.caller.prepareWrite(
+      'depositFor',
+      [userAddress, tokenAddress, depositData],
+      options
+    );
   }
 
-  isExitProcessed(exitHash: string) {
-    return this.method('processedExits', exitHash).then((method) => {
-      return this.processRead<boolean>(method);
-    });
+  /** Submit an exit-payload built by `POSBridgeHelpers.buildExitPayload(...)`. */
+  async exit(exitPayload: string, options: ContractCallerOptions = {}): Promise<TxResult> {
+    return this.caller.write('exit', [exitPayload], options);
+  }
+
+  /** Same as {@link exit} but returns the unsigned `{ to, data, value? }`. */
+  async prepareExit(exitPayload: string, options: ContractCallerOptions = {}): Promise<PreparedTx> {
+    return this.caller.prepareWrite('exit', [exitPayload], options);
+  }
+
+  /** True iff `exitHash` has already been processed. */
+  async isExitProcessed(exitHash: string): Promise<boolean> {
+    return this.caller.read<boolean>('processedExits', [exitHash]);
   }
 }

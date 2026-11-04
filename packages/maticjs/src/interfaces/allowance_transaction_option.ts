@@ -1,4 +1,4 @@
-import type { ITransactionOption } from './transaction_option';
+import type { ITransactionOption } from './transaction_option.js';
 
 export interface IAllowanceTransactionOption extends ITransactionOption {
   /**
