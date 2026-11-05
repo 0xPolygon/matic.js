@@ -7,21 +7,24 @@
 #
 # Two modes, picked by E2E_USE_SNAPSHOT:
 #
-#   - Snapshot (1, the CI default): extract the published kurtosis-pos
-#     snapshot image and restore it with docker compose. No kurtosis engine
-#     is involved: the harness reads the restored devnet through
-#     E2E_SNAPSHOT_ADDRESSES_JSON and fixed host ports (see
-#     packages/e2e/src/kurtosis.ts), so starting an engine here would only
-#     add images to pull and leftover containers.
-#   - Cold start (0): install the kurtosis CLI, start the engine (the
-#     harness refuses to auto-start one) and boot the enclave from
-#     kurtosis-pos source. Slower; the fallback when the snapshot is unusable.
+#   - Cold start (0, the CI default): install the kurtosis CLI, start the
+#     engine (the harness refuses to auto-start one) and boot the enclave from
+#     kurtosis-pos source with an anvil L1.
+#   - Snapshot (1, opt-in): extract the published kurtosis-pos snapshot image
+#     and restore it with docker compose. No kurtosis engine is involved: the
+#     harness reads the restored devnet through E2E_SNAPSHOT_ADDRESSES_JSON
+#     and fixed host ports (see packages/e2e/src/kurtosis.ts). Its geth +
+#     lighthouse L1 only produces blocks when the image is minutes old: the
+#     beacon chain's genesis time is baked into the restored state, and once
+#     the wall-clock slot is far past the snapshot's head slot, a lone
+#     lighthouse with no peers never counts itself synced, so it never
+#     proposes. A published image is hours old by the time CI pulls it.
 #
 # Idempotent: a devnet that is already up is reused, so a re-run after a
 # partial failure, or locally, does not start a second one.
 #
 # Environment:
-#   E2E_USE_SNAPSHOT     "1" snapshot mode, anything else cold start (default 1).
+#   E2E_USE_SNAPSHOT     "1" snapshot mode, anything else cold start (default 0).
 #   E2E_SNAPSHOT_IMAGE   snapshot image, pinned by digest in the workflow.
 #   KURTOSIS_POS_REF     kurtosis-pos ref; supplies scripts/snapshot/ in
 #                        snapshot mode and the source in cold-start mode.
@@ -31,7 +34,7 @@
 
 set -euo pipefail
 
-E2E_USE_SNAPSHOT="${E2E_USE_SNAPSHOT:-1}"
+E2E_USE_SNAPSHOT="${E2E_USE_SNAPSHOT:-0}"
 E2E_SNAPSHOT_IMAGE="${E2E_SNAPSHOT_IMAGE:-}"
 KURTOSIS_POS_REF="${KURTOSIS_POS_REF:-v1.4.8}"
 WORK_DIR="${WORK_DIR:-/tmp/kurtosis-pos}"

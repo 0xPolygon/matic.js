@@ -7,9 +7,14 @@ name: e2e
 # against the pinned devnet, and a manual dispatch can switch devnet source.
 #
 # Two devnet sources, picked by `use_snapshot`:
-#   - snapshot (default): restore the published kurtosis-pos snapshot image.
-#   - cold start: boot kurtosis-pos from source at `kurtosis_pos_ref`. The
-#     fallback when the snapshot is unusable; slower.
+#   - cold start (default): boot kurtosis-pos from source at
+#     `kurtosis_pos_ref` with an anvil L1 (packages/e2e/kurtosis-params.yml).
+#   - snapshot (opt-in dispatch): restore the published kurtosis-pos snapshot
+#     image. Its L1 is geth + lighthouse with 1 s slots, and the beacon chain
+#     cannot resume once its genesis is more than a few minutes old: with no
+#     peers lighthouse sits at the snapshot's head slot while the wall-clock
+#     slot runs thousands ahead, so L1 never mints a block. The image is
+#     published hours before any run here, so it is unusable as the default.
 on:
   schedule:
     # 03:00 UTC, off-hours for the team.
@@ -17,10 +22,10 @@ on:
   workflow_dispatch:
     inputs:
       use_snapshot:
-        description: 'Restore the published snapshot image (false = cold-start kurtosis from source)'
+        description: 'Restore the published snapshot image instead of a cold start (its L1 stalls once the image is old)'
         type: boolean
         required: false
-        default: true
+        default: false
       kurtosis_pos_ref:
         description: 'git ref of 0xPolygon/kurtosis-pos: cold-start source, and the snapshot restore scripts'
         required: false
@@ -48,9 +53,9 @@ jobs:
     timeout-minutes: 75
     env:
       # `use_snapshot` is null on pull_request and schedule triggers, and
-      # `null == false` is truthy in expressions, so test for null first;
-      # only a dispatch passing use_snapshot=false selects cold start.
-      E2E_USE_SNAPSHOT: ${{ (inputs.use_snapshot != null && inputs.use_snapshot == false) && '0' || '1' }}
+      # `null == true` is false, so only a dispatch passing use_snapshot=true
+      # selects the snapshot; everything else cold-starts.
+      E2E_USE_SNAPSHOT: ${{ inputs.use_snapshot == true && '1' || '0' }}
       # Bump the image digest and KURTOSIS_POS_REF together: the image is
       # the `v1.4.8` build of kurtosis-pos b2f5b7a8ce65, and the restore
       # scripts are taken from the same ref. Get the new digest with
