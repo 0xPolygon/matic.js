@@ -45,6 +45,8 @@ pnpm run e2e
 
 `down` removes the enclave that `up` read, by its UUID. The kurtosis engine you started with `kurtosis run` keeps running; stop it with `kurtosis engine stop` when you no longer need it.
 
+Never pipe kurtosis CLI output into `head`: closing the pipe can kill an auto-started engine mid-start and leave a container that blocks every later `engine start`.
+
 ## Running in CI (snapshot)
 
 CI restores the published kurtosis-pos snapshot image with `docker compose` instead of booting from source. Set `E2E_SNAPSHOT_ADDRESSES_JSON` to the `contractAddresses.json` extracted from the image. `up` then reads addresses from that file and uses the snapshot's fixed host ports (L1 `8545`, L2 `9545`, heimdall `1317`). `down` stops that compose project (`docker compose --file <dir of the JSON>/docker-compose.yaml down --volumes`) and nothing else. The snapshot's contract addresses are the same as a cold start's, because kurtosis-pos deploys deterministically.
