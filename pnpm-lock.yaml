@@ -54,6 +54,46 @@ importers:
         specifier: ^5.5.0
         version: 5.9.3
 
+  packages/e2e:
+    dependencies:
+      '@polygonlabs/maticjs':
+        specifier: workspace:*
+        version: link:../maticjs
+      '@polygonlabs/verror':
+        specifier: ^1.1.0
+        version: 1.1.0
+      '@t3-oss/env-core':
+        specifier: ^0.13.10
+        version: 0.13.11(typescript@5.9.3)(zod@4.6.7)
+      ethers:
+        specifier: ^6.0.0
+        version: 6.17.0
+      ethers-v5:
+        specifier: npm:ethers@^5.8.0
+        version: ethers@5.8.0
+      viem:
+        specifier: ^2.0.0
+        version: 2.54.0(typescript@5.9.3)(zod@4.6.7)
+      zod:
+        specifier: ^4.0.17
+        version: 4.6.7
+    devDependencies:
+      '@tsconfig/node-ts':
+        specifier: ^23.0.0
+        version: 23.6.4
+      '@tsconfig/node24':
+        specifier: ^24.0.0
+        version: 24.0.4
+      '@types/node':
+        specifier: ^25.5.0
+        version: 25.5.0
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: ^3.0.0
+        version: 3.2.4(@types/debug@4.1.13)(@types/node@25.5.0)(jiti@2.6.1)(terser@5.46.1)(yaml@2.8.3)
+
   packages/maticjs:
     dependencies:
       '@ethereumjs/mpt':
@@ -73,7 +113,7 @@ importers:
         version: 6.17.0
       viem:
         specifier: ^2.0.0
-        version: 2.54.0(typescript@5.9.3)
+        version: 2.54.0(typescript@5.9.3)(zod@4.6.7)
     devDependencies:
       '@polygonlabs/meta':
         specifier: ^1.1.1
@@ -107,7 +147,7 @@ importers:
         version: 2.2.1
       viem:
         specifier: ^2.0.0
-        version: 2.54.0(typescript@5.9.3)
+        version: 2.54.0(typescript@5.9.3)(zod@4.6.7)
     devDependencies:
       '@playwright/test':
         specifier: ^1.48.0
@@ -1001,6 +1041,23 @@ packages:
   '@sindresorhus/merge-streams@4.0.0':
     resolution: {integrity: sha512-tlqY9xq5ukxTUZBmoOp+m61cqwQD5pHJtFY3Mn8CA8ps6yghLH/Hw8UPdqg4OLmFW3IFlcXnQNmo/dh8HzXYIQ==}
     engines: {node: '>=18'}
+
+  '@t3-oss/env-core@0.13.11':
+    resolution: {integrity: sha512-sM7GYY+KL7H/Hl0BE0inWfk3nRHZOLhmVn7sHGxaZt9FAR6KqREXAE+6TqKfiavfXmpRxO/OZ2QgKRd+oiBYRQ==}
+    peerDependencies:
+      arktype: ^2.1.0
+      typescript: '>=5.0.0'
+      valibot: ^1.0.0-beta.7 || ^1.0.0
+      zod: ^3.24.0 || ^4.0.0
+    peerDependenciesMeta:
+      arktype:
+        optional: true
+      typescript:
+        optional: true
+      valibot:
+        optional: true
+      zod:
+        optional: true
 
   '@tsconfig/node-ts@23.6.4':
     resolution: {integrity: sha512-37BMJvNQZ+vTgd1xG2TGBkJ6ENeT4eO4Wh2CHrnn0IwH7ybLFCzh4Uc//kc7UIvqiRac4uGdIc1meKOjMSlKzw==}
@@ -3025,6 +3082,9 @@ packages:
     resolution: {integrity: sha512-4LCcse/U2MHZ63HAJVE+v71o7yOdIe4cZ70Wpf8D/IyjDKYQLV5GD46B+hSTjJsvV5PztjvHoU580EftxjDZFQ==}
     engines: {node: '>=12.20'}
 
+  zod@4.6.7:
+    resolution: {integrity: sha512-g8W2D2kU6a8untc053fX1uVBKzM7yqAxW/3zwk83+6RyF2+SKOuV+c0wBDhUwzV1PaGapmZH+rmcUzPf+3CGwg==}
+
 snapshots:
 
   '@adraffy/ens-normalize@1.11.1': {}
@@ -4018,6 +4078,11 @@ snapshots:
 
   '@sindresorhus/merge-streams@4.0.0': {}
 
+  '@t3-oss/env-core@0.13.11(typescript@5.9.3)(zod@4.6.7)':
+    optionalDependencies:
+      typescript: 5.9.3
+      zod: 4.6.7
+
   '@tsconfig/node-ts@23.6.4': {}
 
   '@tsconfig/node20@20.1.9': {}
@@ -4259,9 +4324,10 @@ snapshots:
       jsonparse: 1.3.1
       through: 2.3.8
 
-  abitype@1.2.3(typescript@5.9.3):
+  abitype@1.2.3(typescript@5.9.3)(zod@4.6.7):
     optionalDependencies:
       typescript: 5.9.3
+      zod: 4.6.7
 
   acorn-jsx@5.3.2(acorn@8.16.0):
     dependencies:
@@ -5499,7 +5565,7 @@ snapshots:
 
   outdent@0.5.0: {}
 
-  ox@0.14.29(typescript@5.9.3):
+  ox@0.14.29(typescript@5.9.3)(zod@4.6.7):
     dependencies:
       '@adraffy/ens-normalize': 1.11.1
       '@noble/ciphers': 1.3.0
@@ -5507,7 +5573,7 @@ snapshots:
       '@noble/hashes': 1.8.0
       '@scure/bip32': 1.7.0
       '@scure/bip39': 1.6.0
-      abitype: 1.2.3(typescript@5.9.3)
+      abitype: 1.2.3(typescript@5.9.3)(zod@4.6.7)
       eventemitter3: 5.0.1
     optionalDependencies:
       typescript: 5.9.3
@@ -5968,15 +6034,15 @@ snapshots:
     dependencies:
       punycode: 2.3.1
 
-  viem@2.54.0(typescript@5.9.3):
+  viem@2.54.0(typescript@5.9.3)(zod@4.6.7):
     dependencies:
       '@noble/curves': 1.9.1
       '@noble/hashes': 1.8.0
       '@scure/bip32': 1.7.0
       '@scure/bip39': 1.6.0
-      abitype: 1.2.3(typescript@5.9.3)
+      abitype: 1.2.3(typescript@5.9.3)(zod@4.6.7)
       isows: 1.0.7(ws@8.20.1)
-      ox: 0.14.29(typescript@5.9.3)
+      ox: 0.14.29(typescript@5.9.3)(zod@4.6.7)
       ws: 8.20.1
     optionalDependencies:
       typescript: 5.9.3
@@ -6132,3 +6198,5 @@ snapshots:
   yocto-queue@0.1.0: {}
 
   yocto-queue@1.2.2: {}
+
+  zod@4.6.7: {}
