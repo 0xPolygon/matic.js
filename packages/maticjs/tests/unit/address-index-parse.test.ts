@@ -76,6 +76,17 @@ describe('parseAddressIndex — nested CDN shape (meta snapshot fixtures)', () =
     expect(L2_CHAIN_ID.amoy).equals(Number(amoyInfo.Matic.ChainId));
   });
 
+  it('extracts the staking addresses from the proxy and token entries', async () => {
+    for (const info of [mainnetInfo, amoyInfo]) {
+      const out = await parseVia(info);
+      const contracts = info.Main.Contracts as unknown as Record<string, unknown>;
+      expect(out).property('StakeManager').equals(contracts.StakeManagerProxy);
+      expect(out.StakeManager).not.equals(contracts.StakeManager);
+      expect(out).property('MaticToken').equals(info.Main.Contracts.Tokens.MaticToken);
+      expect(out).property('PolToken').equals(contracts.PolygonEcosystemToken);
+    }
+  });
+
   it('extracts the amoy entries — GasSwapper absent, mintable predicate present', async () => {
     const out = await parseVia(amoyInfo);
     const pos = amoyInfo.Main.POSContracts;

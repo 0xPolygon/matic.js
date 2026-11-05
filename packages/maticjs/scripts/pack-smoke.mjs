@@ -64,6 +64,14 @@ const ok = (msg) => {
 try {
   // 1. Build + pack.
   run('pnpm run build', pkgDir);
+  // Bridge entry must not load staking ABIs; staking entry must not load
+  // the bridge's MPT/RLP proof deps. Exits non-zero on a leak.
+  try {
+    run('node scripts/check-entry-isolation.mjs', pkgDir);
+    ok('entry isolation (bridge ↔ staking)');
+  } catch {
+    fail('entry isolation FAILED (see scripts/check-entry-isolation.mjs output above)');
+  }
   const tarball = join(work, 'maticjs.tgz');
   run(`pnpm pack --out ${tarball}`, pkgDir);
   ok('built and packed');
@@ -76,14 +84,16 @@ try {
         '@polygonlabs/maticjs',
         '@polygonlabs/maticjs/abi',
         '@polygonlabs/maticjs/viem',
-        '@polygonlabs/maticjs/ethers-v6'
+        '@polygonlabs/maticjs/ethers-v6',
+        '@polygonlabs/maticjs/staking'
       ],
       // spec → an export that must exist on the require()d namespace.
       requires: {
         '@polygonlabs/maticjs': 'POSClient',
         '@polygonlabs/maticjs/abi': 'RootChainManagerABI',
         '@polygonlabs/maticjs/viem': 'viemAdapter',
-        '@polygonlabs/maticjs/ethers-v6': 'ethersV6Adapter'
+        '@polygonlabs/maticjs/ethers-v6': 'ethersV6Adapter',
+        '@polygonlabs/maticjs/staking': 'StakingClient'
       },
       probe: `
 import { POSClient, ProofApiNotSetError, isMaticjsError, rootCause } from '@polygonlabs/maticjs';
@@ -91,25 +101,37 @@ import type { POSClientConfig, TxResult } from '@polygonlabs/maticjs';
 import { viemAdapter } from '@polygonlabs/maticjs/viem';
 import { ethersV6Adapter } from '@polygonlabs/maticjs/ethers-v6';
 import { RootChainManagerABI } from '@polygonlabs/maticjs/abi';
+import { StakingClient, splitSignature } from '@polygonlabs/maticjs/staking';
+import type { StakingClientConfig } from '@polygonlabs/maticjs/staking';
 // Types must be real (not any): assigning a wrong shape must fail.
 // @ts-expect-error — viemAdapter requires a config object, not a number
 const bad = viemAdapter(42);
 const abiIsTyped: typeof RootChainManagerABI extends readonly unknown[] ? true : never = true;
+// @ts-expect-error — StakingClient.init requires a config object
+const badStaking = StakingClient.init(42);
 console.log(typeof POSClient, typeof ProofApiNotSetError, typeof isMaticjsError, typeof rootCause, typeof ethersV6Adapter, Boolean(bad), abiIsTyped);
-export type { POSClientConfig, TxResult };
+console.log(typeof splitSignature, Boolean(badStaking));
+export type { POSClientConfig, TxResult, StakingClientConfig };
 `
     },
     {
       name: 'ethers5',
       installs: ['ethers@^5.8.0'],
-      imports: ['@polygonlabs/maticjs', '@polygonlabs/maticjs/ethers-v5'],
+      imports: [
+        '@polygonlabs/maticjs',
+        '@polygonlabs/maticjs/ethers-v5',
+        '@polygonlabs/maticjs/staking'
+      ],
       requires: {
         '@polygonlabs/maticjs': 'POSClient',
-        '@polygonlabs/maticjs/ethers-v5': 'ethersV5Adapter'
+        '@polygonlabs/maticjs/ethers-v5': 'ethersV5Adapter',
+        '@polygonlabs/maticjs/staking': 'StakingClient'
       },
       probe: `
 import { providers, Wallet } from 'ethers';
 import { ethersV5Adapter } from '@polygonlabs/maticjs/ethers-v5';
+import { StakingClient, splitSignature } from '@polygonlabs/maticjs/staking';
+import type { StakingClientConfig } from '@polygonlabs/maticjs/staking';
 // The shipped d.ts must resolve its 'ethers' import against the
 // CONSUMER'S ethers v5 — if it still references the internal
 // 'ethers-v5' alias, this file fails to typecheck (skipLibCheck off).
@@ -118,7 +140,10 @@ const signer = Wallet.createRandom().connect(provider);
 const adapter = ethersV5Adapter({ provider, signer });
 // @ts-expect-error — adapter config requires a provider, not a string
 const bad = ethersV5Adapter({ provider: 'nope' });
-console.log(Boolean(adapter), Boolean(bad));
+// @ts-expect-error — StakingClient.init requires a config object
+const badStaking = StakingClient.init(42);
+console.log(Boolean(adapter), Boolean(bad), typeof splitSignature, Boolean(badStaking));
+export type { StakingClientConfig };
 `
     }
   ];

@@ -16,8 +16,9 @@ The package keeps its name and moves to the official `@polygonlabs`
 npm scope: versions up to 3.x remain published as
 `@maticnetwork/maticjs`, and 4.0 onwards ships as
 `@polygonlabs/maticjs`. The package is also narrowed to what it
-actually covers today — the Polygon **PoS bridge**. The zkEVM bridge
-surface the 3.x line also shipped is gone, because the zkEVM
+actually covers today — the Polygon **PoS bridge** and **PoS staking**
+(staking moves in from the separate 3.x staking plugin; see "Staking"
+below). The zkEVM bridge surface the 3.x line also shipped is gone, because the zkEVM
 network has reached end of life (see "zkEVM" at the bottom of this
 guide).
 
@@ -961,6 +962,8 @@ const sig = await signer._signTypedData(domain, types, message);
 const sig = await signer.signTypedData(domain, types, message);
 ```
 
+Staking permit users: the same applies to the POL permit, with a helper for building the payload — see [Staking: migrating from `@maticnetwork/maticjs-staking`](#staking-migrating-from-maticnetworkmaticjs-staking).
+
 ### `pos.client.parent.etheriumSha3(...args)` / Solidity-packed keccak
 
 The 3.x method was a variadic packed-keccak that inferred Solidity types
@@ -1127,10 +1130,303 @@ type errors are gone, run your existing integration tests against
 Amoy — the bridge protocol hasn't changed, so the on-chain behaviour
 matches.
 
+## Staking: migrating from `@maticnetwork/maticjs-staking`
+
+The 3.x staking plugin, `@maticnetwork/maticjs-staking`, extended the 3.x
+core through `use(Web3ClientPlugin)` and has no 4.0 peer — it is frozen
+alongside `@maticnetwork/maticjs`. Staking now ships inside this package
+behind its own subpath, `@polygonlabs/maticjs/staking`, so bridge consumers
+carry no staking ABIs and staking consumers carry no bridge proof code.
+
+### Client setup
+
+Staking lives on the parent chain only (StakeManager, the per-validator
+ValidatorShare proxies and both staking tokens are Ethereum / Sepolia
+contracts), so `StakingClient.init` takes one `parent` adapter. There is no
+`child`, no `version`, and no `Web3ClientPlugin`.
+
+```ts
+// 3.x
+import { use } from '@maticnetwork/maticjs';
+import { Web3ClientPlugin } from '@maticnetwork/maticjs-web3';
+import { StakingClient } from '@maticnetwork/maticjs-staking';
+
+use(Web3ClientPlugin);
+const staking = new StakingClient();
+await staking.init({
+  network: 'mainnet',
+  version: 'v1',
+  parent: { provider, defaultConfig: { from } },
+  child: { provider: childProvider, defaultConfig: { from } }
+});
+
+// 4.0
+import { viemAdapter } from '@polygonlabs/maticjs/viem';
+import { StakingClient } from '@polygonlabs/maticjs/staking';
+
+const staking = await StakingClient.init({
+  network: 'mainnet',
+  parent: viemAdapter({ public: publicClient, wallet: walletClient })
+});
+```
+
+`init` fetches the same published address index the bridge client uses and
+rejects with an `InitError` caused by `ContractNotAvailableOnNetworkError`
+when the index lacks `StakeManager`, `MaticToken` or `PolToken`, so a bad network
+or override fails at startup instead of on the first transaction. Every
+staking write is pinned to the parent chain id (`1` on mainnet, `11155111`
+on Sepolia), so a wallet still connected to Polygon is refused before
+broadcast; pass `chainId` in `TxOptions` to override it for a fork.
+
+To skip the address-index fetch (air-gapped deployments, pinned addresses,
+tests), pass `addresses`. Staking reads only three contracts, so a
+staking-only app passes just those three. It does not need to invent
+placeholder bridge addresses:
+
+```ts
+const staking = await StakingClient.init({
+  network: 'mainnet',
+  parent,
+  addresses: { StakeManager: '0x…', MaticToken: '0x…', PolToken: '0x…' }
+});
+```
+
+A full `NetworkAddresses` index that also carries the three staking keys
+works as well. An override that contains any bridge key is validated as a
+full index, bridge keys included, so a typo in a bridge key still fails
+loudly. `POSClient` still requires every bridge key.
+
+The 3.x plugin exposed `stakeManager`, `maticToken` and `polToken`
+properties and a `validatorShare(address)` factory. 4.0 keeps the shape:
+`staking.stakeManager`, `staking.matic`, `staking.pol` and
+`staking.validatorShare(address)`.
+
+### Params objects, `bigint`, and `TxResult`
+
+Every staking method with arguments takes a params object, amounts are
+`bigint`, and every write returns a `TxResult` with an unsigned
+`prepareXxx` sibling:
+
+```ts
+// 3.x
+const result = await share.delegateAmountPOL(amount, minShares);
+const hash = await result.getTransactionHash();
+const receipt = await result.getReceipt();
+
+// 4.0
+const result = await share.delegate({ amount, minSharesToMint: minShares });
+const hash = result.hash; // available on broadcast
+const receipt = await result.confirmed(); // waits for the receipt
+```
+
+`getTransactionHash()` and `getReceipt()` are gone, as they are for the
+bridge; see [TxResult: `result.confirmed()` not
+`result.getReceipt()`](#txresult-resultconfirmed-not-resultgetreceipt).
+
+A reverted staking transaction still fails loudly. In 3.x, `getReceipt()`
+rejected when the transaction reverted; in 4.0, `confirmed()` rejects too:
+with ethers' own `CALL_EXCEPTION` under ethers, or with a
+`ConfirmationError` caused by `TransactionRevertedError`, whose
+`info.receipt` is the receipt, under viem. Error handling that wraps the receipt wait in
+`try`/`catch` therefore keeps treating a revert as a failure. `result.hash`
+is available as soon as the transaction is broadcast, so a UI can show it
+before awaiting `confirmed()`.
+
+Params objects exist for a concrete reason. The 3.x `stakeFor` and
+`stakeForPOL` take **five** arguments (`user`, `amount`, `heimdallFee`,
+`acceptDelegation`, `signerPubkey`). The plugin ships no type
+declarations, so applications wrote their own; a declaration with four
+parameters let a call that omitted one compile — and encode a different
+call than the one intended. In 4.0 `StakeForParams` has all five
+fields required, so omitting one is a compile error.
+
+### Method mapping
+
+Writes (each also has a `prepareXxx` sibling returning `{ to, data, value? }`):
+
+| 3.x                                                             | 4.0                                                                                                                                                          |
+| --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `validatorShare(a).delegateAmountPOL(amount, minShares)`        | `validatorShare(a).delegate({ amount, minSharesToMint })`                                                                                                    |
+| `validatorShare(a).delegateAmountPOLwithPermit(...)`            | `validatorShare(a).delegateWithPermit({ amount, minSharesToMint, deadline, v, r, s })` — see [the permit flow](#permit-delegation-without-a-signing-adapter) |
+| `validatorShare(a).removeDelegatedAmountPOL(amount, maxShares)` | `validatorShare(a).undelegate({ amount, maxSharesToBurn })`                                                                                                  |
+| `validatorShare(a).claimDelegatedAmountPOL(nonce)`              | `validatorShare(a).claimUndelegated({ nonce })`                                                                                                              |
+| `validatorShare(a).restakeRewardPOL()`                          | `validatorShare(a).restakeRewards()`                                                                                                                         |
+| `validatorShare(a).withdrawRewardsPOL()`                        | `validatorShare(a).withdrawRewards()`                                                                                                                        |
+| `stakeManager.stakeForPOL(user, amount, fee, accept, pubkey)`   | `stakeManager.stakeFor({ user, amount, heimdallFee, acceptDelegation, signerPubkey })`                                                                       |
+| `stakeManager.reStakePOL(validatorId, amount, stakeRewards)`    | `stakeManager.restake({ validatorId, amount, stakeRewards })`                                                                                                |
+| `stakeManager.withdrawRewardForValidatorPOL(validatorId)`       | `stakeManager.withdrawValidatorRewards({ validatorId })`                                                                                                     |
+| `stakeManager.addTopUpForHeimdallFee(user, amount)`             | `stakeManager.topUpHeimdallFee({ user, heimdallFee })`                                                                                                       |
+| `stakeManager.unstakePOL(validatorId)`                          | `stakeManager.unstake({ validatorId })`                                                                                                                      |
+| `stakeManager.claimStakedAmountPOL(validatorId)`                | `stakeManager.claimUnstaked({ validatorId })`                                                                                                                |
+| `stakeManager.migrateDelegation(from, to, amount)`              | `stakeManager.migrateDelegation({ fromValidatorId, toValidatorId, amount })`                                                                                 |
+| `stakeManager.updateCommissionRate(validatorId, rate)`          | `stakeManager.updateCommissionRate({ validatorId, commissionRate })`                                                                                         |
+| `stakeManager.updateSigner(validatorId, publicKey)`             | `stakeManager.updateSigner({ validatorId, signerPubkey })`                                                                                                   |
+| `polToken.approveMaxForStakingManager()`                        | `staking.pol.approveMaxForStakeManager()`                                                                                                                    |
+| _(new)_                                                         | `staking.pol.approveStakeManager({ amount })` — approve an exact amount instead of the maximum                                                               |
+
+Legacy MATIC variants that stay, with a `Matic` suffix so the POL name is
+the unsuffixed default:
+
+| 3.x                                        | 4.0                                                                                         |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------- |
+| `validatorShare(a).delegateAmount(...)`    | `validatorShare(a).delegateMatic({ amount, minSharesToMint })`                              |
+| `stakeManager.stakeFor(...)` (MATIC)       | `stakeManager.stakeForMatic({ user, amount, heimdallFee, acceptDelegation, signerPubkey })` |
+| `maticToken.approveMaxForStakingManager()` | `staking.matic.approveMaxForStakeManager()`                                                 |
+
+Reads:
+
+| 3.x                                                                             | 4.0                                                            |
+| ------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| `stakeManager.getValidatorDetails(id)`                                          | `stakeManager.getValidator({ validatorId })` → `ValidatorInfo` |
+| `stakeManager.getCheckPointReward()`                                            | `stakeManager.getCheckpointReward()`                           |
+| `stakeManager.getLockedStatus()`                                                | `stakeManager.isLocked()`                                      |
+| `stakeManager.getTotalStake()`                                                  | `stakeManager.getTotalStaked()`                                |
+| `stakeManager.getMinDeposit()` / `getMinHeimdallFee()` / `getWithdrawalDelay()` | same names, `bigint` results                                   |
+| `validatorShare(a).getExchangeRate()`                                           | `validatorShare(a).getExchangeRate()`                          |
+| `validatorShare(a).getLiquidRewards(user)`                                      | `validatorShare(a).getLiquidRewards({ user })`                 |
+| `validatorShare(a).getMinAmountToStake()`                                       | `validatorShare(a).getMinAmount()`                             |
+| `validatorShare(a).getBalance(user)`                                            | `validatorShare(a).getBalance({ user })` (shares, not tokens)  |
+| `validatorShare(a).getOldUnbonds(user)`                                         | `validatorShare(a).getUnbond({ user })`                        |
+| `validatorShare(a).getNewUnbonds(user, nonce)`                                  | `validatorShare(a).getUnbondNew({ user, nonce })`              |
+| `polToken.getBalance(user)`                                                     | `staking.pol.getBalance({ user })`                             |
+| `polToken.getAllowanceForStakingManager(owner)`                                 | `staking.pol.getAllowanceForStakeManager({ owner })`           |
+
+4.0 also adds reads the plugin did not wrap: `stakeManager.getValidatorContract`,
+`getValidatorId({ user })` (resolves the owner of the validator NFT, not the
+signer key), `getDelegatedAmount`, `getValidatorStake`;
+`validatorShare(a).getTotalStake({ user })`, `getUnbondNonce({ user })`,
+`getValidatorId()`; and `pol.getNonce({ owner })`. Reads accept the same
+`TxOptions` as the bridge (for example `blockTag`).
+
+### Dropped legacy MATIC variants
+
+POL is the staking token, so the 4.0 surface ports a legacy MATIC path only
+where a known consumer still calls it (`delegateMatic`, `stakeForMatic`, and
+the MATIC token's approvals). These other 3.x MATIC-era methods are **not
+ported**; call the POL equivalent from the table above, or use the contract
+ABI from `@polygonlabs/maticjs/abi` if you must reach the legacy function:
+
+| Dropped 3.x method                             | Use instead                               |
+| ---------------------------------------------- | ----------------------------------------- |
+| `stakeManager.unStake(validatorId)`            | `stakeManager.unstake`                    |
+| `stakeManager.claimStakedAmount(validatorId)`  | `stakeManager.claimUnstaked`              |
+| `stakeManager.reStake(...)`                    | `stakeManager.restake`                    |
+| `stakeManager.withdrawRewardForValidator(...)` | `stakeManager.withdrawValidatorRewards`   |
+| `validatorShare(a).removeDelegatedAmount(...)` | `validatorShare(a).undelegate`            |
+| `validatorShare(a).claimDelegatedAmount(...)`  | `validatorShare(a).claimUndelegated`      |
+| `validatorShare(a).restakeReward()`            | `validatorShare(a).restakeRewards`        |
+| `validatorShare(a).withdrawRewards()` (MATIC)  | `validatorShare(a).withdrawRewards` (POL) |
+
+### Permit delegation without a signing adapter
+
+`delegateAmountPOLwithPermit` asked the SDK to sign. 4.0 never signs typed
+data (the adapters dropped `signTypedData`, see [the existing
+example](#posclientparentsigntypeddatasigner-typeddata)); you already hold a
+wallet client that can. `preparePermit` builds the EIP-712 payload, your
+wallet signs it, and `splitSignature` turns the 65-byte signature into the
+`v`, `r`, `s` the contract takes:
+
+```ts
+import { splitSignature } from '@polygonlabs/maticjs/staking';
+
+const value = 1_000_000_000_000_000_000n;
+const typed = await staking.pol.preparePermit({ owner: account, value });
+// spender defaults to the StakeManager proxy; deadline to now + 30 minutes
+
+// viem
+const signature = await walletClient.signTypedData({ account, ...typed });
+// ethers v5: await signer._signTypedData(typed.domain, typed.types, typed.message)
+// ethers v6: await signer.signTypedData(typed.domain, typed.types, typed.message)
+
+const { v, r, s } = splitSignature(signature);
+const result = await staking.validatorShare(shareAddress).delegateWithPermit({
+  amount: value,
+  minSharesToMint: 0n,
+  deadline: typed.message.deadline,
+  v,
+  r,
+  s
+});
+```
+
+`typed.domain.chainId` is a `number`, not a `bigint`: older viem 2.x
+releases drop a `bigint` chainId when the types omit `EIP712Domain`,
+signing a digest the token rejects. A `number` hashes identically in viem
+and ethers v5/v6. `splitSignature` also lifts a raw recovery id (`0`/`1`)
+to `27`/`28`, which the contract's `ecrecover` expects. Only POL implements
+EIP-2612: `staking.matic.preparePermit` rejects with a `PermitError` caused by
+`PermitNotSupportedError`.
+
+Use permit only with an externally owned account (EOA). Smart-contract
+wallets and ERC-1271 wallets, including Sequence v3 smart wallets, should
+call `staking.pol.approveStakeManager` and then `validatorShare(a).delegate`
+instead. These wallets return a contract signature, which the token checks
+with `ecrecover`, and that check fails. If the wallet's signature happens to
+be 65 bytes long, `splitSignature` accepts it and `delegateWithPermit`
+reverts on-chain, so the failure costs gas.
+
+### Looking up contract addresses
+
+`client.getConfig('Main.Contracts.StakeManagerProxy')` and the other
+config-path lookups are replaced by `await staking.getAddresses()`, which
+returns the resolved address index (`StakeManager`, `MaticToken` and
+`PolToken` included; only those three when the client was built from a
+staking-only `addresses` override):
+
+```ts
+// 3.x
+const stakeManager = await client.getConfig('Main.Contracts.StakeManagerProxy');
+
+// 4.0
+const { StakeManager: stakeManager } = await staking.getAddresses();
+```
+
+### Errors
+
+Staking follows the bridge's error model: an error from the wallet, node
+or library is rethrown unchanged, and a condition the SDK detects is
+wrapped in one operation error naming the call, with the condition as its
+`cause`. `StakingClient.init` rejects with `InitError`, `getAddresses` and
+`getAddress` with `AddressLookupError`, reads on `StakeManager`,
+`ValidatorShare` and `StakingToken` with `StakingReadError`, writes and their
+`prepare*` siblings with `StakingWriteError`, `StakingToken.preparePermit`
+with `PermitError`, and `confirmed()` with `ConfirmationError`. See [Error
+handling](#error-handling) for the full list and the finders.
+
+The two staking conditions to handle are
+`ContractNotAvailableOnNetworkError` (at `init` when the address index lacks a
+staking contract, and on a later call if a background address refresh drops
+one) and `PermitNotSupportedError` (permit helpers on the MATIC token).
+Recognise them by name:
+
+```ts
+import { ContractNotAvailableOnNetworkError, PermitNotSupportedError } from '@polygonlabs/maticjs';
+
+try {
+  await staking.matic.preparePermit(params);
+} catch (err) {
+  if (PermitNotSupportedError.has(err)) {
+    // MATIC has no EIP-2612 permit: approve, then call
+  } else if (ContractNotAvailableOnNetworkError.has(err)) {
+    const missing = ContractNotAvailableOnNetworkError.find(err)?.info.missing;
+    // the address index lacks a contract; `missing` names it
+  } else {
+    throw err;
+  }
+}
+```
+
+Revert and replacement handling come from `confirmed()`, exactly as for
+bridge writes. A wallet's own error, such as a user rejection, is the
+thrown error itself; see [Wallet and library errors](#wallet-and-library-errors).
+`splitSignature` stays synchronous and throws `InvalidHexStringError`
+directly, not wrapped in an operation error.
+
 ## zkEVM
 
 The 3.x line shipped both the PoS bridge and the zkEVM bridge
-surfaces. **`@polygonlabs/maticjs` covers only the PoS side.** The
+surfaces. **`@polygonlabs/maticjs` covers only the PoS side** (the PoS
+bridge and PoS staking). The
 Polygon zkEVM network has reached end of life, so the `ZkEvmClient`
 surface is not ported — there is no longer a chain for it to talk to.
 Remove `ZkEvmClient` usage along with the retired network.

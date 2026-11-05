@@ -160,6 +160,15 @@ function fetchAddresses(
 const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
 
 /**
+ * Type-guard form of the same shape check, for callers that validate a
+ * subset of the index themselves (the staking client's staking-only
+ * override) and must reject exactly what this parser rejects.
+ */
+export function isIndexAddress(value: unknown): value is `0x${string}` {
+  return typeof value === 'string' && ADDRESS_RE.test(value);
+}
+
+/**
  * Every predicate contract the index trusts as an approval spender. The
  * RootChainManager's `typeToPredicate` answer comes from an RPC, so an
  * approval is only sent to an address that is also in this set.
@@ -244,6 +253,12 @@ function parseNestedIndex(obj: Record<string, unknown>): NetworkAddresses {
   if (mintable20 !== undefined) out.MintableERC20Predicate = mintable20;
   const mintable721 = optionalAddress(pos.MintableERC721PredicateProxy);
   if (mintable721 !== undefined) out.MintableERC721Predicate = mintable721;
+  const stakeManager = optionalAddress(contracts.StakeManagerProxy);
+  if (stakeManager !== undefined) out.StakeManager = stakeManager;
+  const maticToken = optionalAddress(asRecord(contracts.Tokens).MaticToken);
+  if (maticToken !== undefined) out.MaticToken = maticToken;
+  const polToken = optionalAddress(contracts.PolygonEcosystemToken);
+  if (polToken !== undefined) out.PolToken = polToken;
   return out;
 }
 
@@ -269,6 +284,12 @@ function parseFlatIndex(obj: Record<string, unknown>): NetworkAddresses {
   if (mintable20 !== undefined) out.MintableERC20Predicate = mintable20;
   const mintable721 = optionalAddress(obj.MintableERC721Predicate);
   if (mintable721 !== undefined) out.MintableERC721Predicate = mintable721;
+  const stakeManager = optionalAddress(obj.StakeManager);
+  if (stakeManager !== undefined) out.StakeManager = stakeManager;
+  const maticToken = optionalAddress(obj.MaticToken);
+  if (maticToken !== undefined) out.MaticToken = maticToken;
+  const polToken = optionalAddress(obj.PolToken);
+  if (polToken !== undefined) out.PolToken = polToken;
   return out;
 }
 

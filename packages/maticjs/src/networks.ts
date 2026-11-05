@@ -43,7 +43,7 @@ export interface NetworkAddresses {
    * Mintable-ERC-1155 predicate. Optional — only some networks deploy a
    * dedicated predicate for mint-on-exit ERC-1155 tokens. When absent,
    * `ERC1155.approveAllForMintable` throws
-   * `POSBridgeError('CONTRACT_NOT_AVAILABLE_ON_NETWORK')`.
+   * `ContractNotAvailableOnNetworkError`.
    */
   MintableERC1155Predicate?: `0x${string}`;
   /**
@@ -53,6 +53,17 @@ export interface NetworkAddresses {
    */
   MintableERC20Predicate?: `0x${string}`;
   MintableERC721Predicate?: `0x${string}`;
+  /**
+   * Live StakeManager proxy (never the implementation). Optional so that
+   * bridge-only consumers supplying `addresses:` need not add it; the
+   * staking client validates presence and throws
+   * `ContractNotAvailableOnNetworkError` when absent.
+   */
+  StakeManager?: `0x${string}`;
+  /** Legacy MATIC staking token. Optional for the same reason as `StakeManager`. */
+  MaticToken?: `0x${string}`;
+  /** POL staking token. Optional for the same reason as `StakeManager`. */
+  PolToken?: `0x${string}`;
 }
 
 /**
