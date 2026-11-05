@@ -1,6 +1,6 @@
 {
   "name": "@polygonlabs/maticjs",
-  "version": "3.9.13",
+  "version": "4.0.0-pre.1",
   "description": "TypeScript SDK for the Polygon PoS bridge and staking — supports viem, ethers v5, and ethers v6",
   "type": "module",
   "sideEffects": false,
