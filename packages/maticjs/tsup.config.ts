@@ -43,7 +43,10 @@ export default defineConfig({
     // Vendored `as const` ABIs, exposed at `@polygonlabs/maticjs/abi` so
     // consumers can call contract methods the SDK doesn't wrap directly,
     // pairing them with `pos.getAddresses()`.
-    'abi/index': 'src/abi/index.ts'
+    'abi/index': 'src/abi/index.ts',
+    // Staking is its own entry so bridge bundles carry no staking ABI and
+    // staking bundles none of the bridge's proof machinery (MPT, RLP).
+    'staking/index': 'src/staking/index.ts'
   },
   // viem / ethers are optional peer deps and must never be bundled into
   // the adapter outputs — tsup externalises everything in `dependencies`
@@ -76,5 +79,17 @@ export default defineConfig({
   // different class object from the one imported from the main entry. Splitting hoists shared modules into one chunk that every
   // entry imports, restoring a single class identity per process.
   splitting: true,
-  treeshake: true
+  // tsup tree-shakes each emitted file with rollup, treating the other
+  // chunks as externals. esbuild emits a bare `import './chunk-X.js'` for
+  // every chunk an entry can reach through a re-export, even when it uses
+  // nothing from it — and the public ABI barrel re-exports every ABI, so
+  // the bridge entry would load the staking ABI chunk just to evaluate
+  // it. Our own chunks are side-effect free (package.json
+  // `sideEffects: false`), so a relative import that binds nothing is
+  // dropped. Third-party imports keep rollup's default, conservative
+  // handling. `scripts/check-entry-isolation.mjs` fails the pack smoke if
+  // either entry's import closure picks up the other surface again.
+  treeshake: {
+    moduleSideEffects: (id: string, external: boolean) => !(external && id.startsWith('.'))
+  }
 });

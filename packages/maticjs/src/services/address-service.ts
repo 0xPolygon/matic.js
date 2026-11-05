@@ -159,6 +159,15 @@ function fetchAddresses(
  */
 const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
 
+/**
+ * Type-guard form of the same shape check, for callers that validate a
+ * subset of the index themselves (the staking client's staking-only
+ * override) and must reject exactly what this parser rejects.
+ */
+export function isIndexAddress(value: unknown): value is `0x${string}` {
+  return typeof value === 'string' && ADDRESS_RE.test(value);
+}
+
 /** Narrow an unknown value to a 0x-address string or throw with the full key path. */
 function requireAddress(value: unknown, path: string): `0x${string}` {
   if (typeof value !== 'string' || !ADDRESS_RE.test(value)) {
@@ -197,17 +206,38 @@ function parseNestedIndex(obj: Record<string, unknown>): NetworkAddresses {
   const contracts = asRecord(main.Contracts);
 
   const out: NetworkAddresses = {
-    RootChainManager: requireAddress(pos.RootChainManagerProxy, 'Main.POSContracts.RootChainManagerProxy'),
-    ERC20Predicate: requireAddress(pos.ERC20PredicateProxy, 'Main.POSContracts.ERC20PredicateProxy'),
-    ERC721Predicate: requireAddress(pos.ERC721PredicateProxy, 'Main.POSContracts.ERC721PredicateProxy'),
-    ERC1155Predicate: requireAddress(pos.ERC1155PredicateProxy, 'Main.POSContracts.ERC1155PredicateProxy'),
-    EtherPredicate: requireAddress(pos.EtherPredicateProxy, 'Main.POSContracts.EtherPredicateProxy'),
+    RootChainManager: requireAddress(
+      pos.RootChainManagerProxy,
+      'Main.POSContracts.RootChainManagerProxy'
+    ),
+    ERC20Predicate: requireAddress(
+      pos.ERC20PredicateProxy,
+      'Main.POSContracts.ERC20PredicateProxy'
+    ),
+    ERC721Predicate: requireAddress(
+      pos.ERC721PredicateProxy,
+      'Main.POSContracts.ERC721PredicateProxy'
+    ),
+    ERC1155Predicate: requireAddress(
+      pos.ERC1155PredicateProxy,
+      'Main.POSContracts.ERC1155PredicateProxy'
+    ),
+    EtherPredicate: requireAddress(
+      pos.EtherPredicateProxy,
+      'Main.POSContracts.EtherPredicateProxy'
+    ),
     RootChain: requireAddress(contracts.RootChainProxy, 'Main.Contracts.RootChainProxy')
   };
   const gasSwapper = optionalAddress(pos.GasSwapper);
   if (gasSwapper !== undefined) out.GasSwapper = gasSwapper;
   const mintable1155 = optionalAddress(pos.MintableERC1155PredicateProxy);
   if (mintable1155 !== undefined) out.MintableERC1155Predicate = mintable1155;
+  const stakeManager = optionalAddress(contracts.StakeManagerProxy);
+  if (stakeManager !== undefined) out.StakeManager = stakeManager;
+  const maticToken = optionalAddress(asRecord(contracts.Tokens).MaticToken);
+  if (maticToken !== undefined) out.MaticToken = maticToken;
+  const polToken = optionalAddress(contracts.PolygonEcosystemToken);
+  if (polToken !== undefined) out.PolToken = polToken;
   return out;
 }
 
@@ -229,6 +259,12 @@ function parseFlatIndex(obj: Record<string, unknown>): NetworkAddresses {
   if (gasSwapper !== undefined) out.GasSwapper = gasSwapper;
   const mintable1155 = optionalAddress(obj.MintableERC1155Predicate);
   if (mintable1155 !== undefined) out.MintableERC1155Predicate = mintable1155;
+  const stakeManager = optionalAddress(obj.StakeManager);
+  if (stakeManager !== undefined) out.StakeManager = stakeManager;
+  const maticToken = optionalAddress(obj.MaticToken);
+  if (maticToken !== undefined) out.MaticToken = maticToken;
+  const polToken = optionalAddress(obj.PolToken);
+  if (polToken !== undefined) out.PolToken = polToken;
   return out;
 }
 

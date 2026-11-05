@@ -6,7 +6,7 @@ imports this file, so every agent reads the same rules.
 ## Orientation
 
 This is the monorepo for `@polygonlabs/maticjs`, the TypeScript SDK for the
-Polygon PoS bridge over viem, ethers v5 or ethers v6. The SDK
+Polygon PoS bridge and staking over viem, ethers v5 or ethers v6. The SDK
 lives in `packages/maticjs` (source in `src`, the per-library adapters in
 `src/adapters`, tests in `tests`). `packages/test-app` is a private browser
 smoke test of the built package, and `examples` holds standalone consumer
