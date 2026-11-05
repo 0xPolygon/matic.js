@@ -10,6 +10,7 @@ test-blockchain/history
 test-blockchain/data/**
 !test-blockchain/data/.gitkeep
 *.env
+.env.test
 manual/.env
 bundle.js
 dist
