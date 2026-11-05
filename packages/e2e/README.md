@@ -14,11 +14,9 @@ It is private and never published. It is opt-in: the root `pnpm test` does not r
 2. runs `up`, which reads the running devnet, waits until L2 is at block 256 or later and heimdall has acknowledged a checkpoint, and prints the devnet's RPC URLs, chain ids and contract addresses as `export` lines that the script evals;
 3. runs `seed`, which funds the test keys (see below);
 4. runs the tests (`test:e2e`);
-5. runs `down`, which tears the devnet down. Pass `--skip-down` to keep it running: `pnpm run e2e -- --skip-down`.
+5. only if asked, with `--down` or `E2E_DOWN=1` (`pnpm run e2e -- --down`), runs `down`, which tears the devnet down.
 
-If a step fails, the script stops there and leaves the devnet up for inspection. Run `pnpm --filter @polygonlabs/maticjs-e2e run down` when you are done.
-
-`run-e2e.sh` does not start the devnet. You start it, as below.
+`run-e2e.sh` does not start the devnet. You start it, as below, so by default it leaves the devnet running when it finishes: a devnet you booted may be one you, or another session, still need. CI boots its own devnet and passes `--down` to remove it. If a step fails, the script stops there, before any teardown, and the devnet stays up for inspection. Run `pnpm --filter @polygonlabs/maticjs-e2e run down` when you are done with it.
 
 ## Running locally (cold start)
 
@@ -28,7 +26,9 @@ You need Docker (Engine 25 or later) running and the [kurtosis CLI](https://docs
 
 ```bash
 # Once, on Apple silicon: kurtosis-pos's toolbox image is amd64-only.
-docker pull --platform linux/amd64 europe-west2-docker.pkg.dev/prj-polygonlabs-devtools-dev/public/toolbox:0.0.14
+# Pull the image named by `toolbox_image` in kurtosis-pos's
+# src/config/constants.star, as linux/amd64.
+docker pull --platform linux/amd64 <toolbox_image>
 
 # Boot the devnet from a kurtosis-pos checkout at v1.4.8 (about 3 minutes with cached images).
 git clone --branch v1.4.8 https://github.com/0xPolygon/kurtosis-pos.git
@@ -43,13 +43,13 @@ pnpm run e2e
 
 `kurtosis-params.yml` selects an anvil L1, which boots faster than the default geth and lighthouse L1. `up` waits for the devnet to be ready, so you can start `pnpm run e2e` as soon as `kurtosis run` returns.
 
-`down` removes the enclave that `up` read, by its UUID. The kurtosis engine you started with `kurtosis run` keeps running; stop it with `kurtosis engine stop` when you no longer need it.
+`down` removes the enclave that `up` read, by its UUID, and only when you run it (directly, or through `--down`). `up` records whether `.github/scripts/e2e-setup.sh` booted that enclave or `up` attached to one already running, and `down` reports which it removed. The kurtosis engine you started with `kurtosis run` keeps running; stop it with `kurtosis engine stop` when you no longer need it.
 
 Never pipe kurtosis CLI output into `head`: closing the pipe can kill an auto-started engine mid-start and leave a container that blocks every later `engine start`.
 
 ## Running in CI
 
-CI cold-starts the devnet from kurtosis-pos source with the same `kurtosis-params.yml` as a local run (`.github/scripts/e2e-setup.sh`).
+CI cold-starts the devnet from kurtosis-pos source with the same `kurtosis-params.yml` as a local run (`.github/scripts/e2e-setup.sh`). It checks kurtosis-pos out at a pinned commit and installs a pinned kurtosis CLI `.deb`, verified by its sha256. It then runs `pnpm run e2e -- --down`, so the devnet it booted is removed when the suite passes.
 
 ### Snapshot (opt-in)
 

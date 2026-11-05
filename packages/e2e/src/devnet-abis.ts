@@ -27,6 +27,15 @@ export const dummyErc1155Abi = parseAbi([
   'function balanceOf(address account, uint256 id) view returns (uint256)'
 ]);
 
+/**
+ * ERC-721 and ERC-1155 operator approval. The tests use it to revoke an
+ * approval the SDK set in an earlier run, and to read it back independently.
+ */
+export const approvalForAllAbi = parseAbi([
+  'function setApprovalForAll(address operator, bool approved)',
+  'function isApprovedForAll(address owner, address operator) view returns (bool)'
+]);
+
 export const rootChainManagerAbi = parseAbi([
   'function depositFor(address user, address rootToken, bytes depositData)'
 ]);

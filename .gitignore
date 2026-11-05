@@ -21,3 +21,4 @@ config.json
 .nuxt
 docs
 !packages/maticjs/docs/
+tmp/

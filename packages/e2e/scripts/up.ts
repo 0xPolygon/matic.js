@@ -15,8 +15,9 @@
  * - Heimdall has acknowledged at least one checkpoint, so exits can be
  *   proven.
  *
- * It records which devnet it read, so `scripts/down.ts` removes exactly that
- * one and nothing else. Progress goes to stderr; stdout carries only the
+ * It records which devnet it read, and whether `.github/scripts/e2e-setup.sh`
+ * booted it (`E2E_DEVNET_CREATED_BY_HARNESS=1`) or it was already running, so
+ * `scripts/down.ts`, when asked, removes exactly that one and nothing else. Progress goes to stderr; stdout carries only the
  * export lines.
  */
 import { createPublicClient, http } from 'viem';

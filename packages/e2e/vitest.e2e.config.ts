@@ -22,6 +22,13 @@
  * SDK share one instance of each library. The resolved files are loaded by
  * Node directly, not transformed.
  *
+ * The rewrite keys on the importing FILE, so it only works while the bundler
+ * keeps `import 'ethers'` inside the ethers v5 adapter's own entry file. If a
+ * build ever hoisted it into a shared chunk, the v5 adapter would silently
+ * run on ethers 6 and every ethers-v5 row would test the wrong library.
+ * `assertEthersImportsStayInAdapterEntries` fails the run at config time,
+ * before any test, if any other built file imports `ethers`.
+ *
  * # Run order and timeouts
  *
  * Files run one at a time (`fileParallelism: false`) in a fixed order. Rows
@@ -31,8 +38,8 @@
 import type { Plugin } from 'vitest/config';
 import type { TestSpecification } from 'vitest/node';
 
-import { existsSync } from 'node:fs';
-import { dirname, sep } from 'node:path';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { dirname, join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { defineConfig } from 'vitest/config';
@@ -70,6 +77,42 @@ const resolveHere = (specifier: string) => fileURLToPath(import.meta.resolve(spe
 
 const PEERS = /^(viem|ethers|ethers-v5)(\/.*)?$/;
 
+/** A static or dynamic import of `ethers` or an `ethers/...` subpath. */
+const ETHERS_IMPORT = /\b(?:from|import)\s*\(?\s*['"]ethers(?:\/[^'"]*)?['"]/;
+
+/**
+ * Fail unless `ethers` is imported only by the two ethers adapter entry
+ * files, and the v5 entry does import it (so the rewrite below has
+ * something to rewrite). See "Which SDK the tests import" above.
+ */
+function assertEthersImportsStayInAdapterEntries({
+  sdkDist,
+  ethersV5Entry,
+  ethersV6Entry
+}: {
+  sdkDist: string;
+  ethersV5Entry: string;
+  ethersV6Entry: string;
+}): void {
+  const importers = readdirSync(sdkDist, { recursive: true, encoding: 'utf8' })
+    .filter((file) => file.endsWith('.js'))
+    .map((file) => join(sdkDist, file))
+    .filter((file) => ETHERS_IMPORT.test(readFileSync(file, 'utf8')));
+  const fix = 'The ethers v5 adapter would run on ethers 6; see vitest.e2e.config.ts.';
+  if (!importers.includes(ethersV5Entry)) {
+    throw new Error(
+      `${relative(sdkDist, ethersV5Entry)} no longer imports \`ethers\` itself. ${fix}`
+    );
+  }
+  const stray = importers.filter((file) => file !== ethersV5Entry && file !== ethersV6Entry);
+  if (stray.length > 0) {
+    throw new Error(
+      `built SDK files other than the ethers adapter entries import \`ethers\`: ` +
+        `${stray.map((file) => relative(sdkDist, file)).join(', ')}. ${fix}`
+    );
+  }
+}
+
 function consumerPeerResolution(): Plugin {
   const sdkEntry = resolveHere('@polygonlabs/maticjs');
   if (!existsSync(sdkEntry)) {
@@ -79,6 +122,11 @@ function consumerPeerResolution(): Plugin {
   }
   const sdkDist = dirname(sdkEntry) + sep;
   const ethersV5Adapter = resolveHere('@polygonlabs/maticjs/ethers-v5');
+  assertEthersImportsStayInAdapterEntries({
+    sdkDist,
+    ethersV5Entry: ethersV5Adapter,
+    ethersV6Entry: resolveHere('@polygonlabs/maticjs/ethers-v6')
+  });
   return {
     name: 'maticjs-e2e-consumer-peer-resolution',
     enforce: 'pre',

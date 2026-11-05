@@ -12,6 +12,15 @@
  * public Sepolia / Amoy endpoints throttle. CI composes rate-limit-free
  * URLs (`.github/scripts/compose-rpc-env.sh`); without them the files
  * skip rather than fail on a 429.
+ *
+ * # Why `REQUIRE_LIVE_RPC` turns a skip into a failure
+ *
+ * A skip is right on a fork PR, which gets no secrets. It is wrong when CI
+ * has the key but the URLs still came out unset (a renamed or emptied repo
+ * variable, say): the tier would skip, the run would go green, and nothing
+ * live would have been checked. `compose-rpc-env.sh` exports
+ * `REQUIRE_LIVE_RPC=1` whenever it has the key, so in that case a missing
+ * URL fails the run here instead of skipping it.
  */
 import { JsonRpcProvider, Network as V6Network } from 'ethers';
 import { providers as v5Providers } from 'ethers-v5';
@@ -29,6 +38,14 @@ import { TEST_NETWORKS } from '../fixtures/networks.js';
 export const HAS_LIVE_RPC =
   (process.env['POS_SDK_TEST_PARENT_RPC'] ?? '') !== '' &&
   (process.env['POS_SDK_TEST_CHILD_RPC'] ?? '') !== '';
+
+if (process.env['REQUIRE_LIVE_RPC'] === '1' && !HAS_LIVE_RPC) {
+  throw new Error(
+    'REQUIRE_LIVE_RPC=1 but POS_SDK_TEST_PARENT_RPC / POS_SDK_TEST_CHILD_RPC are not both set: ' +
+      'the live tier would skip instead of running. Check the RPC base-URL variables ' +
+      'that .github/scripts/compose-rpc-env.sh joins with the key.'
+  );
+}
 
 export interface LiveEnv {
   parentRpc: string;

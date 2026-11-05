@@ -7,9 +7,9 @@
  * devnet finishes fast and a stuck one fails with a message naming what it
  * was waiting for.
  */
-import type { Hash, PublicClient } from 'viem';
+import type { Address, Hash, PublicClient } from 'viem';
 
-import { createPublicClient, http } from 'viem';
+import { createPublicClient, createWalletClient, http } from 'viem';
 import { expect } from 'vitest';
 
 import type { Receipt, TxResult } from '@polygonlabs/maticjs';
@@ -17,8 +17,11 @@ import type { Receipt, TxResult } from '@polygonlabs/maticjs';
 import { POSBridgeError, POSClient } from '@polygonlabs/maticjs';
 
 import type { AdapterRow } from '../src/adapters.ts';
+import type { AdapterName, Suite } from '../src/keys.ts';
 
 import { devnetChains, VIEM_POLLING_INTERVAL_MS } from '../src/adapters.ts';
+import { approvalForAllAbi, dummyErc1155Abi, erc20Abi } from '../src/devnet-abis.ts';
+import { keyFor } from '../src/keys.ts';
 import { getTestEnv } from '../src/test-env.ts';
 import { pollUntil } from '../src/wait.ts';
 
@@ -162,4 +165,99 @@ export async function gasPaid({
 }): Promise<bigint> {
   const receipt = await client.getTransactionReceipt({ hash });
   return receipt.gasUsed * receipt.effectiveGasPrice;
+}
+
+/** `isApprovedForAll(owner, operator)` on an L1 token, read with plain viem. */
+export function isApprovedForAll({
+  token,
+  owner,
+  operator
+}: {
+  token: Address;
+  owner: Address;
+  operator: Address;
+}): Promise<boolean> {
+  return readers().l1.readContract({
+    address: token,
+    abi: approvalForAllAbi,
+    functionName: 'isApprovedForAll',
+    args: [owner, operator]
+  });
+}
+
+/**
+ * Revoke `operator`'s approval-for-all on an L1 token with a plain viem
+ * write from the (suite × adapter) key, and check it now reads false.
+ *
+ * Nothing in the tier ever revokes the approval `approveAll()` sets, and a
+ * devnet can outlive a run, so on a reused devnet an "approved after
+ * `approveAll()`" check would pass on an earlier run's approval even if this
+ * run's write changed nothing. Revoking first gives the write something to
+ * change.
+ */
+export async function revokeApprovalForAll({
+  suite,
+  adapter,
+  token,
+  operator
+}: {
+  suite: Suite;
+  adapter: AdapterName;
+  token: Address;
+  operator: Address;
+}): Promise<void> {
+  const account = keyFor({ suite, adapter });
+  const wallet = createWalletClient({
+    account,
+    chain: devnetChains().l1,
+    transport: http(),
+    pollingInterval: VIEM_POLLING_INTERVAL_MS
+  });
+  const hash = await wallet.writeContract({
+    address: token,
+    abi: approvalForAllAbi,
+    functionName: 'setApprovalForAll',
+    args: [operator, false]
+  });
+  const receipt = await readers().l1.waitForTransactionReceipt({ hash });
+  expect(receipt).property('status').equals('success');
+  expect(await isApprovedForAll({ token, owner: account.address, operator })).equals(false);
+}
+
+/** ERC-20 `balanceOf`, read with plain viem on the given chain's client. */
+export function erc20BalanceOf({
+  client,
+  token,
+  owner
+}: {
+  client: PublicClient;
+  token: Address;
+  owner: Address;
+}): Promise<bigint> {
+  return client.readContract({
+    address: token,
+    abi: erc20Abi,
+    functionName: 'balanceOf',
+    args: [owner]
+  });
+}
+
+/** ERC-1155 `balanceOf`, read with plain viem on the given chain's client. */
+export function erc1155BalanceOf({
+  client,
+  token,
+  owner,
+  id
+}: {
+  client: PublicClient;
+  token: Address;
+  owner: Address;
+  id: bigint;
+}): Promise<bigint> {
+  return client.readContract({
+    address: token,
+    abi: dummyErc1155Abi,
+    functionName: 'balanceOf',
+    args: [owner, id]
+  });
 }

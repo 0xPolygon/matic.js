@@ -241,10 +241,24 @@ function parseJson(raw: string, source: string): unknown {
 /**
  * What `scripts/down.ts` may remove: exactly the enclave (by UUID) or the
  * compose project that `scripts/up.ts` ran against. Nothing else.
+ *
+ * `createdByHarness` says whether `.github/scripts/e2e-setup.sh` booted that
+ * devnet in this run (it exports `E2E_DEVNET_CREATED_BY_HARNESS=1` when it
+ * does) or `up` merely attached to one that was already running. `down` only
+ * runs when asked, and it reports which of the two it is removing.
  */
 const TeardownRecordSchema = z.discriminatedUnion('mode', [
-  z.object({ mode: z.literal('kurtosis'), enclaveUuid: z.string().min(1) }),
-  z.object({ mode: z.literal('snapshot'), composeFile: z.string().min(1) })
+  z.object({
+    mode: z.literal('kurtosis'),
+    enclaveUuid: z.string().min(1),
+    // A record written before this field existed defaults to attached, the safe reading.
+    createdByHarness: z.boolean().default(false)
+  }),
+  z.object({
+    mode: z.literal('snapshot'),
+    composeFile: z.string().min(1),
+    createdByHarness: z.boolean().default(false)
+  })
 ]);
 export type TeardownRecord = z.infer<typeof TeardownRecordSchema>;
 
@@ -280,6 +294,7 @@ export function removeEnclave(enclaveUuid: string): void {
 
 /** Read the running devnet and the record of what a later `down` may remove. */
 export function readDevnet(): { devnet: Devnet; teardown: TeardownRecord } {
+  const createdByHarness = process.env['E2E_DEVNET_CREATED_BY_HARNESS'] === '1';
   const snapshotAddressesPath = process.env['E2E_SNAPSHOT_ADDRESSES_JSON'];
   if (snapshotAddressesPath) {
     return {
@@ -295,7 +310,8 @@ export function readDevnet(): { devnet: Devnet; teardown: TeardownRecord } {
       },
       teardown: {
         mode: 'snapshot',
-        composeFile: join(dirname(snapshotAddressesPath), 'docker-compose.yaml')
+        composeFile: join(dirname(snapshotAddressesPath), 'docker-compose.yaml'),
+        createdByHarness
       }
     };
   }
@@ -328,6 +344,6 @@ export function readDevnet(): { devnet: Devnet; teardown: TeardownRecord } {
         )
       )
     },
-    teardown: { mode: 'kurtosis', enclaveUuid: uuid }
+    teardown: { mode: 'kurtosis', enclaveUuid: uuid, createdByHarness }
   };
 }

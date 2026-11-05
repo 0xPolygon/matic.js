@@ -49,6 +49,13 @@ In CI the URLs are composed from repo variables plus one API key; see
 [`../../.github/workflows/ci-trigger.yml`](../../.github/workflows/ci-trigger.yml).
 Fork PRs get no secrets, so there the gated files skip.
 
+When the key is present, the compose script also exports
+`REQUIRE_LIVE_RPC=1`. With it set, the gated files fail instead of
+skipping if `POS_SDK_TEST_PARENT_RPC` or `POS_SDK_TEST_CHILD_RPC` is
+unset, so an emptied or renamed URL variable cannot turn the live tier
+into a silent skip on a green run. Set it locally to check the same
+thing: `REQUIRE_LIVE_RPC=1 pnpm test` fails without the URLs.
+
 ### Rate-limit notes
 
 Public RPC endpoints for Sepolia and Amoy throttle aggressively. The
