@@ -20,8 +20,8 @@ jobs:
     # compose step joins them (see .github/scripts/compose-rpc-env.sh) and
     # writes nothing when the key is absent — fork PRs get no secrets, so
     # there the live-read tests fall back to their public defaults or
-    # skip. No private key is configured: write-path tests stay skipped.
-    # The `e2e` cycle test is never enabled on this PR workflow.
+    # skip. Write paths run in the e2e workflow (`e2e-trigger.yml`) against
+    # a local devnet; this job runs the read-only live tier only.
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         if: "!startsWith(github.head_ref, 'changeset-release/')"
