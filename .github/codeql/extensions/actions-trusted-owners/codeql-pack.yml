@@ -1,0 +1,12 @@
+# CodeQL model pack, auto-loaded by code scanning default setup from
+# .github/codeql/extensions/. It marks 0xPolygon as a trusted Actions
+# publisher so the actions/unpinned-tag query stops flagging our own shared
+# workflows and actions (0xPolygon/pipelines), which we pin to @main on
+# purpose. Third-party actions are still flagged.
+name: 0xpolygon/actions-trusted-owners
+version: 0.0.1
+library: true
+extensionTargets:
+  codeql/actions-all: '*'
+dataExtensions:
+  - models/**/*.yml

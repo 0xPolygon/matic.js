@@ -1,3 +1,13 @@
 node_modules
 build
 dist
+
+# Codegenned `as const` ABI modules — regenerate via `pnpm run codegen`,
+# never hand-format. The codegen-drift-check gate compares raw codegen output
+# against these files; Prettier reformatting them would diverge from that
+# output and fail the gate on a false positive.
+packages/maticjs/src/abi/
+
+# Verbatim third-party source (see packages/maticjs/THIRD_PARTY_NOTICES.md):
+# must stay byte-identical to upstream, so it is never reformatted.
+packages/maticjs/src/vendor/
