@@ -1,17 +1,18 @@
 {
+  "extends": ["@tsconfig/node20/tsconfig.json", "@tsconfig/node-ts/tsconfig.json"],
   "compilerOptions": {
     "noEmit": true,
-    "erasableSyntaxOnly": false,
-    "verbatimModuleSyntax": false,
-    "lib": ["es2015", "dom"],
-    "target": "ES2015",
-    "module": "commonjs",
-    "moduleResolution": "node",
-    "declaration": true,
+    "target": "es2023",
+    "lib": ["es2023"],
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "strict": true,
+    "erasableSyntaxOnly": true,
+    "noUncheckedSideEffectImports": true,
     "esModuleInterop": true,
     "resolveJsonModule": true,
-    "strict": false,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "verbatimModuleSyntax": true
   },
-  "include": ["src/**/*", "tests/**/*", "vitest.config.ts"]
+  "include": ["src/**/*", "tests/**/*", "scripts/**/*", "vitest.config.ts", "tsup.config.ts"]
 }

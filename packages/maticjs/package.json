@@ -1,11 +1,44 @@
 {
-  "name": "@maticnetwork/maticjs",
+  "name": "@polygonlabs/maticjs",
   "version": "3.9.13",
-  "description": "Javascript developer library for interacting with Matic Network",
-  "main": "dist/npm.export.js",
-  "types": "dist/ts/index.d.ts",
-  "browser": "dist/matic.umd.js",
-  "react-native": "dist/matic.node.js",
+  "description": "TypeScript SDK for the Polygon PoS bridge — supports viem, ethers v5, and ethers v6",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "@polygonlabs/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./viem": {
+      "@polygonlabs/source": "./src/adapters/viem.ts",
+      "types": "./dist/adapters/viem.d.ts",
+      "import": "./dist/adapters/viem.js",
+      "default": "./dist/adapters/viem.js"
+    },
+    "./ethers-v5": {
+      "@polygonlabs/source": "./src/adapters/ethers-v5.ts",
+      "types": "./dist/adapters/ethers-v5.d.ts",
+      "import": "./dist/adapters/ethers-v5.js",
+      "default": "./dist/adapters/ethers-v5.js"
+    },
+    "./ethers-v6": {
+      "@polygonlabs/source": "./src/adapters/ethers-v6.ts",
+      "types": "./dist/adapters/ethers-v6.d.ts",
+      "import": "./dist/adapters/ethers-v6.js",
+      "default": "./dist/adapters/ethers-v6.js"
+    },
+    "./abi": {
+      "@polygonlabs/source": "./src/abi/index.ts",
+      "types": "./dist/abi/index.d.ts",
+      "import": "./dist/abi/index.js",
+      "default": "./dist/abi/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "repository": {
     "type": "git",
     "url": "https://github.com/0xPolygon/matic.js.git",
@@ -13,63 +46,94 @@
   },
   "files": [
     "dist",
-    "MIGRATION.md"
+    "MIGRATION.md",
+    "CHANGELOG.md",
+    "THIRD_PARTY_NOTICES.md"
   ],
   "scripts": {
+    "build": "tsup && node scripts/fix-dts-specifiers.mjs",
     "clean": "rimraf dist",
-    "build:dev": "webpack",
-    "build:prod": "webpack --env build",
-    "build": "pnpm run clean && pnpm run build:dev && pnpm run build:prod",
+    "codegen": "node scripts/generate-abis.ts",
+    "codegen-drift-check": "pnpm run codegen && git diff --exit-code -- src/abi",
+    "prepublishOnly": "pnpm run build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "prepublishOnly": "pnpm run build"
+    "test:pack": "node scripts/pack-smoke.mjs",
+    "check:error-ownership": "node scripts/check-error-ownership.mjs"
   },
   "keywords": [
+    "polygon",
+    "pos",
+    "bridge",
     "ethereum",
-    "web3",
-    "ethers",
-    "matic"
+    "viem",
+    "ethers"
   ],
-  "author": "Jaynti Kanani <jd@matic.network>",
+  "author": "Polygon Labs",
   "license": "MIT",
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "import": "./dist/index.js",
+        "default": "./dist/index.js"
+      },
+      "./viem": {
+        "types": "./dist/adapters/viem.d.ts",
+        "import": "./dist/adapters/viem.js",
+        "default": "./dist/adapters/viem.js"
+      },
+      "./ethers-v5": {
+        "types": "./dist/adapters/ethers-v5.d.ts",
+        "import": "./dist/adapters/ethers-v5.js",
+        "default": "./dist/adapters/ethers-v5.js"
+      },
+      "./ethers-v6": {
+        "types": "./dist/adapters/ethers-v6.d.ts",
+        "import": "./dist/adapters/ethers-v6.js",
+        "default": "./dist/adapters/ethers-v6.js"
+      },
+      "./abi": {
+        "types": "./dist/abi/index.d.ts",
+        "import": "./dist/abi/index.js",
+        "default": "./dist/abi/index.js"
+      },
+      "./package.json": "./package.json"
+    }
   },
   "bugs": {
     "url": "https://github.com/0xPolygon/matic.js/issues"
   },
   "homepage": "https://github.com/0xPolygon/matic.js#readme",
   "engines": {
-    "node": ">=8.0.0"
+    "node": ">=22.12"
   },
-  "browserslist": [
-    "> 1%",
-    "node 8",
-    "not dead"
-  ],
+  "peerDependencies": {
+    "ethers": "^5.6.0 || ^6.0.0",
+    "viem": "^2.0.0"
+  },
+  "peerDependenciesMeta": {
+    "viem": {
+      "optional": true
+    },
+    "ethers": {
+      "optional": true
+    }
+  },
   "dependencies": {
-    "@ethereumjs/block": "^5.2.0",
-    "@ethereumjs/common": "^4.4.0",
-    "@ethereumjs/trie": "^6.2.0",
-    "@ethereumjs/util": "^9.0.3",
-    "assert": "^2.1.0",
-    "bn.js": "^5.2.1",
-    "buffer": "^6.0.3",
-    "ethereum-cryptography": "^2.2.1",
-    "node-fetch": "^2.6.1",
-    "rlp": "^3.0.0",
-    "safe-buffer": "^5.2.1",
-    "stream": "^0.0.3"
+    "@ethereumjs/mpt": "10.1.2",
+    "@ethereumjs/rlp": "10.1.2",
+    "@noble/hashes": "2.2.0",
+    "@polygonlabs/verror": "^1.1.0"
   },
   "devDependencies": {
-    "@types/node-fetch": "^2.6.11",
-    "copy-webpack-plugin": "^12.0.2",
+    "@polygonlabs/meta": "^1.1.1",
+    "@tsconfig/node20": "^20.0.0",
+    "ethers-v5": "npm:ethers@^5.8.0",
     "rimraf": "^5.0.0",
-    "ts-loader": "^8.0.0",
+    "tsup": "8.3.0",
     "typescript": "^5.9.3",
-    "vitest": "^3.0.0",
-    "webpack": "^5.91.0",
-    "webpack-cli": "^5.1.4",
-    "yargs": "^17.7.2"
+    "vitest": "^3.0.0"
   }
 }

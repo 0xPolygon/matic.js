@@ -1,7 +1,13 @@
 export interface IBaseBlock {
   size: number;
   difficulty: number;
-  totalDifficulty: number;
+  /**
+   * Absent on modern RPC responses: geth removed `totalDifficulty` from
+   * `eth_getBlockByNumber` in v1.14 (post-merge it is meaningless) and
+   * current bor endpoints inherited that. Nothing in the proof pipeline
+   * consumes it — kept optional only for shape compatibility.
+   */
+  totalDifficulty?: number;
   uncles: string[];
   number: number;
   hash: string;
