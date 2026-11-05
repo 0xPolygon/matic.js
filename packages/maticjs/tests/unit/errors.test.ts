@@ -43,7 +43,8 @@ const ALL_CODES = [
   'BRIDGE_EVENT_DECODE_FAILED',
   'NULL_SPENDER_ADDRESS',
   'ALLOWED_ON_NON_NATIVE_TOKENS',
-  'ONLY_ALLOWED_ON_MAINNET'
+  'ONLY_ALLOWED_ON_MAINNET',
+  'PERMIT_NOT_SUPPORTED'
 ] as const satisfies readonly POSBridgeErrorCode[];
 
 // `satisfies readonly POSBridgeErrorCode[]` only proves every value in
@@ -67,7 +68,7 @@ describe('POSBridgeError', () => {
     // Construction must not throw for any code. We also assert the count so
     // a forgotten entry in ALL_CODES (out-of-sync with the union) shows up
     // as a numeric mismatch rather than silently weakening coverage.
-    expect(ALL_CODES.length).equals(35);
+    expect(ALL_CODES.length).equals(36);
     for (const code of ALL_CODES) {
       expect(() => new POSBridgeError(code, 'reachable')).not.throw();
     }
@@ -122,6 +123,7 @@ describe('POSBridgeError', () => {
         case 'NULL_SPENDER_ADDRESS':
         case 'ALLOWED_ON_NON_NATIVE_TOKENS':
         case 'ONLY_ALLOWED_ON_MAINNET':
+        case 'PERMIT_NOT_SUPPORTED':
           branch = raised.code;
           break;
         default: {

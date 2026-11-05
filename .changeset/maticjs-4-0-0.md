@@ -61,4 +61,21 @@ The bridge protocol itself — predicates, the RootChainManager, exit proofs, th
 - Exit-status checks (`isWithdrawn`, `isWithdrawExited`, `isWithdrawExitedOnIndex` and the new `isWithdrawExitedOnIndices`) no longer rebuild the block's receipt trie, cutting each to a handful of RPC calls; building an exit payload still verifies the full proof.
 - Exit payloads are now checked against the block's receipts root before they are returned. If the receipt proof the SDK builds does not reproduce the block's `receiptsRoot`, the call throws a `POSBridgeError` with the new code `RECEIPTS_ROOT_MISMATCH` (block number, block hash and both roots in `info`) instead of returning a payload that would be rejected on-chain after gas is spent. Payloads for valid blocks are unchanged.
 
+## Staking
+
+Validator and delegator staking now ships in this package behind `@polygonlabs/maticjs/staking`, with its own `StakingClient`. The 3.x `@maticnetwork/maticjs-staking` plugin is frozen and has no 4.0 peer. Staking uses a single parent-chain adapter (no `child`), every write returns a `TxResult` and has an unsigned `prepareXxx` sibling, amounts are `bigint`, and both the MATIC and POL token namespaces are available as `staking.matic` and `staking.pol`. Permit delegation is sign-free: `preparePermit` returns the EIP-712 payload, your own wallet signs it, and `splitSignature` feeds `delegateWithPermit`.
+
+Renames from the 3.x plugin:
+
+- `delegateAmountPOL` → `delegate({ amount, minSharesToMint })`
+- `stakeForPOL` → `stakeFor({ user, amount, heimdallFee, acceptDelegation, signerPubkey })` — a params object with all five fields required, so a missing field is a compile error
+- `approveMaxForStakingManager` → `approveMaxForStakeManager`
+- `getPermitData` → `preparePermit` + `splitSignature`
+- `client.getConfig(...)` → `getAddresses()`
+
+Two 3.x names now mean something different, so check every call site:
+
+- `stakeFor(...)` (MATIC) → `stakeForMatic({ ... })`. In 4.0, `stakeFor` stakes POL. A 3.x positional call no longer compiles, so this one is caught at build time.
+- `validatorShare.withdrawRewards()` now calls the POL variant (`withdrawRewardsPOL`) and pays out POL. The call shape is unchanged, so a 3.x call compiles and runs without error. The MATIC `withdrawRewards` is not ported.
+
 See [MIGRATION.md](https://github.com/0xPolygon/matic.js/blob/master/packages/maticjs/MIGRATION.md) for the full upgrade walkthrough with before/after code blocks, including a comprehensive replacement table for every removed API (`signTypedData`, `etheriumSha3`, `encode`, `sendRPCRequest`, etc.).
