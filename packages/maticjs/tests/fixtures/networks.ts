@@ -1,44 +1,23 @@
 /**
- * Test contract addresses for the integration suite.
+ * Test contract addresses for the live-read tier.
+ *
+ * Live-read reads only; write paths run on the kurtosis devnet, see
+ * `packages/e2e/README.md`.
  *
  * # Why these addresses live in a fixture file
  *
- * The integration tests need a stable triple of test tokens (ERC-20,
- * ERC-721, ERC-1155) that *any* wallet can fund itself with. Hard-coding
- * them in each test file would make rotating to a new test deployment a
- * multi-file change. One fixture file means a single edit when the test
- * deployments rotate.
- *
- * # Acquisition (per the test README)
- *
- * Only the parent-chain (Sepolia) tokens are publicly mintable. The
- * child-chain (Amoy) tokens are the bridge-mapped children: their
- * supply is minted only by the PoS ChildChainManager when a deposit
- * is state-synced, so fund them by depositing from Sepolia.
- *
- * - **ERC-20 (Dummy ERC20 — DERC20)** — `mint(uint256 amount)` mints
- *   to the caller and is unrestricted. There is no
- *   `mint(address,uint256)` overload on this contract.
- * - **ERC-721 (Dummy ERC721 — DERC721)** — `mint(uint256 tokenId)`
- *   mints to the caller; pick any unused tokenId.
- * - **ERC-1155 (Dummy ERC1155)** — `mint(address to, uint256 id,
- *   uint256 amount)` is public.
+ * The live reads need a stable triple of test tokens (ERC-20, ERC-721,
+ * ERC-1155) on each chain. One fixture file means a single edit when the
+ * test deployments rotate, instead of one per test file.
  *
  * Each parent token is mapped to its child on the PoS bridge
- * (`RootChainManager.rootToChildToken`), which the deposit tests rely
- * on. If a deployment is rotated, update this file and record the
- * change in `tests/README.md`.
- *
- * # Why no `mainnet` block
- *
- * Mainnet tokens are not mintable; integration tests against mainnet
- * would either need a separately funded wallet or non-trivial test
- * setup. Stage 5 explicitly scopes integration to testnets.
+ * (`RootChainManager.rootToChildToken`). If a deployment is rotated,
+ * update this file.
  */
 import type { Hex } from '../../src/index.js';
 
 /**
- * The set of contract addresses an integration test needs for one chain.
+ * The set of contract addresses a live-read test needs for one chain.
  */
 export interface TestContractSet {
   /** Address of the test ERC-20 on this chain. */
@@ -67,11 +46,8 @@ export interface TestNetworkFixture {
 /**
  * Test deployments on Sepolia ↔ Amoy: the PoS bridge's Dummy* test
  * tokens, as published under `POSContracts.Tokens` in the Amoy address
- * index and used by the legacy SDK's examples.
- *
- * Verify each address still resolves to a contract before running a
- * full integration sweep; testnet redeployments occasionally rotate
- * the address.
+ * index and used by the legacy SDK's examples. Testnet redeployments
+ * occasionally rotate an address.
  */
 export const TEST_NETWORKS: TestNetworkFixture = {
   parent: {

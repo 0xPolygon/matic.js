@@ -1,7 +1,7 @@
 /**
  * Records the staking read fixtures under `tests/fixtures/staking/`
  * (`reads-mainnet.json`, `reads-sepolia.json`) from live parent chains,
- * consumed by `tests/integration/staking-reads.test.ts`.
+ * consumed by `tests/live/staking-reads.live.test.ts`.
  *
  * For each network it:
  *

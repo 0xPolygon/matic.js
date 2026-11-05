@@ -16,18 +16,6 @@ import { DevnetContractsSchema } from './kurtosis.ts';
 
 const RpcUrlSchema = z.url({ protocol: /^https?$/, error: 'must be an http(s) URL' });
 
-const truthyStrings = ['true', 'yes', 'y', '1', 'on'];
-const falsyStrings = ['false', 'no', 'n', '0', 'off'];
-
-const BooleanOrBooleanStringSchema = z.union([z.boolean(), z.string()]).transform((value, ctx) => {
-  if (typeof value === 'boolean') return value;
-  const normalised = value.toLowerCase().trim();
-  if (truthyStrings.includes(normalised)) return true;
-  if (falsyStrings.includes(normalised)) return false;
-  ctx.addIssue({ code: 'custom', message: `invalid boolean string: "${value}"` });
-  return z.NEVER;
-});
-
 const DevnetContractsJsonSchema = z
   .string()
   .transform((raw, ctx) => {
@@ -48,11 +36,7 @@ function buildTestEnv() {
       E2E_HEIMDALL_REST_URL: RpcUrlSchema,
       E2E_L1_CHAIN_ID: z.coerce.number().int().positive(),
       E2E_L2_CHAIN_ID: z.coerce.number().int().positive(),
-      E2E_ADDRESSES_JSON: DevnetContractsJsonSchema,
-      // Validator-owner staking writes (stakeFor and friends) add a validator
-      // with no node behind it, which halts block production on the
-      // single-validator devnet. Off unless a devnet can survive it.
-      E2E_VALIDATOR_WRITES: BooleanOrBooleanStringSchema.default(false)
+      E2E_ADDRESSES_JSON: DevnetContractsJsonSchema
     },
     runtimeEnv: process.env,
     emptyStringAsUndefined: true
