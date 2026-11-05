@@ -3,10 +3,11 @@
 [![npm version](https://img.shields.io/npm/v/@polygonlabs/maticjs.svg)](https://www.npmjs.com/package/@polygonlabs/maticjs)
 [![License: MIT](https://img.shields.io/npm/l/@polygonlabs/maticjs.svg)](LICENSE)
 
-TypeScript SDK for the Polygon PoS bridge. Deposits, withdrawals, and
-exit proofs against `RootChainManager` — across ERC-20, ERC-721,
-ERC-1155 and native ETH — driven by whichever EVM client library you
-already have: `viem`, `ethers v5`, or `ethers v6`.
+TypeScript SDK for the Polygon PoS bridge and PoS staking. Deposits,
+withdrawals, and exit proofs against `RootChainManager` — across ERC-20,
+ERC-721, ERC-1155 and native ETH — plus validator and delegator staking
+from `@polygonlabs/maticjs/staking`, driven by whichever EVM client
+library you already have: `viem`, `ethers v5`, or `ethers v6`.
 
 `@polygonlabs/maticjs` 4.0 is the next major release of maticjs,
 moved from the `@maticnetwork` npm scope — versions up to 3.x remain
@@ -241,6 +242,53 @@ Full runnable scripts (with env-var guards and an approve + read
 flow) live in the workspace
 [`examples/`](https://github.com/0xPolygon/matic.js/tree/master/examples)
 directory.
+
+## Staking
+
+Validator and delegator staking ships in the same package behind its own
+subpath, so bridge-only consumers carry no staking code. Staking lives on the
+parent chain, so `StakingClient.init` takes a single `parent` adapter built the
+same way as above:
+
+```ts
+import { StakingClient } from '@polygonlabs/maticjs/staking';
+import { viemAdapter } from '@polygonlabs/maticjs/viem';
+
+const staking = await StakingClient.init({
+  network: 'mainnet',
+  parent: viemAdapter({ public: publicClient, wallet: walletClient })
+});
+
+// Delegate POL to a validator: approve the StakeManager, then buy shares.
+const validatorId = await staking.stakeManager.getValidatorId({ user: validatorOwner });
+const share = staking.validatorShare(
+  await staking.stakeManager.getValidatorContract({ validatorId })
+);
+const amount = 10n * 10n ** 18n;
+
+await (await staking.pol.approveStakeManager({ amount })).confirmed();
+const result = await share.delegate({ amount, minSharesToMint: 0n });
+console.log(result.hash);
+await result.confirmed();
+```
+
+Every staking write has an unsigned sibling for smart wallets and batchers —
+`await share.prepareDelegate({ amount, minSharesToMint: 0n })` returns
+`{ to, data }` — and reads return `bigint` or typed structs:
+
+```ts
+const info = await staking.stakeManager.getValidator({ validatorId });
+const { stake } = await share.getTotalStake({ user: delegator });
+const rewards = await share.getLiquidRewards({ user: delegator });
+```
+
+To pin addresses instead of fetching the address index, pass
+`addresses: { StakeManager, MaticToken, PolToken }` to `StakingClient.init`.
+Staking needs only those three, not the bridge addresses `POSClient` requires.
+
+Coming from `@maticnetwork/maticjs-staking`? See the
+[migration guide](./MIGRATION.md#staking-migrating-from-maticnetworkmaticjs-staking)
+for the method mapping and the permit flow.
 
 ## Errors
 

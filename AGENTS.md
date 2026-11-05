@@ -6,7 +6,7 @@ imports this file, so every agent reads the same rules.
 ## Orientation
 
 This is the monorepo for `@polygonlabs/maticjs`, the TypeScript SDK for the
-Polygon PoS bridge over viem, ethers v5 or ethers v6. The SDK
+Polygon PoS bridge and staking over viem, ethers v5 or ethers v6. The SDK
 lives in `packages/maticjs` (source in `src`, the per-library adapters in
 `src/adapters`, tests in `tests`). `packages/test-app` is a private browser
 smoke test of the built package, and `examples` holds standalone consumer
@@ -85,7 +85,8 @@ Do not add a boolean predicate beside a status read. Two calls can disagree
 (the chain moves between them), and every caller then has to combine them.
 
 - `is*` / `has*` is only for a reasonless chain fact (`isApproved`,
-  `isApprovedAll`, `isExitProcessed`) and always resolves a boolean, `false` when unmet.
+  `isApprovedAll`, `isExitProcessed`, `isLocked`) and always resolves a
+  boolean, `false` when unmet.
 - A method that returns an object is never named `is*`: an object is always
   truthy, so `if (await isCheckpointed(x))` would silently pass.
 - Errors are only for what the SDK cannot resolve: invalid input (an empty

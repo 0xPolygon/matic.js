@@ -38,6 +38,7 @@ import { ERC20 } from '../../src/pos/erc20.ts';
 import { ERC721 } from '../../src/pos/erc721.ts';
 import { ERC1155 } from '../../src/pos/erc1155.ts';
 import { RootChainManager } from '../../src/pos/root_chain_manager.ts';
+import { StakeManager } from '../../src/staking/stake-manager.ts';
 import { BufferUtil } from '../../src/utils/buffer-utils.ts';
 import { Keccak } from '../../src/utils/keccak.ts';
 
@@ -239,6 +240,15 @@ const BOOLEANS: Record<string, BooleanEntry> = {
         getAddress: () => Promise.resolve(ADDR),
         logger: noopLogger
       }).isExitProcessed(hex32(9))
+  },
+  'StakeManager.isLocked': {
+    unmet: ({ chain }) =>
+      new StakeManager({
+        adapter: chain,
+        getAddress: () => Promise.resolve(ADDR),
+        logger: noopLogger,
+        l1ChainId: 1
+      }).isLocked()
   }
 };
 
