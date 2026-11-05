@@ -26,32 +26,66 @@
 # Environment:
 #   E2E_USE_SNAPSHOT     "1" snapshot mode, anything else cold start (default 0).
 #   E2E_SNAPSHOT_IMAGE   snapshot image, pinned by digest in the workflow.
-#   KURTOSIS_POS_REF     kurtosis-pos ref; supplies scripts/snapshot/ in
-#                        snapshot mode and the source in cold-start mode.
+#   KURTOSIS_POS_REF     kurtosis-pos commit to check out; supplies
+#                        scripts/snapshot/ in snapshot mode and the source in
+#                        cold-start mode. A full 40-hex SHA (the default, the
+#                        v1.4.8 commit) is verified after checkout; a tag or
+#                        branch is accepted for a manual dispatch but is mutable.
 #   WORK_DIR             scratch dir for the kurtosis-pos clone.
 #   REPO_ROOT            matic.js checkout (default: $GITHUB_WORKSPACE, else $PWD).
 #   DUMP_DIR             where `dump` writes (default: /tmp/devnet-dump).
+#
+# When it boots a devnet (rather than reusing one that is already up) it
+# exports E2E_DEVNET_CREATED_BY_HARNESS=1 through $GITHUB_ENV, and the harness
+# records that next to what `down` may remove (packages/e2e/src/kurtosis.ts).
 
 set -euo pipefail
 
 E2E_USE_SNAPSHOT="${E2E_USE_SNAPSHOT:-0}"
 E2E_SNAPSHOT_IMAGE="${E2E_SNAPSHOT_IMAGE:-}"
-KURTOSIS_POS_REF="${KURTOSIS_POS_REF:-v1.4.8}"
+# kurtosis-pos v1.4.8. Pinned by commit because a tag can be moved.
+KURTOSIS_POS_REF="${KURTOSIS_POS_REF:-b2f5b7a8ce6569cc32b48240862dda63e9ad340a}"
+# The kurtosis CLI kurtosis-pos v1.4.8 itself pins in its CI, installed from
+# the release .deb and checked against the sha256 in that release's
+# checksums.txt (github.com/kurtosis-tech/kurtosis-cli-release-artifacts).
+KURTOSIS_CLI_VERSION="1.22.2"
+KURTOSIS_CLI_DEB_SHA256="aa9c42723c10af7961cd376cc48ba30c2660855d56a291ba962933a96d5d9969"
 WORK_DIR="${WORK_DIR:-/tmp/kurtosis-pos}"
 REPO_ROOT="${REPO_ROOT:-${GITHUB_WORKSPACE:-$PWD}}"
 DUMP_DIR="${DUMP_DIR:-/tmp/devnet-dump}"
-OUT_DIR="${REPO_ROOT}/tmp/e2e-snapshot"
+# Outside the checkout on a runner; locally under the gitignored tmp/.
+OUT_DIR="${RUNNER_TEMP:-$REPO_ROOT/tmp}/e2e-snapshot"
 
 log() { echo "[e2e-setup] $*"; }
+
+# Tell the harness this run booted the devnet it is about to read.
+mark_created() {
+  if [ -n "${GITHUB_ENV:-}" ] && [ -w "${GITHUB_ENV}" ]; then
+    echo "E2E_DEVNET_CREATED_BY_HARNESS=1" >> "$GITHUB_ENV"
+  else
+    log "booted the devnet; export E2E_DEVNET_CREATED_BY_HARNESS=1 to record that"
+  fi
+}
 
 clone_kurtosis_pos() {
   if [ -d "$WORK_DIR/.git" ]; then
     log "kurtosis-pos already cloned at $WORK_DIR"
     return
   fi
-  log "cloning kurtosis-pos@${KURTOSIS_POS_REF} into $WORK_DIR"
-  git clone --depth 1 --branch "$KURTOSIS_POS_REF" \
-    https://github.com/0xPolygon/kurtosis-pos.git "$WORK_DIR"
+  log "fetching kurtosis-pos@${KURTOSIS_POS_REF} into $WORK_DIR"
+  git init -q "$WORK_DIR"
+  git -C "$WORK_DIR" remote add origin https://github.com/0xPolygon/kurtosis-pos.git
+  git -C "$WORK_DIR" fetch -q --depth 1 origin "$KURTOSIS_POS_REF"
+  git -C "$WORK_DIR" checkout -q --detach FETCH_HEAD
+  if [[ "$KURTOSIS_POS_REF" =~ ^[0-9a-f]{40}$ ]]; then
+    local head
+    head=$(git -C "$WORK_DIR" rev-parse HEAD)
+    if [ "$head" != "$KURTOSIS_POS_REF" ]; then
+      echo "[e2e-setup] ERROR: kurtosis-pos HEAD is $head, expected $KURTOSIS_POS_REF" >&2
+      exit 1
+    fi
+  fi
+  log "kurtosis-pos at $(git -C "$WORK_DIR" rev-parse HEAD)"
 }
 
 restore_from_snapshot() {
@@ -69,6 +103,7 @@ restore_from_snapshot() {
     ( cd "$WORK_DIR" \
       && ./scripts/snapshot/extract.sh "$E2E_SNAPSHOT_IMAGE" "$OUT_DIR" \
       && ./scripts/snapshot/restore.sh "$OUT_DIR" )
+    mark_created
   fi
 
   # The harness picks its snapshot reader from this variable. $GITHUB_ENV
@@ -87,11 +122,15 @@ install_kurtosis() {
     log "kurtosis already installed: $(kurtosis version | head -n1)"
     return
   fi
-  log "installing kurtosis-cli via apt"
-  echo "deb [trusted=yes] https://apt.fury.io/kurtosis-tech/ /" \
-    | sudo tee /etc/apt/sources.list.d/kurtosis.list >/dev/null
-  sudo apt-get update -qq
-  sudo apt-get install -y --no-install-recommends kurtosis-cli
+  local deb="kurtosis-cli_${KURTOSIS_CLI_VERSION}_linux_amd64.deb"
+  local tmp
+  tmp=$(mktemp -d)
+  log "installing kurtosis-cli ${KURTOSIS_CLI_VERSION} from its release .deb"
+  curl -fsSL -o "$tmp/$deb" \
+    "https://github.com/kurtosis-tech/kurtosis-cli-release-artifacts/releases/download/${KURTOSIS_CLI_VERSION}/${deb}"
+  echo "${KURTOSIS_CLI_DEB_SHA256}  $tmp/$deb" | sha256sum --check --strict
+  sudo apt-get install -y --no-install-recommends "$tmp/$deb"
+  rm -rf "$tmp"
   # The first run asks for analytics consent; a non-TTY shell would block on it.
   kurtosis analytics disable
 }
@@ -115,6 +154,7 @@ start_enclave() {
   fi
   log "running enclave 'pos'"
   ( cd "$WORK_DIR" && kurtosis run --enclave pos --args-file "$REPO_ROOT/packages/e2e/kurtosis-params.yml" . )
+  mark_created
 }
 
 dump() {

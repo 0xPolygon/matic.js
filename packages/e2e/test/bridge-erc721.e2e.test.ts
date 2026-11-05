@@ -27,7 +27,9 @@ import {
   exitWhenCheckpointed,
   HASH_PATTERN,
   initPos,
+  isApprovedForAll,
   readers,
+  revokeApprovalForAll,
   waitForCheckpoint,
   waitForStateSync
 } from './cycle.ts';
@@ -103,7 +105,7 @@ async function ensureRootTokens({
 
 describe.concurrent('ERC-721 deposit and exit cycle', { timeout: CYCLE_TIMEOUT_MS }, () => {
   it.each(rows)('via $name', async (row) => {
-    const { tokens } = getTestEnv().E2E_ADDRESSES_JSON;
+    const { tokens, addresses } = getTestEnv().E2E_ADDRESSES_JSON;
     const { l1, l2 } = readers();
     const pos = await initPos(row);
     const parentToken = pos.parent.erc721(tokens.root.erc721);
@@ -123,8 +125,21 @@ describe.concurrent('ERC-721 deposit and exit cycle', { timeout: CYCLE_TIMEOUT_M
     const batch = [batchA, batchB];
     const moved = [single, ...batch];
 
+    // Revoke first so the approval check below cannot pass on an earlier run's approval.
+    const approval = {
+      token: tokens.root.erc721,
+      owner: row.address,
+      operator: addresses.ERC721Predicate
+    };
+    await revokeApprovalForAll({
+      suite: SUITE,
+      adapter: row.name,
+      token: approval.token,
+      operator: approval.operator
+    });
     await confirmSuccess(await parentToken.approveAll());
     expect(await parentToken.isApprovedAll(row.address)).equals(true);
+    expect(await isApprovedForAll(approval)).equals(true);
 
     const singleDeposit = await confirmSuccess(await parentToken.deposit(single, row.address));
     const batchDeposit = await confirmSuccess(await parentToken.depositMany(batch, row.address));
@@ -199,13 +214,28 @@ describe.concurrent('ERC-721 deposit and exit cycle', { timeout: CYCLE_TIMEOUT_M
 
 describe.each(rows)('ERC-721 approveAll via $name', (row) => {
   it('approveAll() returns a hash and confirms success', async () => {
-    const { tokens } = getTestEnv().E2E_ADDRESSES_JSON;
+    const { tokens, addresses } = getTestEnv().E2E_ADDRESSES_JSON;
     const pos = await initPos(row);
     const parentToken = pos.parent.erc721(tokens.root.erc721);
+    const approval = {
+      token: tokens.root.erc721,
+      owner: row.address,
+      operator: addresses.ERC721Predicate
+    };
+
+    // Revoke first, and check the SDK sees it, so the approval below is this write's.
+    await revokeApprovalForAll({
+      suite: SUITE,
+      adapter: row.name,
+      token: approval.token,
+      operator: approval.operator
+    });
+    expect(await parentToken.isApprovedAll(row.address)).equals(false);
 
     const tx = await parentToken.approveAll();
     expect(tx.hash).match(HASH_PATTERN);
     await confirmSuccess(tx);
     expect(await parentToken.isApprovedAll(row.address)).equals(true);
+    expect(await isApprovedForAll(approval)).equals(true);
   });
 });

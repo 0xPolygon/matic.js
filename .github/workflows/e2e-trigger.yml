@@ -27,9 +27,10 @@ on:
         required: false
         default: false
       kurtosis_pos_ref:
-        description: 'git ref of 0xPolygon/kurtosis-pos: cold-start source, and the snapshot restore scripts'
+        description: 'commit SHA (or ref) of 0xPolygon/kurtosis-pos: cold-start source, and the snapshot restore scripts'
         required: false
-        default: 'v1.4.8'
+        # kurtosis-pos v1.4.8, pinned by commit because a tag can be moved.
+        default: 'b2f5b7a8ce6569cc32b48240862dda63e9ad340a'
   pull_request:
     types: [labeled, synchronize, reopened]
 
@@ -46,9 +47,13 @@ permissions:
 jobs:
   e2e:
     name: e2e (kurtosis devnet)
+    # On a pull_request, run only when the PR carries `run-e2e`, and on a
+    # `labeled` event only when the label just added is `run-e2e` itself, so
+    # adding an unrelated label to a labelled PR does not start a second run.
     if: >-
       github.event_name != 'pull_request' ||
-      contains(github.event.pull_request.labels.*.name, 'run-e2e')
+      (contains(github.event.pull_request.labels.*.name, 'run-e2e') &&
+       (github.event.action != 'labeled' || github.event.label.name == 'run-e2e'))
     runs-on: ubuntu-latest
     timeout-minutes: 75
     env:
@@ -58,11 +63,11 @@ jobs:
       E2E_USE_SNAPSHOT: ${{ inputs.use_snapshot == true && '1' || '0' }}
       # Bump the image digest and KURTOSIS_POS_REF together: the image is
       # the `v1.4.8` build of kurtosis-pos b2f5b7a8ce65, and the restore
-      # scripts are taken from the same ref. Get the new digest with
+      # scripts are taken from the same commit. Get the new digest with
       # `docker buildx imagetools inspect ghcr.io/0xpolygon/pos-devnet-small:<tag>`.
       # Pinned by digest because the tag is mutable.
       E2E_SNAPSHOT_IMAGE: ghcr.io/0xpolygon/pos-devnet-small@sha256:2544a2c6e4d8ef721e19d253fa49fcdbda13239c33c510b17fd26ce8ae5047f7
-      KURTOSIS_POS_REF: ${{ inputs.kurtosis_pos_ref || 'v1.4.8' }}
+      KURTOSIS_POS_REF: ${{ inputs.kurtosis_pos_ref || 'b2f5b7a8ce6569cc32b48240862dda63e9ad340a' }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
@@ -81,15 +86,20 @@ jobs:
       - name: Bring up devnet
         run: bash .github/scripts/e2e-setup.sh
 
+      # Below the job's 75 minutes, so a hung suite still leaves time to dump
+      # the devnet's logs. --down tears down the devnet this job booted.
       - name: Run e2e suite
-        run: pnpm run e2e
+        timeout-minutes: 45
+        run: pnpm run e2e -- --down
 
+      # A step timeout counts as failure(); cancelled() covers a run
+      # superseded by a newer push or stopped by hand.
       - name: Collect devnet logs
-        if: failure()
+        if: failure() || cancelled()
         run: bash .github/scripts/e2e-setup.sh dump
 
       - name: Upload devnet dump
-        if: failure()
+        if: failure() || cancelled()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: devnet-dump-${{ github.run_id }}
