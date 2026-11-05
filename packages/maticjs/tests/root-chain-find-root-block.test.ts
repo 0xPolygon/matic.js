@@ -28,95 +28,39 @@
  *   to be generated against state that the L1 contract no longer exposed at
  *   submission time.
  *
- *   Bug 2 is exercised at the call site (RootChain wires both reads to the
- *   same `block` tag); these tests cover Bug 1 — the pure-helper algorithm —
- *   directly.
+ * Stage 2 — bigint conversion
  *
- * The tests use a `TestBN` that explicitly `implements BaseBigNumber`, so
- * TypeScript verifies the helper is genuinely plugin-agnostic. If a future
- * refactor of the helper started using a method outside the `BaseBigNumber`
- * surface (e.g. a bn.js-only helper like `iadd`), this test would fail to
- * compile rather than silently keep working.
+ *   The legacy helper accepted a pluggable `BNFactory` so the test could feed
+ *   a `BaseBigNumber`-shaped TestBN. Stage 2 retired the pluggable BN surface
+ *   in favour of native bigint; the tests use bigint directly.
  */
 
 import { describe, expect, it } from 'vitest';
 
-import type { BaseBigNumber } from '../src/abstracts/base_big_number';
-
-import { findCheckpointSlot } from '../src/pos/find_checkpoint_slot';
-
-/**
- * Minimal BigNumber that explicitly implements the `BaseBigNumber` abstract
- * surface — the contract every plugin's BigNumber must honour
- * (`MaticBigNumber` for `@maticnetwork/maticjs-ethers`, bn.js for the web3
- * plugin, etc.). Backed by a JS number; safe for the small slot indices
- * exercised here. Any drift in the helper away from `BaseBigNumber` methods
- * would be a TypeScript compile error in this file.
- */
-class TestBN implements BaseBigNumber {
-  constructor(private readonly value: number) {}
-
-  toString(_base?: number): string {
-    return this.value.toString();
-  }
-  toNumber(): number {
-    return this.value;
-  }
-  add(value: BaseBigNumber): BaseBigNumber {
-    return new TestBN(this.value + (value as TestBN).value);
-  }
-  sub(value: BaseBigNumber): BaseBigNumber {
-    return new TestBN(this.value - (value as TestBN).value);
-  }
-  mul(value: BaseBigNumber): BaseBigNumber {
-    return new TestBN(this.value * (value as TestBN).value);
-  }
-  div(value: BaseBigNumber): BaseBigNumber {
-    return new TestBN(Math.trunc(this.value / (value as TestBN).value));
-  }
-  lte(value: BaseBigNumber): boolean {
-    return this.value <= (value as TestBN).value;
-  }
-  lt(value: BaseBigNumber): boolean {
-    return this.value < (value as TestBN).value;
-  }
-  gte(value: BaseBigNumber): boolean {
-    return this.value >= (value as TestBN).value;
-  }
-  gt(value: BaseBigNumber): boolean {
-    return this.value > (value as TestBN).value;
-  }
-  eq(value: BaseBigNumber): boolean {
-    return this.value === (value as TestBN).value;
-  }
-}
-
-const bnFactory = (v: number | string) =>
-  new TestBN(typeof v === 'number' ? v : Number(v)) as BaseBigNumber;
-const bn = (v: number) => bnFactory(v);
+import { findCheckpointSlot } from '../src/pos/find_checkpoint_slot.js';
 
 interface HeaderBlock {
-  start: BaseBigNumber;
-  end: BaseBigNumber;
+  start: bigint;
+  end: bigint;
 }
 
 function makeReader(opts: {
   currentHeaderBlock: number;
   headerBlocksBySlot: Record<number, { start: number; end: number }>;
 }) {
-  const headerBlocksReads: BaseBigNumber[] = [];
+  const headerBlocksReads: bigint[] = [];
   const reader = {
-    readCurrentHeaderBlock: async () => bn(opts.currentHeaderBlock),
-    readHeaderBlocks: async (headerId: BaseBigNumber): Promise<HeaderBlock> => {
+    readCurrentHeaderBlock: async () => BigInt(opts.currentHeaderBlock),
+    readHeaderBlocks: async (headerId: bigint): Promise<HeaderBlock> => {
       headerBlocksReads.push(headerId);
-      const slot = Number(headerId.toString()) / 10000;
+      const slot = Number(headerId) / 10000;
       const entry = opts.headerBlocksBySlot[slot];
       if (!entry) {
         throw new Error(
           `unexpected headerBlocks slot ${headerId.toString()} (slot=${slot})`
         );
       }
-      return { start: bn(entry.start), end: bn(entry.end) };
+      return { start: BigInt(entry.start), end: BigInt(entry.end) };
     },
     get headerBlocksReads() {
       return headerBlocksReads;
@@ -138,8 +82,7 @@ describe('findCheckpointSlot — happy path', () => {
       }
     });
     const ans = await findCheckpointSlot({
-      bn: bnFactory,
-      childBlockNumber: bn(25500),
+      childBlockNumber: 25500n,
       readCurrentHeaderBlock: reader.readCurrentHeaderBlock,
       readHeaderBlocks: reader.readHeaderBlocks
     });
@@ -157,8 +100,7 @@ describe('findCheckpointSlot — happy path', () => {
       }
     });
     const ans = await findCheckpointSlot({
-      bn: bnFactory,
-      childBlockNumber: bn(5),
+      childBlockNumber: 5n,
       readCurrentHeaderBlock: reader.readCurrentHeaderBlock,
       readHeaderBlocks: reader.readHeaderBlocks
     });
@@ -171,8 +113,7 @@ describe('findCheckpointSlot — happy path', () => {
       headerBlocksBySlot: { 1: { start: 1, end: 10000 } }
     });
     const ans = await findCheckpointSlot({
-      bn: bnFactory,
-      childBlockNumber: bn(5000),
+      childBlockNumber: 5000n,
       readCurrentHeaderBlock: reader.readCurrentHeaderBlock,
       readHeaderBlocks: reader.readHeaderBlocks
     });
@@ -192,8 +133,7 @@ describe('findCheckpointSlot — happy path', () => {
       }
     });
     const ans = await findCheckpointSlot({
-      bn: bnFactory,
-      childBlockNumber: bn(20001),
+      childBlockNumber: 20001n,
       readCurrentHeaderBlock: reader.readCurrentHeaderBlock,
       readHeaderBlocks: reader.readHeaderBlocks
     });
@@ -211,8 +151,7 @@ describe('findCheckpointSlot — happy path', () => {
       }
     });
     const ans = await findCheckpointSlot({
-      bn: bnFactory,
-      childBlockNumber: bn(30000),
+      childBlockNumber: 30000n,
       readCurrentHeaderBlock: reader.readCurrentHeaderBlock,
       readHeaderBlocks: reader.readHeaderBlocks
     });
@@ -221,7 +160,7 @@ describe('findCheckpointSlot — happy path', () => {
 
   it('locates the burn in the LAST checkpoint (success path through start.eq(end))', async () => {
     // The burn lives in the rightmost slot, so the binary search drifts
-    // right and converges via the start.eq(end) early exit on the
+    // right and converges via the start === end early exit on the
     // SUCCESSFUL path. This exercises the converged-candidate validation
     // branch where the membership check passes (mirror image of the past-
     // tip rejection cases below).
@@ -235,8 +174,7 @@ describe('findCheckpointSlot — happy path', () => {
       }
     });
     const ans = await findCheckpointSlot({
-      bn: bnFactory,
-      childBlockNumber: bn(35000),
+      childBlockNumber: 35000n,
       readCurrentHeaderBlock: reader.readCurrentHeaderBlock,
       readHeaderBlocks: reader.readHeaderBlocks
     });
@@ -249,7 +187,7 @@ describe('findCheckpointSlot — past-tip rejection (Bug 1)', () => {
     // Last checkpoint covers up to 30000. Burn at 30622 — 622 blocks past the
     // chain's last checkpoint (the same shape as the production repro on
     // Amoy: burn block 37337056 vs checkpoint end 37336434). Without the fix,
-    // the search converges on slot 3 via the start.eq(end) early-exit and
+    // the search converges on slot 3 via the start === end early-exit and
     // returns 30000 silently.
     const reader = makeReader({
       currentHeaderBlock: 30000,
@@ -261,8 +199,7 @@ describe('findCheckpointSlot — past-tip rejection (Bug 1)', () => {
     });
     await expect(
       findCheckpointSlot({
-        bn: bnFactory,
-        childBlockNumber: bn(30622),
+        childBlockNumber: 30622n,
         readCurrentHeaderBlock: reader.readCurrentHeaderBlock,
         readHeaderBlocks: reader.readHeaderBlocks
       })
@@ -273,8 +210,7 @@ describe('findCheckpointSlot — past-tip rejection (Bug 1)', () => {
     const reader = makeReader({ currentHeaderBlock: 0, headerBlocksBySlot: {} });
     await expect(
       findCheckpointSlot({
-        bn: bnFactory,
-        childBlockNumber: bn(1),
+        childBlockNumber: 1n,
         readCurrentHeaderBlock: reader.readCurrentHeaderBlock,
         readHeaderBlocks: reader.readHeaderBlocks
       })
@@ -290,8 +226,7 @@ describe('findCheckpointSlot — past-tip rejection (Bug 1)', () => {
     });
     await expect(
       findCheckpointSlot({
-        bn: bnFactory,
-        childBlockNumber: bn(10001),
+        childBlockNumber: 10001n,
         readCurrentHeaderBlock: reader.readCurrentHeaderBlock,
         readHeaderBlocks: reader.readHeaderBlocks
       })
