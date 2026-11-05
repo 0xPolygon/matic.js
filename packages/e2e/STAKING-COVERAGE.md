@@ -39,7 +39,7 @@ Totals: 8 RUN, 11 GATED.
 
 - `pol.prepareApproveStakeManager` RUNS: `staking-writes.e2e.test.ts` checks that its `to` is the POL address and its `data` is byte-equal to the adapter library's own `approve` encoding (viem `encodeFunctionData`, ethers v5 and v6 `Interface.encodeFunctionData`).
 - `matic.preparePermit` RUNS: it is refused with `PERMIT_NOT_SUPPORTED`, because MATIC has no EIP-2612 permit.
-- `pol.preparePermit` is GATED on the devnet. It reads the EIP-712 domain from the token's ERC-5267 `eip712Domain()`. kurtosis-pos deploys POL as a generic `ERC20Permit` with `permit` and `DOMAIN_SEPARATOR` but without `eip712Domain()`, so the read reverts there. Mainnet POL implements `eip712Domain()`, and `packages/maticjs/tests/integration/staking-permit-domain.test.ts` runs `preparePermit` against it read-only on every `pnpm test`, checking the name, version, chain id and verifying contract.
+- `pol.preparePermit` is GATED on the devnet. It reads the EIP-712 domain from the token's ERC-5267 `eip712Domain()`. kurtosis-pos deploys POL as a generic `ERC20Permit` with `permit` and `DOMAIN_SEPARATOR` but without `eip712Domain()`, so the read reverts there. Mainnet POL implements `eip712Domain()`, and `packages/maticjs/tests/live/staking-permit-domain.live.test.ts` runs `preparePermit` against it read-only on every `pnpm test`, checking the name, version, chain id and verifying contract.
 
 ## Evidence for the RUNS verdicts
 
@@ -61,4 +61,4 @@ Waits observed in the first delegation run: the first rewards above `minAmount` 
 
 ## Running the gated validator writes
 
-They need a devnet with a second validator node behind the registered key. This tier boots a single-validator devnet and does not provide one. `E2E_VALIDATOR_WRITES` does not enable them: `staking-validator.e2e.test.ts` is skipped unconditionally until such a devnet exists.
+They need a devnet with a second validator node behind the registered key. This tier boots a single-validator devnet and does not provide one, so `staking-validator.e2e.test.ts` is skipped unconditionally until such a devnet exists.
