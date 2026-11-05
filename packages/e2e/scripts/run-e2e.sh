@@ -2,18 +2,24 @@
 #
 # Run the e2e tier against a devnet that is already up (see README.md).
 #
-#     pnpm run e2e                    # from the repo root
-#     pnpm run e2e -- --skip-down     # keep the devnet running afterwards
+#     pnpm run e2e                    # from the repo root; the devnet stays up
+#     pnpm run e2e -- --down          # also tear the devnet down afterwards
+#     E2E_DOWN=1 pnpm run e2e         # same as --down
+#
+# Teardown is opt-in. This script never starts the devnet, so by default it
+# leaves alone whatever it ran against: a devnet you booted by hand may be
+# one you, or another session, still need. CI boots its own devnet and passes
+# --down so the runner cleans up what it created.
 #
 # CI and local runs both go through this script, so the two paths match.
 
 set -euo pipefail
 
-SKIP_DOWN=0
+DOWN="${E2E_DOWN:-0}"
 for arg in "$@"; do
   case "$arg" in
-    --skip-down) SKIP_DOWN=1 ;;
-    # pnpm passes the `--` from `pnpm run e2e -- --skip-down` through.
+    --down) DOWN=1 ;;
+    # pnpm passes the `--` from `pnpm run e2e -- --down` through.
     --) ;;
     *) echo "run-e2e: unknown argument '$arg'" >&2; exit 2 ;;
   esac
@@ -31,6 +37,6 @@ eval "$env_exports"
 pnpm --filter @polygonlabs/maticjs-e2e run seed
 pnpm --filter @polygonlabs/maticjs-e2e run test:e2e
 
-if [ "$SKIP_DOWN" -eq 0 ]; then
+if [ "$DOWN" = "1" ]; then
   pnpm --filter @polygonlabs/maticjs-e2e run down
 fi
