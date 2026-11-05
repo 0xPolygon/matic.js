@@ -19,3 +19,4 @@ config.json
 !.changeset/config.json
 .nuxt
 docs
+!packages/maticjs/docs/
