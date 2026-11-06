@@ -77,7 +77,8 @@ const env: Record<string, string> = {
   E2E_ADDRESSES_JSON: JSON.stringify({
     addresses: devnet.addresses,
     tokens: devnet.tokens,
-    admin: devnet.admin
+    admin: devnet.admin,
+    validatorOwner: devnet.validatorOwner
   }),
   E2E_HEIMDALL_REST_URL: devnet.heimdallRestUrl,
   E2E_L1_CHAIN_ID: String(devnet.l1ChainId),

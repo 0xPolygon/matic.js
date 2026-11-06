@@ -24,8 +24,7 @@ export const SUITES = [
   'bridge-erc1155',
   'bridge-ether',
   'staking',
-  'staking-delegation',
-  'staking-validator'
+  'staking-delegation'
 ] as const;
 
 export const ADAPTERS = ['viem', 'ethers-v5', 'ethers-v6'] as const;
