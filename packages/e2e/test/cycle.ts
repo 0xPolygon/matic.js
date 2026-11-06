@@ -14,7 +14,7 @@ import { expect } from 'vitest';
 
 import type { Receipt, TxResult } from '@polygonlabs/maticjs';
 
-import { POSBridgeError, POSClient } from '@polygonlabs/maticjs';
+import { BurnTxNotCheckpointedError, POSClient } from '@polygonlabs/maticjs';
 
 import type { AdapterRow } from '../src/adapters.ts';
 import type { AdapterName, Suite } from '../src/keys.ts';
@@ -142,7 +142,7 @@ export async function exitWhenCheckpointed({
       try {
         return await exit();
       } catch (err) {
-        if (err instanceof POSBridgeError && err.code === 'BURN_TX_NOT_CHECKPOINTED') {
+        if (BurnTxNotCheckpointedError.has(err)) {
           return undefined;
         }
         throw err;

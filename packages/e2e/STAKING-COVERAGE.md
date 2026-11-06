@@ -7,7 +7,7 @@ Verdicts:
 - **RUNS**: the write is broadcast and confirmed on the devnet through all three adapters (viem, ethers v5, ethers v6), and its effect is read back on chain, through the SDK, with plain viem, or both.
 - **GATED**: the write is not broadcast on the devnet, for the reason given. Calldata ground truth still covers it.
 
-Every staking write in this tier passes the devnet's L1 chain id as `chainId`. The SDK pins staking writes to the network's L1 (Ethereum or Sepolia) by default, and the devnet is neither. The one exception is the wrong-chain row in `staking-writes.e2e.test.ts`. It leaves `chainId` out on purpose and checks that the write is refused with `UNSUPPORTED_NETWORK` and that the account's nonce does not move, so nothing was broadcast.
+Every staking write in this tier passes the devnet's L1 chain id as `chainId`. The SDK pins staking writes to the network's L1 (Ethereum or Sepolia) by default, and the devnet is neither. The one exception is the wrong-chain row in `staking-writes.e2e.test.ts`. It leaves `chainId` out on purpose and checks that the write is refused with an `UnsupportedNetworkError` (found in the `StakingWriteError` cause chain) and that the account's nonce does not move, so nothing was broadcast.
 
 ## The 19 writes
 
@@ -48,7 +48,7 @@ Totals: 13 RUN, 6 GATED.
 ## Related checks that are not writes
 
 - `pol.prepareApproveStakeManager` RUNS: `staking-writes.e2e.test.ts` checks that its `to` is the POL address and its `data` is byte-equal to the adapter library's own `approve` encoding (viem `encodeFunctionData`, ethers v5 and v6 `Interface.encodeFunctionData`).
-- `matic.preparePermit` RUNS: it is refused with `PERMIT_NOT_SUPPORTED`, because MATIC has no EIP-2612 permit.
+- `matic.preparePermit` RUNS: it is refused with a `PermitNotSupportedError` (found in the `PermitError` cause chain), because MATIC has no EIP-2612 permit.
 - `pol.preparePermit` is GATED on the devnet. It reads the EIP-712 domain from the token's ERC-5267 `eip712Domain()`. kurtosis-pos deploys POL as a generic `ERC20Permit` with `permit` and `DOMAIN_SEPARATOR` but without `eip712Domain()`, so the read reverts there. Mainnet POL implements `eip712Domain()`, and `packages/maticjs/tests/live/staking-permit-domain.live.test.ts` runs `preparePermit` against it read-only on every `pnpm test`, checking the name, version, chain id and verifying contract.
 
 ## Evidence for the RUNS verdicts

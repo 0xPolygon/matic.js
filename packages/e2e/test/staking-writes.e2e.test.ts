@@ -27,7 +27,7 @@ import { describe, expect, it } from 'vitest';
 import type { Hex } from '@polygonlabs/maticjs';
 import type { StakingClient as StakingClientType } from '@polygonlabs/maticjs/staking';
 
-import { POSBridgeError } from '@polygonlabs/maticjs';
+import { PermitNotSupportedError, UnsupportedNetworkError } from '@polygonlabs/maticjs';
 import { PolTokenABI } from '@polygonlabs/maticjs/abi';
 import { StakingClient } from '@polygonlabs/maticjs/staking';
 
@@ -140,8 +140,8 @@ describe('staking token writes (devnet)', () => {
 
       const staking = await stakingClientFor(row);
       const err = await rejectionOf(staking.pol.approveStakeManager({ amount: 1n }));
-      expect(err).instanceOf(POSBridgeError);
-      expect(err).property('code').equals('UNSUPPORTED_NETWORK');
+      expect(UnsupportedNetworkError.has(err)).equals(true);
+      expect(err).property('name').equals('StakingWriteError');
 
       const nonceAfter = await l1Public.getTransactionCount({
         address: row.address,
@@ -172,8 +172,8 @@ describe('staking token writes (devnet)', () => {
       expect(await staking.matic.getAllowanceForStakeManager({ owner: row.address })).equals(1n);
 
       const err = await rejectionOf(staking.matic.preparePermit({ owner: row.address, value: 1n }));
-      expect(err).instanceOf(POSBridgeError);
-      expect(err).property('code').equals('PERMIT_NOT_SUPPORTED');
+      expect(PermitNotSupportedError.has(err)).equals(true);
+      expect(err).property('name').equals('PermitError');
     });
 
     it('stakeManager.topUpHeimdallFee lands from a key that owns no validator', async () => {

@@ -15,7 +15,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { POSBridgeError } from '@polygonlabs/maticjs';
+import { ContractNotAvailableOnNetworkError } from '@polygonlabs/maticjs';
 
 import { buildAdapters } from '../src/adapters.ts';
 import { getTestEnv } from '../src/test-env.ts';
@@ -81,7 +81,7 @@ describe.concurrent('ether deposit and exit cycle', { timeout: CYCLE_TIMEOUT_MS 
 });
 
 describe.each(rows)('ether with gas swap via $name', (row) => {
-  it('depositEtherWithGas rejects with CONTRACT_NOT_AVAILABLE_ON_NETWORK', async () => {
+  it('depositEtherWithGas rejects with ContractNotAvailableOnNetworkError', async () => {
     const pos = await initPos(row);
     const l1Before = await readers().l1.getBalance({ address: row.address });
 
@@ -89,8 +89,8 @@ describe.each(rows)('ether with gas swap via $name', (row) => {
       () => undefined,
       (e: unknown) => e
     );
-    expect(err).instanceOf(POSBridgeError);
-    expect(err).property('code').equals('CONTRACT_NOT_AVAILABLE_ON_NETWORK');
+    expect(ContractNotAvailableOnNetworkError.has(err)).equals(true);
+    expect(err).property('name').equals('DepositError');
     // Rejected before broadcast: nothing was spent.
     expect(await readers().l1.getBalance({ address: row.address })).equals(l1Before);
   });
