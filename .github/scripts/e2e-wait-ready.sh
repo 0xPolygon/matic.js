@@ -11,12 +11,13 @@
 # Environment:
 #   E2E_USE_SNAPSHOT   "1" reads the snapshot's fixed host ports; anything
 #                      else (default 0) resolves them from the kurtosis enclave.
-#   E2E_ENCLAVE        enclave name for cold start (default: pos).
+#   KURTOSIS_ENCLAVE   enclave name for cold start (default: pos); the same
+#                      variable the harness reads.
 
 set -euo pipefail
 
 E2E_USE_SNAPSHOT="${E2E_USE_SNAPSHOT:-0}"
-ENCLAVE="${E2E_ENCLAVE:-pos}"
+ENCLAVE="${KURTOSIS_ENCLAVE:-pos}"
 L1_CHAIN_ID_HEX="0x301824"
 L2_CHAIN_ID_HEX="0x133f"
 MIN_L2_BLOCK=256
