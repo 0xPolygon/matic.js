@@ -8,7 +8,8 @@ import { parseAbi } from 'viem';
 export const erc20Abi = parseAbi([
   'function balanceOf(address account) view returns (uint256)',
   'function transfer(address to, uint256 amount) returns (bool)',
-  'function approve(address spender, uint256 amount) returns (bool)'
+  'function approve(address spender, uint256 amount) returns (bool)',
+  'event Transfer(address indexed from, address indexed to, uint256 value)'
 ]);
 
 /** Root DummyERC20: anyone can mint to themselves. */
@@ -38,4 +39,22 @@ export const approvalForAllAbi = parseAbi([
 
 export const rootChainManagerAbi = parseAbi([
   'function depositFor(address user, address rootToken, bytes depositData)'
+]);
+
+/**
+ * StakeManager reads the staking tests use to check the SDK's writes
+ * without going through the SDK's own reads.
+ */
+export const stakeManagerAbi = parseAbi([
+  'function NFTContract() view returns (address)',
+  'function logger() view returns (address)',
+  'function totalHeimdallFee() view returns (uint256)',
+  'function validators(uint256 validatorId) view returns (uint256 amount, uint256 reward, uint256 activationEpoch, uint256 deactivationEpoch, uint256 jailTime, address signer, address contractAddress, uint8 status, uint256 commissionRate, uint256 lastCommissionUpdate, uint256 delegatorsReward, uint256 delegatedAmount, uint256 initialRewardPerStake)'
+]);
+
+/** Events StakeManager emits through its StakingInfo logger. */
+export const stakingInfoAbi = parseAbi([
+  'event TopUpFee(address indexed user, uint256 indexed fee)',
+  'event ClaimRewards(uint256 indexed validatorId, uint256 indexed amount, uint256 indexed totalAmount)',
+  'event Restaked(uint256 indexed validatorId, uint256 amount, uint256 total)'
 ]);

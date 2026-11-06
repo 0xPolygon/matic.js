@@ -33,7 +33,9 @@
  *
  * Files run one at a time (`fileParallelism: false`) in a fixed order. Rows
  * inside a file may run concurrently: each (suite × adapter) has its own key.
- * The validator file runs last because it can change the validator set.
+ * The validator file runs last because its writes act on the devnet's only
+ * validator: if one ever stopped block production, every file after it
+ * would fail too.
  */
 import type { Plugin } from 'vitest/config';
 import type { TestSpecification } from 'vitest/node';

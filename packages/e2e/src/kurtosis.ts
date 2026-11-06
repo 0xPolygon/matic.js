@@ -25,6 +25,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node
 import { dirname, join } from 'node:path';
 
 import { getAddress, isAddress } from 'viem';
+import { privateKeyToAccount } from 'viem/accounts';
 import { z } from 'zod';
 
 import { VError } from '@polygonlabs/verror';
@@ -131,7 +132,13 @@ export const DevnetContractsSchema = z.object({
       maticWeth: AddressSchema
     })
   }),
-  admin: z.object({ address: AddressSchema, privateKey: PrivateKeySchema })
+  admin: z.object({ address: AddressSchema, privateKey: PrivateKeySchema }),
+  /**
+   * The key that owns validator 1's NFT, read from the enclave (see
+   * `readValidatorOwner`). Absent in snapshot mode, which has no enclave to
+   * read it from; the validator-owner tests then skip.
+   */
+  validatorOwner: z.object({ address: AddressSchema, privateKey: PrivateKeySchema }).optional()
 });
 
 export type DevnetContracts = z.infer<typeof DevnetContractsSchema>;
@@ -238,6 +245,53 @@ function parseJson(raw: string, source: string): unknown {
   }
 }
 
+/** The parts of heimdall's `priv_validator_key.json` the harness reads. */
+const PrivValidatorKeySchema = z.object({
+  address: z.string(),
+  priv_key: z.object({ type: z.literal('cometbft/PrivKeySecp256k1eth'), value: z.string() })
+});
+
+/**
+ * Read the key of validator 1, the devnet's only validator, from the enclave.
+ *
+ * kurtosis-pos stakes each validator with `stakeFor(user = the validator's
+ * Ethereum address)`, so that address owns the validator NFT, and it writes
+ * the same secp256k1 key into heimdall's `priv_validator_key.json` as the
+ * consensus key. The key is public devnet material, generated into
+ * kurtosis-pos's committed prefunded-accounts list, in the same class as the
+ * admin key above. It is read from the devnet's own keys artifact rather than
+ * copied here, so a kurtosis-pos release that changes its accounts cannot
+ * leave a stale key behind. The address in the file must match the key, and
+ * the tests check on chain that it owns validator 1.
+ */
+function readValidatorOwner(
+  heimdallService: string
+): NonNullable<DevnetContracts['validatorOwner']> {
+  const source = `${heimdallService}-keys/priv_validator_key.json`;
+  const file = PrivValidatorKeySchema.parse(
+    parseJson(
+      kurtosis([
+        'files',
+        'inspect',
+        ENCLAVE,
+        `${heimdallService}-keys`,
+        './priv_validator_key.json'
+      ]),
+      source
+    )
+  );
+  const privateKey = PrivateKeySchema.parse(
+    `0x${Buffer.from(file.priv_key.value, 'base64').toString('hex')}`
+  );
+  const { address } = privateKeyToAccount(privateKey);
+  if (address.toLowerCase() !== `0x${file.address.replace(/^0x/i, '')}`.toLowerCase()) {
+    throw new VError('validator key does not match the address in its own key file', {
+      info: { source, address }
+    });
+  }
+  return { address, privateKey };
+}
+
 /**
  * What `scripts/down.ts` may remove: exactly the enclave (by UUID) or the
  * compose project that `scripts/up.ts` ran against. Nothing else.
@@ -342,7 +396,8 @@ export function readDevnet(): { devnet: Devnet; teardown: TeardownRecord } {
           ]),
           'kurtosis pos-contract-addresses artifact'
         )
-      )
+      ),
+      validatorOwner: readValidatorOwner(heimdall)
     },
     teardown: { mode: 'kurtosis', enclaveUuid: uuid, createdByHarness }
   };
