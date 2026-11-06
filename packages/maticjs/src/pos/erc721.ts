@@ -1,285 +1,776 @@
-import type { IPOSClientConfig, IPOSContracts, ITransactionOption } from '../interfaces';
-import type { TYPE_AMOUNT } from '../types';
-import type { Web3SideChainClient } from '../utils';
+/**
+ * `ERC721` — typed wrapper around the bridge's child-chain ERC-721
+ * surface plus the deposit / withdraw flows.
+ *
+ * Composes a `ContractCaller` plus the `POSBridgeHelpers` /
+ * `RootChainManager` services. The legacy inheritance chain is gone.
+ *
+ * The commented-out batch-exit block from the legacy class
+ * (years-stale half-implementation) is dropped here.
+ */
 
-import { Log_Event_Signature } from '../enums';
-import { Converter } from '../utils';
-import { POSToken } from './pos_token';
+import type { Adapter, Hex, PreparedTx, TxResult } from '../adapter.js';
+import type { ContractCallerOptions } from '../internal/contract-caller.js';
+import type { POSBridgeHelpers } from '../internal/pos-bridge-helpers.js';
+import type { Logger } from '../logger.js';
+import type { RootChainManager } from './root_chain_manager.js';
 
-export class ERC721 extends POSToken {
-  constructor(
-    tokenAddress: string,
-    isParent: boolean,
-    client: Web3SideChainClient<IPOSClientConfig>,
-    getContracts: () => IPOSContracts
-  ) {
-    super(
-      {
-        isParent,
-        address: tokenAddress,
-        name: 'ChildERC721',
-        bridgeType: 'pos'
+import { ChildERC721ABI } from '../abi/index.js';
+import { LogEventSignature } from '../constant.js';
+import {
+  AllowedOnChildError,
+  AllowedOnRootError,
+  ApproveError,
+  BatchSizeLimitExceededError,
+  DepositError,
+  ExitError,
+  BridgeStatusError,
+  InvalidNumericValueError,
+  TokenReadError,
+  TransferError,
+  WithdrawStartError,
+  withOperation
+} from '../errors.js';
+import { ContractCaller } from '../internal/contract-caller.js';
+
+export interface ERC721Config {
+  tokenAddress: Hex;
+  isParent: boolean;
+  adapter: Adapter;
+  bridge: POSBridgeHelpers;
+  rootChainManager: RootChainManager;
+  parentAdapter: Adapter;
+  encodeParameters: (params: readonly unknown[], types: readonly string[]) => string;
+  logger: Logger;
+  defaultFrom?: Hex;
+}
+
+const MAX_BATCH_SIZE = 20;
+
+export class ERC721 {
+  private readonly caller: ContractCaller;
+  readonly tokenAddress: Hex;
+  readonly isParent: boolean;
+  private readonly bridge: POSBridgeHelpers;
+  private readonly rootChainManager: RootChainManager;
+  private readonly encodeParameters: (
+    params: readonly unknown[],
+    types: readonly string[]
+  ) => string;
+
+  constructor(config: ERC721Config) {
+    this.tokenAddress = config.tokenAddress;
+    this.isParent = config.isParent;
+    this.bridge = config.bridge;
+    this.rootChainManager = config.rootChainManager;
+    this.encodeParameters = config.encodeParameters;
+    this.caller = new ContractCaller({
+      adapter: config.adapter,
+      getAddress: () => Promise.resolve(config.tokenAddress),
+      abi: ChildERC721ABI,
+      isParent: config.isParent,
+      logger: config.logger,
+      defaultFrom: config.defaultFrom
+    });
+  }
+
+  /** Number of tokens owned by `userAddress`. */
+  async getTokensCount(userAddress: string, options?: ContractCallerOptions): Promise<number> {
+    return withOperation({
+      error: TokenReadError,
+      info: {
+        operation: 'getTokensCount',
+        mode: 'read',
+        tokenAddress: this.tokenAddress,
+        method: 'balanceOf'
       },
-      client,
-      getContracts
-    );
+      run: async () => {
+        const v = await this.caller.read<bigint | string>('balanceOf', [userAddress], options);
+        return Number(v);
+      }
+    });
   }
 
-  private validateMany_(tokenIds) {
-    if (tokenIds.length > 20) {
-      throw new Error('can not process more than 20 tokens');
+  /**
+   * Token id at index `index` of `userAddress`'s holdings. Used to
+   * paginate through all token ids without precomputing them on the
+   * client.
+   */
+  async getTokenIdAtIndexForUser(
+    index: number,
+    userAddress: string,
+    options?: ContractCallerOptions
+  ): Promise<bigint> {
+    return withOperation({
+      error: TokenReadError,
+      info: {
+        operation: 'getTokenIdAtIndexForUser',
+        mode: 'read',
+        tokenAddress: this.tokenAddress,
+        method: 'tokenOfOwnerByIndex',
+        index
+      },
+      run: async () => {
+        const v = await this.caller.read<bigint | string>(
+          'tokenOfOwnerByIndex',
+          [userAddress, index],
+          options
+        );
+        return BigInt(v);
+      }
+    });
+  }
+
+  /**
+   * Fetch every token id owned by `userAddress`, capped at `limit`.
+   * Each token is fetched serially; for very large holdings (>1000)
+   * consider stepping through the index manually.
+   */
+  async getAllTokens(userAddress: string, limit = Infinity): Promise<bigint[]> {
+    return withOperation({
+      error: TokenReadError,
+      info: { operation: 'getAllTokens', mode: 'read', tokenAddress: this.tokenAddress },
+      run: async () => {
+        const rawCount = await this.getTokensCount(userAddress);
+        let count = Number(rawCount);
+        if (count > limit) {
+          count = limit;
+        }
+        const out: bigint[] = [];
+        for (let i = 0; i < count; i++) {
+          out.push(await this.getTokenIdAtIndexForUser(i, userAddress));
+        }
+        return out;
+      }
+    });
+  }
+
+  /** True iff the bridge's predicate is approved for `tokenId`. */
+  async isApproved(tokenId: bigint, options?: ContractCallerOptions): Promise<boolean> {
+    return withOperation({
+      error: TokenReadError,
+      info: {
+        operation: 'isApproved',
+        mode: 'read',
+        tokenAddress: this.tokenAddress,
+        method: 'getApproved'
+      },
+      run: async () => {
+        this.requireParent('isApproved');
+        const [approved, predicate] = await Promise.all([
+          this.caller.read<string>('getApproved', [tokenId], options),
+          this.bridge.getPredicateAddress(this.tokenAddress)
+        ]);
+        return approved.toLowerCase() === predicate.toLowerCase();
+      }
+    });
+  }
+
+  /** True iff the bridge's predicate has operator-level approval. */
+  async isApprovedAll(userAddress: string, options?: ContractCallerOptions): Promise<boolean> {
+    return withOperation({
+      error: TokenReadError,
+      info: {
+        operation: 'isApprovedAll',
+        mode: 'read',
+        tokenAddress: this.tokenAddress,
+        method: 'isApprovedForAll'
+      },
+      run: async () => {
+        this.requireParent('isApprovedAll');
+        const predicate = await this.bridge.getPredicateAddress(this.tokenAddress);
+        return this.caller.read<boolean>('isApprovedForAll', [userAddress, predicate], options);
+      }
+    });
+  }
+
+  /** Approve the predicate to move `tokenId`. */
+  async approve(tokenId: bigint, options: ContractCallerOptions = {}): Promise<TxResult> {
+    return withOperation({
+      error: ApproveError,
+      info: {
+        operation: 'approve',
+        mode: 'write',
+        tokenAddress: this.tokenAddress,
+        method: 'approve'
+      },
+      run: async () => {
+        this.requireParent('approve');
+        const predicate = await this.bridge.getPredicateAddress(this.tokenAddress);
+        return this.caller.write('approve', [predicate, tokenId], options);
+      }
+    });
+  }
+
+  /** Same as {@link approve} but returns the unsigned `{ to, data, value? }`. */
+  async prepareApprove(tokenId: bigint, options: ContractCallerOptions = {}): Promise<PreparedTx> {
+    return withOperation({
+      error: ApproveError,
+      info: {
+        operation: 'prepareApprove',
+        mode: 'prepare',
+        tokenAddress: this.tokenAddress,
+        method: 'approve'
+      },
+      run: async () => {
+        this.requireParent('approve');
+        const predicate = await this.bridge.getPredicateAddress(this.tokenAddress);
+        return this.caller.prepareWrite('approve', [predicate, tokenId], options);
+      }
+    });
+  }
+
+  /** Operator-level `setApprovalForAll(predicate, true)`. */
+  async approveAll(options: ContractCallerOptions = {}): Promise<TxResult> {
+    return withOperation({
+      error: ApproveError,
+      info: {
+        operation: 'approveAll',
+        mode: 'write',
+        tokenAddress: this.tokenAddress,
+        method: 'setApprovalForAll'
+      },
+      run: async () => {
+        this.requireParent('approveAll');
+        const predicate = await this.bridge.getPredicateAddress(this.tokenAddress);
+        return this.caller.write('setApprovalForAll', [predicate, true], options);
+      }
+    });
+  }
+
+  /** Same as {@link approveAll} but returns the unsigned `{ to, data, value? }`. */
+  async prepareApproveAll(options: ContractCallerOptions = {}): Promise<PreparedTx> {
+    return withOperation({
+      error: ApproveError,
+      info: {
+        operation: 'prepareApproveAll',
+        mode: 'prepare',
+        tokenAddress: this.tokenAddress,
+        method: 'setApprovalForAll'
+      },
+      run: async () => {
+        this.requireParent('approveAll');
+        const predicate = await this.bridge.getPredicateAddress(this.tokenAddress);
+        return this.caller.prepareWrite('setApprovalForAll', [predicate, true], options);
+      }
+    });
+  }
+
+  /** Bridge-deposit a single token. Parent-chain only. */
+  async deposit(
+    tokenId: bigint,
+    userAddress: string,
+    options: ContractCallerOptions = {}
+  ): Promise<TxResult> {
+    return withOperation({
+      error: DepositError,
+      info: { operation: 'deposit', mode: 'write', tokenAddress: this.tokenAddress },
+      run: () => {
+        this.requireParent('deposit');
+        const amountInABI = this.encodeParameters([tokenId], ['uint256']);
+        return this.rootChainManager.deposit(userAddress, this.tokenAddress, amountInABI, options);
+      }
+    });
+  }
+
+  /** Same as {@link deposit} but returns the unsigned `{ to, data, value? }`. */
+  async prepareDeposit(
+    tokenId: bigint,
+    userAddress: string,
+    options: ContractCallerOptions = {}
+  ): Promise<PreparedTx> {
+    return withOperation({
+      error: DepositError,
+      info: { operation: 'prepareDeposit', mode: 'prepare', tokenAddress: this.tokenAddress },
+      run: () => {
+        this.requireParent('deposit');
+        const amountInABI = this.encodeParameters([tokenId], ['uint256']);
+        return this.rootChainManager.prepareDeposit(
+          userAddress,
+          this.tokenAddress,
+          amountInABI,
+          options
+        );
+      }
+    });
+  }
+
+  /** Bridge-deposit up to 20 tokens. Parent-chain only. */
+  async depositMany(
+    tokenIds: bigint[],
+    userAddress: string,
+    options: ContractCallerOptions = {}
+  ): Promise<TxResult> {
+    return withOperation({
+      error: DepositError,
+      info: { operation: 'depositMany', mode: 'write', tokenAddress: this.tokenAddress },
+      run: () => {
+        this.requireParent('depositMany');
+        this.validateBatch(tokenIds);
+        const amountInABI = this.encodeParameters([tokenIds], ['uint256[]']);
+        return this.rootChainManager.deposit(userAddress, this.tokenAddress, amountInABI, options);
+      }
+    });
+  }
+
+  /** Same as {@link depositMany} but returns the unsigned `{ to, data, value? }`. */
+  async prepareDepositMany(
+    tokenIds: bigint[],
+    userAddress: string,
+    options: ContractCallerOptions = {}
+  ): Promise<PreparedTx> {
+    return withOperation({
+      error: DepositError,
+      info: { operation: 'prepareDepositMany', mode: 'prepare', tokenAddress: this.tokenAddress },
+      run: () => {
+        this.requireParent('depositMany');
+        this.validateBatch(tokenIds);
+        const amountInABI = this.encodeParameters([tokenIds], ['uint256[]']);
+        return this.rootChainManager.prepareDeposit(
+          userAddress,
+          this.tokenAddress,
+          amountInABI,
+          options
+        );
+      }
+    });
+  }
+
+  /** Burn `tokenId` on the child chain to start a withdrawal. */
+  async startWithdraw(tokenId: bigint, options: ContractCallerOptions = {}): Promise<TxResult> {
+    return withOperation({
+      error: WithdrawStartError,
+      info: {
+        operation: 'startWithdraw',
+        mode: 'write',
+        tokenAddress: this.tokenAddress,
+        method: 'withdraw'
+      },
+      run: () => {
+        this.requireChild('startWithdraw');
+        return this.caller.write('withdraw', [tokenId], options);
+      }
+    });
+  }
+
+  /** Same as {@link startWithdraw} but returns the unsigned `{ to, data, value? }`. */
+  async prepareStartWithdraw(
+    tokenId: bigint,
+    options: ContractCallerOptions = {}
+  ): Promise<PreparedTx> {
+    return withOperation({
+      error: WithdrawStartError,
+      info: {
+        operation: 'prepareStartWithdraw',
+        mode: 'prepare',
+        tokenAddress: this.tokenAddress,
+        method: 'withdraw'
+      },
+      run: () => {
+        this.requireChild('startWithdraw');
+        return this.caller.prepareWrite('withdraw', [tokenId], options);
+      }
+    });
+  }
+
+  /** Burn-with-metadata variant — used when the on-chain token has
+   *  per-instance metadata that should travel with the bridge exit. */
+  async startWithdrawWithMetaData(
+    tokenId: bigint,
+    options: ContractCallerOptions = {}
+  ): Promise<TxResult> {
+    return withOperation({
+      error: WithdrawStartError,
+      info: {
+        operation: 'startWithdrawWithMetaData',
+        mode: 'write',
+        tokenAddress: this.tokenAddress,
+        method: 'withdrawWithMetadata'
+      },
+      run: () => {
+        this.requireChild('startWithdrawWithMetaData');
+        return this.caller.write('withdrawWithMetadata', [tokenId], options);
+      }
+    });
+  }
+
+  /** Same as {@link startWithdrawWithMetaData} but returns the unsigned `{ to, data, value? }`. */
+  async prepareStartWithdrawWithMetaData(
+    tokenId: bigint,
+    options: ContractCallerOptions = {}
+  ): Promise<PreparedTx> {
+    return withOperation({
+      error: WithdrawStartError,
+      info: {
+        operation: 'prepareStartWithdrawWithMetaData',
+        mode: 'prepare',
+        tokenAddress: this.tokenAddress,
+        method: 'withdrawWithMetadata'
+      },
+      run: () => {
+        this.requireChild('startWithdrawWithMetaData');
+        return this.caller.prepareWrite('withdrawWithMetadata', [tokenId], options);
+      }
+    });
+  }
+
+  /** Burn up to 20 tokens in a single tx. */
+  async startWithdrawMany(
+    tokenIds: bigint[],
+    options: ContractCallerOptions = {}
+  ): Promise<TxResult> {
+    return withOperation({
+      error: WithdrawStartError,
+      info: {
+        operation: 'startWithdrawMany',
+        mode: 'write',
+        tokenAddress: this.tokenAddress,
+        method: 'withdrawBatch'
+      },
+      run: () => {
+        this.requireChild('startWithdrawMany');
+        this.validateBatch(tokenIds);
+        return this.caller.write('withdrawBatch', [tokenIds], options);
+      }
+    });
+  }
+
+  /** Same as {@link startWithdrawMany} but returns the unsigned `{ to, data, value? }`. */
+  async prepareStartWithdrawMany(
+    tokenIds: bigint[],
+    options: ContractCallerOptions = {}
+  ): Promise<PreparedTx> {
+    return withOperation({
+      error: WithdrawStartError,
+      info: {
+        operation: 'prepareStartWithdrawMany',
+        mode: 'prepare',
+        tokenAddress: this.tokenAddress,
+        method: 'withdrawBatch'
+      },
+      run: () => {
+        this.requireChild('startWithdrawMany');
+        this.validateBatch(tokenIds);
+        return this.caller.prepareWrite('withdrawBatch', [tokenIds], options);
+      }
+    });
+  }
+
+  /** Submit the exit payload (slow path). */
+  async completeWithdraw(
+    burnTransactionHash: string,
+    options: ContractCallerOptions = {}
+  ): Promise<TxResult> {
+    return withOperation({
+      error: ExitError,
+      info: {
+        operation: 'completeWithdraw',
+        mode: 'write',
+        tokenAddress: this.tokenAddress,
+        burnTxHash: burnTransactionHash,
+        isFast: false
+      },
+      run: async () => {
+        this.requireParent('completeWithdraw');
+        const payload = await this.bridge.buildExitPayload(
+          burnTransactionHash,
+          LogEventSignature.Erc721Transfer,
+          false
+        );
+        return this.rootChainManager.exit(payload, options);
+      }
+    });
+  }
+
+  /** Same as {@link completeWithdraw} but returns the unsigned `{ to, data, value? }`. */
+  async prepareCompleteWithdraw(
+    burnTransactionHash: string,
+    options: ContractCallerOptions = {}
+  ): Promise<PreparedTx> {
+    return withOperation({
+      error: ExitError,
+      info: {
+        operation: 'prepareCompleteWithdraw',
+        mode: 'prepare',
+        tokenAddress: this.tokenAddress,
+        burnTxHash: burnTransactionHash,
+        isFast: false
+      },
+      run: async () => {
+        this.requireParent('completeWithdraw');
+        const payload = await this.bridge.buildExitPayload(
+          burnTransactionHash,
+          LogEventSignature.Erc721Transfer,
+          false
+        );
+        return this.rootChainManager.prepareExit(payload, options);
+      }
+    });
+  }
+
+  /** Submit the exit payload for the n-th matching log. */
+  async completeWithdrawOnIndex(
+    burnTransactionHash: string,
+    index: number,
+    options: ContractCallerOptions = {}
+  ): Promise<TxResult> {
+    return withOperation({
+      error: ExitError,
+      info: {
+        operation: 'completeWithdrawOnIndex',
+        mode: 'write',
+        tokenAddress: this.tokenAddress,
+        burnTxHash: burnTransactionHash,
+        isFast: false,
+        index
+      },
+      run: async () => {
+        this.requireParent('completeWithdrawOnIndex');
+        const payload = await this.bridge.buildExitPayloadOnIndex(
+          burnTransactionHash,
+          LogEventSignature.Erc721Transfer,
+          index,
+          false
+        );
+        return this.rootChainManager.exit(payload, options);
+      }
+    });
+  }
+
+  /** Same as {@link completeWithdrawOnIndex} but returns the unsigned `{ to, data, value? }`. */
+  async prepareCompleteWithdrawOnIndex(
+    burnTransactionHash: string,
+    index: number,
+    options: ContractCallerOptions = {}
+  ): Promise<PreparedTx> {
+    return withOperation({
+      error: ExitError,
+      info: {
+        operation: 'prepareCompleteWithdrawOnIndex',
+        mode: 'prepare',
+        tokenAddress: this.tokenAddress,
+        burnTxHash: burnTransactionHash,
+        isFast: false,
+        index
+      },
+      run: async () => {
+        this.requireParent('completeWithdrawOnIndex');
+        const payload = await this.bridge.buildExitPayloadOnIndex(
+          burnTransactionHash,
+          LogEventSignature.Erc721Transfer,
+          index,
+          false
+        );
+        return this.rootChainManager.prepareExit(payload, options);
+      }
+    });
+  }
+
+  /** Submit the exit payload (fast path via proof API). */
+  async completeWithdrawFast(
+    burnTransactionHash: string,
+    options: ContractCallerOptions = {}
+  ): Promise<TxResult> {
+    return withOperation({
+      error: ExitError,
+      info: {
+        operation: 'completeWithdrawFast',
+        mode: 'write',
+        tokenAddress: this.tokenAddress,
+        burnTxHash: burnTransactionHash,
+        isFast: true
+      },
+      run: async () => {
+        this.requireParent('completeWithdrawFast');
+        const payload = await this.bridge.buildExitPayload(
+          burnTransactionHash,
+          LogEventSignature.Erc721Transfer,
+          true
+        );
+        return this.rootChainManager.exit(payload, options);
+      }
+    });
+  }
+
+  /** Same as {@link completeWithdrawFast} but returns the unsigned `{ to, data, value? }`. */
+  async prepareCompleteWithdrawFast(
+    burnTransactionHash: string,
+    options: ContractCallerOptions = {}
+  ): Promise<PreparedTx> {
+    return withOperation({
+      error: ExitError,
+      info: {
+        operation: 'prepareCompleteWithdrawFast',
+        mode: 'prepare',
+        tokenAddress: this.tokenAddress,
+        burnTxHash: burnTransactionHash,
+        isFast: true
+      },
+      run: async () => {
+        this.requireParent('completeWithdrawFast');
+        const payload = await this.bridge.buildExitPayload(
+          burnTransactionHash,
+          LogEventSignature.Erc721Transfer,
+          true
+        );
+        return this.rootChainManager.prepareExit(payload, options);
+      }
+    });
+  }
+
+  /** True iff a single-token exit has been processed. */
+  async isWithdrawExited(txHash: string): Promise<boolean> {
+    return withOperation({
+      error: BridgeStatusError,
+      info: {
+        operation: 'isWithdrawExited',
+        mode: 'read',
+        tokenAddress: this.tokenAddress,
+        burnTxHash: txHash
+      },
+      run: () => this.bridge.isWithdrawn(txHash, LogEventSignature.Erc721Transfer)
+    });
+  }
+
+  /** True iff the n-th matching log under `txHash` has been exited. */
+  async isWithdrawExitedOnIndex(txHash: string, index: number): Promise<boolean> {
+    return withOperation({
+      error: BridgeStatusError,
+      info: {
+        operation: 'isWithdrawExitedOnIndex',
+        mode: 'read',
+        tokenAddress: this.tokenAddress,
+        burnTxHash: txHash,
+        index
+      },
+      run: () => this.bridge.isWithdrawnOnIndex(txHash, index, LogEventSignature.Erc721Transfer)
+    });
+  }
+
+  /**
+   * {@link isWithdrawExitedOnIndex} for several tokens of one burn: one
+   * boolean per requested index, in the order given.
+   *
+   * Each token of a {@link startWithdrawMany} burn is exited separately
+   * ({@link completeWithdrawOnIndex}) and keyed on its own `Transfer` log,
+   * so a batch burn can be partly exited. This reads the burn receipt once
+   * and then checks every requested token, instead of re-reading the
+   * receipt per token.
+   *
+   * Rejects with an `BridgeStatusError` whose cause is
+   * `BatchSizeLimitExceededError` for an empty list or more than 20 indices
+   * (a burn holds at most 20 tokens), `InvalidNumericValueError` for a
+   * non-integer or repeated index, `NegativeIndexError` for a negative one,
+   * or `IndexOutOfBoundsError` for one past the burn's last token.
+   */
+  async isWithdrawExitedOnIndices(burnTxHash: string, indices: number[]): Promise<boolean[]> {
+    return withOperation({
+      error: BridgeStatusError,
+      info: {
+        operation: 'isWithdrawExitedOnIndices',
+        mode: 'read',
+        tokenAddress: this.tokenAddress,
+        burnTxHash
+      },
+      run: () => {
+        this.validateIndices(indices);
+        return this.bridge.isWithdrawnOnIndices(
+          burnTxHash,
+          indices,
+          LogEventSignature.Erc721Transfer
+        );
+      }
+    });
+  }
+
+  /**
+   * Standard ERC-721 `transferFrom(from, to, tokenId)`. Works on
+   * both parent and child chains.
+   */
+  async transfer(
+    tokenId: bigint,
+    from: string,
+    to: string,
+    options: ContractCallerOptions = {}
+  ): Promise<TxResult> {
+    return withOperation({
+      error: TransferError,
+      info: {
+        operation: 'transfer',
+        mode: 'write',
+        tokenAddress: this.tokenAddress,
+        method: 'transferFrom'
+      },
+      run: () => this.caller.write('transferFrom', [from, to, tokenId], options)
+    });
+  }
+
+  /** Same as {@link transfer} but returns the unsigned `{ to, data, value? }`. */
+  async prepareTransfer(
+    tokenId: bigint,
+    from: string,
+    to: string,
+    options: ContractCallerOptions = {}
+  ): Promise<PreparedTx> {
+    return withOperation({
+      error: TransferError,
+      info: {
+        operation: 'prepareTransfer',
+        mode: 'prepare',
+        tokenAddress: this.tokenAddress,
+        method: 'transferFrom'
+      },
+      run: () => this.caller.prepareWrite('transferFrom', [from, to, tokenId], options)
+    });
+  }
+
+  // --- guards ------------------------------------------------------------
+
+  private validateBatch(tokenIds: readonly bigint[]): void {
+    if (tokenIds.length > MAX_BATCH_SIZE) {
+      throw new BatchSizeLimitExceededError(
+        `cannot process more than ${MAX_BATCH_SIZE} tokens in a single transaction`,
+        { info: { count: tokenIds.length, max: MAX_BATCH_SIZE } }
+      );
     }
-    return tokenIds.map((tokenId) => {
-      return Converter.toHex(tokenId);
-    });
   }
 
-  /**
-   * get tokens count for the user
-   *
-   * @param {string} userAddress
-   * @param {ITransactionOption} [options]
-   * @returns
-   * @memberof ERC721
-   */
-  getTokensCount(userAddress: string, options?: ITransactionOption) {
-    return this.getContract()
-      .then((contract) => {
-        const method = contract.method('balanceOf', userAddress);
-        return this.processRead<string>(method, options);
-      })
-      .then((count) => {
-        return Number(count);
-      });
-  }
-
-  /**
-   * returns token id on supplied index for user
-   *
-   * @param {number} index
-   * @param {string} userAddress
-   * @param {ITransactionOption} [options]
-   * @returns
-   * @memberof ERC721
-   */
-  getTokenIdAtIndexForUser(index: number, userAddress: string, options?: ITransactionOption) {
-    return this.getContract().then((contract) => {
-      const method = contract.method('tokenOfOwnerByIndex', userAddress, index);
-
-      return this.processRead<string>(method, options);
-    });
-  }
-
-  /**
-   * get all tokens for user
-   *
-   * @param {string} userAddress
-   * @param {*} [limit=Infinity]
-   * @returns
-   * @memberof ERC721
-   */
-  getAllTokens(userAddress: string, limit = Infinity) {
-    return this.getTokensCount(userAddress).then((rawCount) => {
-      let count = Number(rawCount);
-      if (count > limit) {
-        count = limit;
+  private validateIndices(indices: readonly number[]): void {
+    if (indices.length === 0 || indices.length > MAX_BATCH_SIZE) {
+      throw new BatchSizeLimitExceededError(
+        `expected between 1 and ${MAX_BATCH_SIZE} token indices`,
+        { info: { count: indices.length, min: 1, max: MAX_BATCH_SIZE } }
+      );
+    }
+    const seen = new Set<number>();
+    for (const index of indices) {
+      if (!Number.isInteger(index)) {
+        throw new InvalidNumericValueError('Index must be an integer', { info: { index } });
       }
-      const promises = [];
-      for (let i = 0; i < count; i++) {
-        promises.push(this.getTokenIdAtIndexForUser(i, userAddress));
+      if (seen.has(index)) {
+        throw new InvalidNumericValueError('Index is repeated', { info: { index } });
       }
-      return Promise.all(promises);
-    });
+      seen.add(index);
+    }
   }
 
-  isApproved(tokenId: string, option?: ITransactionOption) {
-    this.checkForRoot('isApproved');
-
-    return this.getContract().then((contract) => {
-      const method = contract.method('getApproved', tokenId);
-      return Promise.all([
-        this.processRead<string>(method, option),
-        this.getPredicateAddress()
-      ]).then((result) => {
-        return result[0] === result[1];
+  private requireParent(action: string): void {
+    if (!this.isParent) {
+      throw new AllowedOnRootError(`${action} is allowed only on the parent (root) chain`, {
+        info: { action, isParent: this.isParent, tokenAddress: this.tokenAddress }
       });
-    });
+    }
   }
 
-  isApprovedAll(userAddress: string, option?: ITransactionOption) {
-    this.checkForRoot('isApprovedAll');
-
-    return Promise.all([this.getContract(), this.getPredicateAddress()]).then((result) => {
-      const [contract, predicateAddress] = result;
-      const method = contract.method('isApprovedForAll', userAddress, predicateAddress);
-      return this.processRead<boolean>(method, option);
-    });
-  }
-
-  approve(tokenId: TYPE_AMOUNT, option?: ITransactionOption) {
-    this.checkForRoot('approve');
-
-    return Promise.all([this.getContract(), this.getPredicateAddress()]).then((result) => {
-      const [contract, predicateAddress] = result;
-      const method = contract.method('approve', predicateAddress, Converter.toHex(tokenId));
-      return this.processWrite(method, option);
-    });
-  }
-
-  approveAll(option?: ITransactionOption) {
-    this.checkForRoot('approveAll');
-
-    return Promise.all([this.getContract(), this.getPredicateAddress()]).then((result) => {
-      const [contract, predicateAddress] = result;
-      const method = contract.method('setApprovalForAll', predicateAddress, true);
-      return this.processWrite(method, option);
-    });
-  }
-
-  deposit(tokenId: TYPE_AMOUNT, userAddress: string, option?: ITransactionOption) {
-    this.checkForRoot('deposit');
-
-    const amountInABI = this.client.parent.encodeParameters(
-      [Converter.toHex(tokenId)],
-      ['uint256']
-    );
-    return this.rootChainManager.deposit(
-      userAddress,
-      this.contractParam.address,
-      amountInABI,
-      option
-    );
-  }
-
-  depositMany(tokenIds: TYPE_AMOUNT[], userAddress: string, option?: ITransactionOption) {
-    this.checkForRoot('depositMany');
-
-    const tokensInHex = this.validateMany_(tokenIds);
-
-    const amountInABI = this.client.parent.encodeParameters([tokensInHex], ['uint256[]']);
-    return this.rootChainManager.deposit(
-      userAddress,
-      this.contractParam.address,
-      amountInABI,
-      option
-    );
-  }
-
-  withdrawStart(tokenId: TYPE_AMOUNT, option?: ITransactionOption) {
-    this.checkForChild('withdrawStart');
-
-    return this.getContract().then((contract) => {
-      const method = contract.method('withdraw', Converter.toHex(tokenId));
-      return this.processWrite(method, option);
-    });
-  }
-
-  withdrawStartWithMetaData(tokenId: TYPE_AMOUNT, option?: ITransactionOption) {
-    this.checkForChild('withdrawStartWithMetaData');
-
-    return this.getContract().then((contract) => {
-      const method = contract.method('withdrawWithMetadata', Converter.toHex(tokenId));
-      return this.processWrite(method, option);
-    });
-  }
-
-  withdrawStartMany(tokenIds: TYPE_AMOUNT[], option?: ITransactionOption) {
-    this.checkForChild('withdrawStartMany');
-
-    const tokensInHex = this.validateMany_(tokenIds);
-
-    return this.getContract().then((contract) => {
-      const method = contract.method('withdrawBatch', tokensInHex);
-      return this.processWrite(method, option);
-    });
-  }
-
-  withdrawExit(burnTransactionHash: string, option?: ITransactionOption) {
-    this.checkForRoot('withdrawExit');
-
-    return this.exitUtil
-      .buildPayloadForExit(burnTransactionHash, Log_Event_Signature.Erc721Transfer, false)
-      .then((payload) => {
-        return this.rootChainManager.exit(payload, option);
+  private requireChild(action: string): void {
+    if (this.isParent) {
+      throw new AllowedOnChildError(`${action} is allowed only on the child chain`, {
+        info: {
+          action,
+          isParent: this.isParent,
+          tokenAddress: this.tokenAddress
+        }
       });
-  }
-
-  withdrawExitOnIndex(burnTransactionHash: string, index: number, option?: ITransactionOption) {
-    this.checkForRoot('withdrawExit');
-
-    return this.exitUtil
-      .buildPayloadForExit(burnTransactionHash, Log_Event_Signature.Erc721Transfer, false, index)
-      .then((payload) => {
-        return this.rootChainManager.exit(payload, option);
-      });
-  }
-
-  // async withdrawExitMany(burnTransactionHash: string, option?: ITransactionOption) {
-  //     this.checkForRoot("withdrawExitMany");
-
-  //     return this.exitUtil.buildMultiplePayloadsForExit(
-  //         burnTransactionHash,
-  //         Log_Event_Signature.Erc721BatchTransfer,
-  //         false
-  //     ).then(async payloads => {
-  //         const exitTxs = [];
-  //         if()
-  //         for(const i in payloads) {
-  //           exitTxs.push(this.rootChainManager.exit(
-  //             payloads[i], option
-  //         ));
-  //         }
-  //         return Promise.all(exitTxs);
-  //         });
-  // }
-
-  withdrawExitFaster(burnTransactionHash: string, option?: ITransactionOption) {
-    this.checkForRoot('withdrawExitFaster');
-
-    return this.exitUtil
-      .buildPayloadForExit(burnTransactionHash, Log_Event_Signature.Erc721Transfer, true)
-      .then((payload) => {
-        return this.rootChainManager.exit(payload, option);
-      });
-  }
-
-  // withdrawExitFasterMany(burnTransactionHash: string, option?: ITransactionOption) {
-  //     this.checkForRoot("withdrawExitFasterMany");
-
-  //     return this.exitUtil.buildPayloadForExit(
-  //         burnTransactionHash,
-  //         Log_Event_Signature.Erc721BatchTransfer,
-  //         true
-  //     ).then(payload => {
-  //         return this.rootChainManager.exit(
-  //             payload, option
-  //         );
-  //     });
-  // }
-
-  isWithdrawExited(txHash: string) {
-    return this.isWithdrawn(txHash, Log_Event_Signature.Erc721Transfer);
-  }
-
-  isWithdrawExitedMany(txHash: string) {
-    return this.isWithdrawn(txHash, Log_Event_Signature.Erc721BatchTransfer);
-  }
-
-  isWithdrawExitedOnIndex(txHash: string, index: number) {
-    return this.isWithdrawnOnIndex(txHash, index, Log_Event_Signature.Erc721Transfer);
-  }
-
-  /**
-   * transfer to another user
-   *
-   * @param {string} tokenId
-   * @param {string} from
-   * @param {string} to
-   * @param {ITransactionOption} [option]
-   * @returns
-   * @memberof ERC721
-   */
-  transfer(tokenId: string, from: string, to: string, option?: ITransactionOption) {
-    return this.transferERC721(from, to, tokenId, option);
+    }
   }
 }
