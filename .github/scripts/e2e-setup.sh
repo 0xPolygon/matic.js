@@ -25,6 +25,8 @@
 #
 # Environment:
 #   E2E_USE_SNAPSHOT     "1" snapshot mode, anything else cold start (default 0).
+#   KURTOSIS_ENCLAVE     enclave name for cold start (default pos). The harness
+#                        (packages/e2e/src/kurtosis.ts) reads the same variable.
 #   E2E_SNAPSHOT_IMAGE   snapshot image, pinned by digest in the workflow.
 #   KURTOSIS_POS_REF     kurtosis-pos commit to check out; supplies
 #                        scripts/snapshot/ in snapshot mode and the source in
@@ -43,6 +45,7 @@ set -euo pipefail
 
 E2E_USE_SNAPSHOT="${E2E_USE_SNAPSHOT:-0}"
 E2E_SNAPSHOT_IMAGE="${E2E_SNAPSHOT_IMAGE:-}"
+ENCLAVE="${KURTOSIS_ENCLAVE:-pos}"
 # kurtosis-pos v1.4.8. Pinned by commit because a tag can be moved.
 KURTOSIS_POS_REF="${KURTOSIS_POS_REF:-b2f5b7a8ce6569cc32b48240862dda63e9ad340a}"
 # The kurtosis CLI kurtosis-pos v1.4.8 itself pins in its CI, installed from
@@ -119,7 +122,11 @@ restore_from_snapshot() {
 
 install_kurtosis() {
   if command -v kurtosis >/dev/null 2>&1; then
-    log "kurtosis already installed: $(kurtosis version | head -n1)"
+    # Capture first, never pipe a kurtosis command into head or grep -q: the
+    # reader exiting early sends the CLI SIGPIPE mid-command.
+    local version
+    version=$(kurtosis version)
+    log "kurtosis already installed: ${version%%$'\n'*}"
     return
   fi
   local deb="kurtosis-cli_${KURTOSIS_CLI_VERSION}_linux_amd64.deb"
@@ -136,8 +143,10 @@ install_kurtosis() {
 }
 
 start_enclave() {
-  if kurtosis enclave inspect pos 2>/dev/null | grep -q RUNNING; then
-    log "enclave 'pos' already running"
+  local inspect
+  if inspect=$(kurtosis enclave inspect "$ENCLAVE" 2>/dev/null) \
+    && grep -q '^Status:[[:space:]]*RUNNING' <<< "$inspect"; then
+    log "enclave '$ENCLAVE' already running"
     return
   fi
   clone_kurtosis_pos
@@ -152,8 +161,8 @@ start_enclave() {
       "$shared_star"
     rm -f "${shared_star}.bak"
   fi
-  log "running enclave 'pos'"
-  ( cd "$WORK_DIR" && kurtosis run --enclave pos --args-file "$REPO_ROOT/packages/e2e/kurtosis-params.yml" . )
+  log "running enclave '$ENCLAVE'"
+  ( cd "$WORK_DIR" && kurtosis run --enclave "$ENCLAVE" --args-file "$REPO_ROOT/packages/e2e/kurtosis-params.yml" . )
   mark_created
 }
 
@@ -166,7 +175,7 @@ dump() {
     cp "$compose_file" "$DUMP_DIR/docker-compose.yaml" || true
   fi
   if command -v kurtosis >/dev/null 2>&1; then
-    kurtosis enclave dump pos "$DUMP_DIR/pos" > "$DUMP_DIR/kurtosis-dump.txt" 2>&1 || true
+    kurtosis enclave dump "$ENCLAVE" "$DUMP_DIR/$ENCLAVE" > "$DUMP_DIR/kurtosis-dump.txt" 2>&1 || true
   fi
   docker ps --all > "$DUMP_DIR/docker-ps.txt" 2>&1 || true
 }
