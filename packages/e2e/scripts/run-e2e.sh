@@ -6,10 +6,10 @@
 #     pnpm run e2e -- --down          # also tear the devnet down afterwards
 #     E2E_DOWN=1 pnpm run e2e         # same as --down
 #
-# Teardown is opt-in. This script never starts the devnet, so by default it
-# leaves alone whatever it ran against: a devnet you booted by hand may be
-# one you, or another session, still need. CI boots its own devnet and passes
-# --down so the runner cleans up what it created.
+# Teardown is opt-in, and `down` removes only a devnet this run booted
+# (`.github/scripts/e2e-setup.sh` marks that); it refuses one `up` merely
+# attached to, which may be one you, or another session, still need. CI boots
+# its own devnet and passes --down so the runner cleans up what it created.
 #
 # CI and local runs both go through this script, so the two paths match.
 

@@ -14,9 +14,9 @@ It is private and never published. It is opt-in: the root `pnpm test` does not r
 2. runs `up`, which reads the running devnet (the kurtosis enclave named by `KURTOSIS_ENCLAVE`, default `pos`), waits until L2 is at block 256 or later and heimdall has acknowledged a checkpoint, and prints the devnet's RPC URLs, chain ids and contract addresses as `export` lines that the script evals;
 3. runs `seed`, which funds the test keys (see below);
 4. runs the tests (`test:e2e`);
-5. only if asked, with `--down` or `E2E_DOWN=1` (`pnpm run e2e -- --down`), runs `down`, which tears the devnet down.
+5. only if asked, with `--down` or `E2E_DOWN=1` (`pnpm run e2e -- --down`), runs `down`, which removes the devnet if this run booted it (see Teardown below).
 
-`run-e2e.sh` does not start the devnet. You start it, as below, so by default it leaves the devnet running when it finishes: a devnet you booted may be one you, or another session, still need. CI boots its own devnet and passes `--down` to remove it. If a step fails, the script stops there, before any teardown, and the devnet stays up for inspection. Run `pnpm --filter @polygonlabs/maticjs-e2e run down` when you are done with it.
+`run-e2e.sh` does not start the devnet. You start it, as below, so by default it leaves the devnet running when it finishes: a devnet you booted may be one you, or another session, still need. CI boots its own devnet and passes `--down` to remove it. If a step fails, the script stops there, before any teardown, and the devnet stays up for inspection. Remove a devnet you booted yourself with `kurtosis enclave rm -f <name>` when you are done with it.
 
 ## Running locally (cold start)
 
@@ -38,8 +38,7 @@ kurtosis run --enclave pos --args-file <path-to-matic.js>/packages/e2e/kurtosis-
 # Run the tier from the matic.js checkout. It reads the enclave named `pos`.
 cd <path-to-matic.js>
 pnpm install
-pnpm run e2e              # the devnet stays up afterwards
-pnpm run e2e -- --down    # or: also remove the enclave when the run passes
+pnpm run e2e              # the devnet stays up afterwards; see Teardown
 ```
 
 ### Which enclave the harness reads
@@ -73,7 +72,7 @@ A passing run reports some skipped tests. They are expected:
 
 `kurtosis-params.yml` selects an anvil L1, which boots faster than the default geth and lighthouse L1. `up` waits for the devnet to be ready, so you can start `pnpm run e2e` as soon as `kurtosis run` returns.
 
-Teardown is opt-in. `down` removes the enclave that `up` read, by its UUID, and only when you run it (directly, or through `--down`). `up` records whether `.github/scripts/e2e-setup.sh` booted that enclave or `up` attached to one already running, and `down` reports which it removed. The kurtosis engine you started with `kurtosis run` keeps running; stop it with `kurtosis engine stop` when you no longer need it.
+Teardown is opt-in, and `down` never removes a devnet this run did not boot. `up` records the UUID of the enclave it read and whether `.github/scripts/e2e-setup.sh` booted it in this run (the script exports `E2E_DEVNET_CREATED_BY_HARNESS=1` when it does) or `up` attached to one already running. `down`, run directly or through `--down`, removes exactly the recorded enclave in the first case and refuses in the second, printing the `kurtosis enclave rm` command instead: on a shared engine, an enclave named `pos` may be another session's. If you booted a devnet for this run alone and want `--down` to remove it, export `E2E_DEVNET_CREATED_BY_HARNESS=1` before `pnpm run e2e -- --down`. The kurtosis engine you started with `kurtosis run` keeps running; stop it with `kurtosis engine stop` when you no longer need it.
 
 Never pipe kurtosis CLI output into `head`: closing the pipe can kill an auto-started engine mid-start and leave a container that blocks every later `engine start`.
 

@@ -294,12 +294,13 @@ function readValidatorOwner(
 
 /**
  * What `scripts/down.ts` may remove: exactly the enclave (by UUID) or the
- * compose project that `scripts/up.ts` ran against. Nothing else.
+ * compose project that `scripts/up.ts` ran against, and only when this run
+ * booted it. Nothing else.
  *
  * `createdByHarness` says whether `.github/scripts/e2e-setup.sh` booted that
  * devnet in this run (it exports `E2E_DEVNET_CREATED_BY_HARNESS=1` when it
- * does) or `up` merely attached to one that was already running. `down` only
- * runs when asked, and it reports which of the two it is removing.
+ * does) or `up` merely attached to one that was already running. `down`
+ * removes only the former; an attached devnet it refuses to touch.
  */
 const TeardownRecordSchema = z.discriminatedUnion('mode', [
   z.object({
