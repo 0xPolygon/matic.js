@@ -4,11 +4,14 @@
  * The same five `it()` bodies run for viem, ethers v5, and ethers v6 —
  * any divergence in init behaviour between the three lights up exactly
  * one row of the matrix.
+ *
+ * No case dials an RPC: each one either passes `addresses` or stubs
+ * `fetch`, so the adapters sit on an unroutable placeholder URL with no
+ * signer, and every provider is static (no network detection on build).
  */
-import { JsonRpcProvider, Network as V6Network, Wallet as V6Wallet } from 'ethers';
-import { providers as v5Providers, Wallet as V5Wallet } from 'ethers-v5';
-import { createPublicClient, createWalletClient, http } from 'viem';
-import { privateKeyToAccount } from 'viem/accounts';
+import { JsonRpcProvider, Network as V6Network } from 'ethers';
+import { providers as v5Providers } from 'ethers-v5';
+import { createPublicClient, http } from 'viem';
 import { polygonAmoy, sepolia } from 'viem/chains';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -17,15 +20,13 @@ import type { Adapter, POSClientConfig } from '../../src/index.js';
 import { ethersV5Adapter } from '../../src/adapters/ethers-v5.js';
 import { ethersV6Adapter } from '../../src/adapters/ethers-v6.js';
 import { viemAdapter } from '../../src/adapters/viem.js';
-import {
-  POSClient
-} from '../../src/index.js';
+import { POSClient } from '../../src/index.js';
 import { ERC20 } from '../../src/pos/erc20.js';
 import { __resetAddressCacheForTesting } from '../../src/services/address-service.js';
 import { TEST_NETWORKS } from '../fixtures/networks.js';
-import { HAS_CREDS, readChainEnvOrPlaceholder } from './helpers.js';
 
-const env = readChainEnvOrPlaceholder();
+/** Unroutable on purpose: a case that dialled it would fail loudly. */
+const UNUSED_RPC = 'http://127.0.0.1:1';
 
 interface AdapterFactory {
   /** Human-readable name for `describe.each` row. */
@@ -39,72 +40,48 @@ interface AdapterFactory {
 function viemFactory(): AdapterFactory {
   return {
     name: 'viem',
-    parent: () => {
-      const account = privateKeyToAccount(env.privateKey);
-      const publicClient = createPublicClient({
-        chain: sepolia,
-        transport: http(env.parentRpc)
-      });
-      const walletClient = createWalletClient({
-        account,
-        chain: sepolia,
-        transport: http(env.parentRpc)
-      });
-      return viemAdapter({ public: publicClient, wallet: walletClient, account: account.address });
-    },
-    child: () => {
-      const account = privateKeyToAccount(env.privateKey);
-      const publicClient = createPublicClient({
-        chain: polygonAmoy,
-        transport: http(env.childRpc)
-      });
-      const walletClient = createWalletClient({
-        account,
-        chain: polygonAmoy,
-        transport: http(env.childRpc)
-      });
-      return viemAdapter({ public: publicClient, wallet: walletClient, account: account.address });
-    }
+    parent: () =>
+      viemAdapter({ public: createPublicClient({ chain: sepolia, transport: http(UNUSED_RPC) }) }),
+    child: () =>
+      viemAdapter({
+        public: createPublicClient({ chain: polygonAmoy, transport: http(UNUSED_RPC) })
+      })
   };
 }
 
 function ethersV5Factory(): AdapterFactory {
   return {
     name: 'ethers-v5',
-    parent: () => {
-      const provider = new v5Providers.StaticJsonRpcProvider(env.parentRpc);
-      const signer = new V5Wallet(env.privateKey, provider);
-      return ethersV5Adapter({ provider, signer });
-    },
-    child: () => {
-      const provider = new v5Providers.StaticJsonRpcProvider(env.childRpc);
-      const signer = new V5Wallet(env.privateKey, provider);
-      return ethersV5Adapter({ provider, signer });
-    }
+    parent: () =>
+      ethersV5Adapter({
+        provider: new v5Providers.StaticJsonRpcProvider(UNUSED_RPC, TEST_NETWORKS.parent.chainId)
+      }),
+    child: () =>
+      ethersV5Adapter({
+        provider: new v5Providers.StaticJsonRpcProvider(UNUSED_RPC, TEST_NETWORKS.child.chainId)
+      })
   };
 }
 
 function ethersV6Factory(): AdapterFactory {
   return {
     name: 'ethers-v6',
-    parent: () => {
-      const provider = new JsonRpcProvider(env.parentRpc, V6Network.from(TEST_NETWORKS.parent.chainId), { staticNetwork: true });
-      const signer = new V6Wallet(env.privateKey, provider);
-      return ethersV6Adapter({ provider, signer });
-    },
-    child: () => {
-      const provider = new JsonRpcProvider(env.childRpc, V6Network.from(TEST_NETWORKS.child.chainId), { staticNetwork: true });
-      const signer = new V6Wallet(env.privateKey, provider);
-      return ethersV6Adapter({ provider, signer });
-    }
+    parent: () =>
+      ethersV6Adapter({
+        provider: new JsonRpcProvider(UNUSED_RPC, V6Network.from(TEST_NETWORKS.parent.chainId), {
+          staticNetwork: true
+        })
+      }),
+    child: () =>
+      ethersV6Adapter({
+        provider: new JsonRpcProvider(UNUSED_RPC, V6Network.from(TEST_NETWORKS.child.chainId), {
+          staticNetwork: true
+        })
+      })
   };
 }
 
-const FACTORIES: readonly AdapterFactory[] = [
-  viemFactory(),
-  ethersV5Factory(),
-  ethersV6Factory()
-];
+const FACTORIES: readonly AdapterFactory[] = [viemFactory(), ethersV5Factory(), ethersV6Factory()];
 
 const FAKE_ADDRESSES = {
   RootChainManager: '0x1111111111111111111111111111111111111111',
@@ -115,7 +92,7 @@ const FAKE_ADDRESSES = {
   RootChain: '0x6666666666666666666666666666666666666666'
 } as const;
 
-describe.skipIf(!HAS_CREDS)('POSClient.init', { timeout: 60_000 }, () => {
+describe('POSClient.init', { timeout: 60_000 }, () => {
   beforeEach(() => {
     __resetAddressCacheForTesting();
   });
@@ -176,8 +153,8 @@ describe.skipIf(!HAS_CREDS)('POSClient.init', { timeout: 60_000 }, () => {
           addresses: FAKE_ADDRESSES
         });
         // Find any call to the address index URL — there must be none.
-        const indexCalls = fetchSpy.mock.calls.filter(([url]) =>
-          typeof url === 'string' && url.includes('static.polygon.technology')
+        const indexCalls = fetchSpy.mock.calls.filter(
+          ([url]) => typeof url === 'string' && url.includes('static.polygon.technology')
         );
         expect(indexCalls).lengthOf(0);
       });

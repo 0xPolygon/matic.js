@@ -10,7 +10,8 @@
     "format": "prettier --write .",
     "typecheck": "pnpm -r run typecheck",
     "ci:publish": "pnpm exec changeset publish",
-    "test": "pnpm -r --if-present run test"
+    "test": "pnpm -r --if-present run test",
+    "e2e": "pnpm --filter @polygonlabs/maticjs-e2e run e2e"
   },
   "pnpm": {
     "overrides": {

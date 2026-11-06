@@ -1,0 +1,32 @@
+{
+  "name": "@polygonlabs/maticjs-e2e",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "End-to-end tests for @polygonlabs/maticjs against a local Polygon PoS devnet (kurtosis-pos).",
+  "packageManager": "pnpm@10.30.3",
+  "scripts": {
+    "up": "node scripts/up.ts",
+    "seed": "node scripts/seed.ts",
+    "down": "node scripts/down.ts",
+    "e2e": "bash scripts/run-e2e.sh",
+    "test:e2e": "vitest run --config vitest.e2e.config.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@polygonlabs/maticjs": "workspace:*",
+    "@polygonlabs/verror": "^1.1.0",
+    "@t3-oss/env-core": "^0.13.10",
+    "ethers": "^6.0.0",
+    "ethers-v5": "npm:ethers@^5.8.0",
+    "viem": "^2.0.0",
+    "zod": "^4.0.17"
+  },
+  "devDependencies": {
+    "@tsconfig/node-ts": "^23.0.0",
+    "@tsconfig/node24": "^24.0.0",
+    "@types/node": "^25.5.0",
+    "typescript": "^5.9.3",
+    "vitest": "^3.0.0"
+  }
+}
