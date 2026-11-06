@@ -6,11 +6,12 @@
  * the SDK those resolve to, and how the ethers v5 adapter gets ethers 5, is
  * decided in `vitest.e2e.config.ts`.
  */
-import type { Address, Chain } from 'viem';
+import type { Address, Chain, Hex } from 'viem';
 
 import { JsonRpcProvider, Network, Wallet as WalletV6 } from 'ethers';
 import { providers, Wallet as WalletV5 } from 'ethers-v5';
 import { createPublicClient, createWalletClient, defineChain, http } from 'viem';
+import { privateKeyToAccount } from 'viem/accounts';
 
 import type { Adapter } from '@polygonlabs/maticjs';
 
@@ -20,7 +21,7 @@ import { viemAdapter } from '@polygonlabs/maticjs/viem';
 
 import type { AdapterName, Suite } from './keys.ts';
 
-import { keyFor, privateKeyFor } from './keys.ts';
+import { privateKeyFor } from './keys.ts';
 import { getTestEnv } from './test-env.ts';
 
 /**
@@ -53,8 +54,8 @@ export function devnetChains(): { l1: Chain; l2: Chain } {
   };
 }
 
-function viemRow(suite: Suite): AdapterRow {
-  const account = keyFor({ suite, adapter: 'viem' });
+function viemRow(privateKey: Hex): AdapterRow {
+  const account = privateKeyToAccount(privateKey);
   const { l1, l2 } = devnetChains();
   const side = (chain: Chain): Adapter =>
     viemAdapter({
@@ -73,9 +74,8 @@ function viemRow(suite: Suite): AdapterRow {
   return { name: 'viem', parent: side(l1), child: side(l2), address: account.address };
 }
 
-function ethersV6Row(suite: Suite): AdapterRow {
+function ethersV6Row(privateKey: Hex): AdapterRow {
   const env = getTestEnv();
-  const privateKey = privateKeyFor({ suite, adapter: 'ethers-v6' });
   const side = (url: string, chainId: number): Adapter => {
     const provider = new JsonRpcProvider(url, Network.from(chainId), { staticNetwork: true });
     return ethersV6Adapter({ provider, signer: new WalletV6(privateKey, provider) });
@@ -84,13 +84,12 @@ function ethersV6Row(suite: Suite): AdapterRow {
     name: 'ethers-v6',
     parent: side(env.E2E_L1_RPC_URL, env.E2E_L1_CHAIN_ID),
     child: side(env.E2E_L2_RPC_URL, env.E2E_L2_CHAIN_ID),
-    address: keyFor({ suite, adapter: 'ethers-v6' }).address
+    address: privateKeyToAccount(privateKey).address
   };
 }
 
-function ethersV5Row(suite: Suite): AdapterRow {
+function ethersV5Row(privateKey: Hex): AdapterRow {
   const env = getTestEnv();
-  const privateKey = privateKeyFor({ suite, adapter: 'ethers-v5' });
   const side = (url: string, chainId: number, name: string): Adapter => {
     const provider = new providers.StaticJsonRpcProvider(url, { chainId, name });
     return ethersV5Adapter({ provider, signer: new WalletV5(privateKey, provider) });
@@ -99,13 +98,26 @@ function ethersV5Row(suite: Suite): AdapterRow {
     name: 'ethers-v5',
     parent: side(env.E2E_L1_RPC_URL, env.E2E_L1_CHAIN_ID, 'devnet-l1'),
     child: side(env.E2E_L2_RPC_URL, env.E2E_L2_CHAIN_ID, 'devnet-l2'),
-    address: keyFor({ suite, adapter: 'ethers-v5' }).address
+    address: privateKeyToAccount(privateKey).address
   };
 }
 
 /** One row per adapter, each signing with that (suite × adapter) key. */
 export function buildAdapters({ suite }: { suite: Suite }): AdapterRow[] {
-  return [viemRow(suite), ethersV5Row(suite), ethersV6Row(suite)];
+  return [
+    viemRow(privateKeyFor({ suite, adapter: 'viem' })),
+    ethersV5Row(privateKeyFor({ suite, adapter: 'ethers-v5' })),
+    ethersV6Row(privateKeyFor({ suite, adapter: 'ethers-v6' }))
+  ];
+}
+
+/**
+ * One row per adapter, all three signing with the same key. For a key the
+ * tier does not derive, such as the devnet validator's owner key; the rows
+ * share one nonce stream, so a test must run them one after another.
+ */
+export function buildAdaptersForKey({ privateKey }: { privateKey: Hex }): AdapterRow[] {
+  return [viemRow(privateKey), ethersV5Row(privateKey), ethersV6Row(privateKey)];
 }
 
 /**

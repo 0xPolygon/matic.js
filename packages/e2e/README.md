@@ -11,7 +11,7 @@ It is private and never published. It is opt-in: the root `pnpm test` does not r
 `pnpm run e2e` (from the repo root) runs `scripts/run-e2e.sh`, which:
 
 1. builds the SDK (`pnpm --filter @polygonlabs/maticjs run build`), because the tests import the built package, as a consumer does;
-2. runs `up`, which reads the running devnet, waits until L2 is at block 256 or later and heimdall has acknowledged a checkpoint, and prints the devnet's RPC URLs, chain ids and contract addresses as `export` lines that the script evals;
+2. runs `up`, which reads the running devnet (the kurtosis enclave named by `KURTOSIS_ENCLAVE`, default `pos`), waits until L2 is at block 256 or later and heimdall has acknowledged a checkpoint, and prints the devnet's RPC URLs, chain ids and contract addresses as `export` lines that the script evals;
 3. runs `seed`, which funds the test keys (see below);
 4. runs the tests (`test:e2e`);
 5. only if asked, with `--down` or `E2E_DOWN=1` (`pnpm run e2e -- --down`), runs `down`, which tears the devnet down.
@@ -35,15 +35,45 @@ git clone --branch v1.4.8 https://github.com/0xPolygon/kurtosis-pos.git
 cd kurtosis-pos
 kurtosis run --enclave pos --args-file <path-to-matic.js>/packages/e2e/kurtosis-params.yml .
 
-# Run the tier from the matic.js checkout.
+# Run the tier from the matic.js checkout. It reads the enclave named `pos`.
 cd <path-to-matic.js>
 pnpm install
-pnpm run e2e
+pnpm run e2e              # the devnet stays up afterwards
+pnpm run e2e -- --down    # or: also remove the enclave when the run passes
 ```
+
+### Which enclave the harness reads
+
+The harness reads the enclave named by `KURTOSIS_ENCLAVE`, and `pos` when it is unset. The name you boot with and the name the run reads must match. Set it when you boot under another name, for example because a `pos` enclave from another checkout or session is already running and you want a devnet of your own:
+
+```bash
+kurtosis run --enclave my-devnet --args-file <path-to-matic.js>/packages/e2e/kurtosis-params.yml .
+KURTOSIS_ENCLAVE=my-devnet pnpm run e2e
+```
+
+Pass the same `KURTOSIS_ENCLAVE` to every harness command you run by hand (`up`, `down`), or they read `pos` instead.
+
+### How long a run takes
+
+Expect about 25 minutes from a cold start, most of it quiet:
+
+- about 3 minutes for `kurtosis run` to boot the devnet;
+- about 4 minutes for the SDK build, `up` (waiting for L2 block 256 and the first checkpoint) and `seed`;
+- about 17 minutes for the tests, of which the validator-owner file takes about 5, mostly the 60-second liveness watch after each of its three writes.
+
+Each bridge and staking cycle waits for state sync or a checkpoint, and takes 90 to 180 seconds with nothing printed in between. Long silences are normal. Every wait has a hard cap and fails with the condition it was waiting for, so a stuck devnet does not hang the run.
+
+### Skips by design
+
+A passing run reports some skipped tests. They are expected:
+
+- `pol.preparePermit`, one row per adapter in `staking-writes.e2e.test.ts`. The devnet's POL has no ERC-5267 `eip712Domain()`, which `preparePermit` reads; see `STAKING-COVERAGE.md`.
+- The GATED block in `staking-validator.e2e.test.ts` (`stakeFor`, `stakeForMatic`, `unstake`, `claimUnstaked`, `updateSigner`, `migrateDelegation`). Each would stop the single-validator devnet or needs a second validator; see `STAKING-COVERAGE.md`.
+- In snapshot mode only, the validator-owner rows in `staking-validator.e2e.test.ts`. They sign with validator 1's owner key, which `up` reads from the kurtosis enclave, and a restored snapshot has no enclave to read it from.
 
 `kurtosis-params.yml` selects an anvil L1, which boots faster than the default geth and lighthouse L1. `up` waits for the devnet to be ready, so you can start `pnpm run e2e` as soon as `kurtosis run` returns.
 
-`down` removes the enclave that `up` read, by its UUID, and only when you run it (directly, or through `--down`). `up` records whether `.github/scripts/e2e-setup.sh` booted that enclave or `up` attached to one already running, and `down` reports which it removed. The kurtosis engine you started with `kurtosis run` keeps running; stop it with `kurtosis engine stop` when you no longer need it.
+Teardown is opt-in. `down` removes the enclave that `up` read, by its UUID, and only when you run it (directly, or through `--down`). `up` records whether `.github/scripts/e2e-setup.sh` booted that enclave or `up` attached to one already running, and `down` reports which it removed. The kurtosis engine you started with `kurtosis run` keeps running; stop it with `kurtosis engine stop` when you no longer need it.
 
 Never pipe kurtosis CLI output into `head`: closing the pipe can kill an auto-started engine mid-start and leave a container that blocks every later `engine start`.
 
@@ -58,6 +88,7 @@ A manual dispatch with `use_snapshot=true` restores the published kurtosis-pos s
 ## Running one file
 
 ```bash
+export KURTOSIS_ENCLAVE=pos   # the enclave you booted
 pnpm --filter @polygonlabs/maticjs run build
 env_exports=$(pnpm --filter @polygonlabs/maticjs-e2e run --silent up)
 eval "$env_exports"
@@ -86,14 +117,17 @@ They are public by construction. Never fund one on a real network. There is one 
 | `bridge-ether` | `bridge-ether.e2e.test.ts` |
 | `staking` | `staking-writes.e2e.test.ts` |
 | `staking-delegation` | `staking-delegation.e2e.test.ts` |
-| `staking-validator` | `staking-validator.e2e.test.ts` |
 
 Each suite has three keys, one per adapter: `viem`, `ethers-v5`, `ethers-v6`.
+
+`staking-validator.e2e.test.ts` is the exception. Its writes are allowed only to the owner of a validator, so it signs with the key that owns the devnet's validator 1. That key is public devnet material: kurtosis-pos generates it into its committed list of prefunded accounts, stakes validator 1 for its address, and writes the same key into heimdall's `priv_validator_key.json`. `up` reads it from that file in the enclave's heimdall keys artifact, checks it against the address in the file, and the test checks on chain that it owns validator 1. All three adapter rows sign with this one key, so they run one after another.
 
 `seed` funds them from the kurtosis-pos admin account, whose key is public devnet material documented by kurtosis-pos. It checks each balance first and only sends when a balance is short, so running it twice sends nothing the second time. Per key it ensures:
 
 - at least 5 ETH on L1 and 5 of the native token on L2 (the admin sends 10);
 - for the staking suites, at least 200 POL (the admin sends 500);
+- for the `staking` keys, at least 50 MATIC (the admin sends 100), for `delegateMatic`;
+- for validator 1's owner key, at least 10 POL (the admin sends 50), for `restake`;
 - at least 1 DummyERC20 (it mints 2), one DummyERC721 and 10 of DummyERC1155 id 1 on L1, minted by the key itself (the devnet's Dummy tokens let any account mint);
 - for the `adapter-parity` keys, a small DummyERC20 balance on L2, bridged with a real deposit.
 

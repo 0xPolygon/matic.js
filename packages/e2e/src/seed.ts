@@ -8,9 +8,10 @@
  *
  * Three phases, in order:
  *
- * 1. The admin account tops up L1 ETH, L2 native gas and (for staking keys)
- *    POL. All admin sends share one nonce stream, so they are signed with
- *    consecutive nonces and awaited together.
+ * 1. The admin account tops up L1 ETH, L2 native gas, POL for the staking
+ *    keys, legacy MATIC for the `staking` keys, and POL for validator 1's
+ *    owner key when the devnet provides it. All admin sends share one nonce
+ *    stream, so they are signed with consecutive nonces and awaited together.
  * 2. Each key mints its own Dummy ERC-20 / ERC-721 / ERC-1155 on L1 (the
  *    pos-portal Dummy tokens let any account mint). Keys run in parallel,
  *    each on its own nonce stream.
@@ -48,6 +49,10 @@ const MIN_GAS = parseEther('5');
 const GAS_TOP_UP = parseEther('10');
 const MIN_POL = parseEther('200');
 const POL_TOP_UP = parseEther('500');
+const MIN_MATIC = parseEther('50');
+const MATIC_TOP_UP = parseEther('100');
+const MIN_VALIDATOR_POL = parseEther('10');
+const VALIDATOR_POL_TOP_UP = parseEther('50');
 const MIN_ERC20 = parseEther('1');
 // Mint double the minimum, so the adapter-parity keys' small L2 deposit
 // does not drop them back under it and make the next seed mint again.
@@ -122,6 +127,39 @@ async function fundFromAdmin(chains: Chains, log: (line: string) => void): Promi
   const l1Hashes: Hash[] = [];
   const l2Hashes: Hash[] = [];
 
+  /** Send `amount` of an L1 ERC-20 from the admin when `to` holds less than `min`. */
+  const topUpToken = async ({
+    token,
+    to,
+    min,
+    amount,
+    label
+  }: {
+    token: Address;
+    to: Address;
+    min: bigint;
+    amount: bigint;
+    label: string;
+  }): Promise<void> => {
+    const balance = await chains.l1.public.readContract({
+      address: token,
+      abi: erc20Abi,
+      functionName: 'balanceOf',
+      args: [to]
+    });
+    if (balance >= min) return;
+    l1Hashes.push(
+      await l1Wallet.writeContract({
+        address: token,
+        abi: erc20Abi,
+        functionName: 'transfer',
+        args: [to, amount],
+        nonce: l1Nonce++
+      })
+    );
+    log(label);
+  };
+
   for (const { suite, adapter } of allKeySlots()) {
     const { address } = keyFor({ suite, adapter });
     const [l1Balance, l2Balance] = await Promise.all([
@@ -141,25 +179,37 @@ async function fundFromAdmin(chains: Chains, log: (line: string) => void): Promi
       log(`${suite}/${adapter}: admin sends 10 native on L2`);
     }
     if (suite.startsWith('staking')) {
-      const pol = await chains.l1.public.readContract({
-        address: addresses.PolToken,
-        abi: erc20Abi,
-        functionName: 'balanceOf',
-        args: [address]
+      await topUpToken({
+        token: addresses.PolToken,
+        to: address,
+        min: MIN_POL,
+        amount: POL_TOP_UP,
+        label: `${suite}/${adapter}: admin sends 500 POL on L1`
       });
-      if (pol < MIN_POL) {
-        l1Hashes.push(
-          await l1Wallet.writeContract({
-            address: addresses.PolToken,
-            abi: erc20Abi,
-            functionName: 'transfer',
-            args: [address, POL_TOP_UP],
-            nonce: l1Nonce++
-          })
-        );
-        log(`${suite}/${adapter}: admin sends 500 POL on L1`);
-      }
     }
+    // `delegateMatic` runs from the staking keys and spends legacy MATIC.
+    if (suite === 'staking') {
+      await topUpToken({
+        token: addresses.MaticToken,
+        to: address,
+        min: MIN_MATIC,
+        amount: MATIC_TOP_UP,
+        label: `${suite}/${adapter}: admin sends 100 MATIC on L1`
+      });
+    }
+  }
+
+  // The validator-owner tests restake POL from validator 1's owner, which
+  // kurtosis-pos funds with ETH but no POL.
+  const validatorOwner = env.E2E_ADDRESSES_JSON.validatorOwner;
+  if (validatorOwner) {
+    await topUpToken({
+      token: addresses.PolToken,
+      to: validatorOwner.address,
+      min: MIN_VALIDATOR_POL,
+      amount: VALIDATOR_POL_TOP_UP,
+      label: 'validator 1 owner: admin sends 50 POL on L1'
+    });
   }
 
   await waitAll({ client: chains.l1.public, hashes: l1Hashes, label: 'admin L1 top-ups' });
