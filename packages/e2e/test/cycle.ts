@@ -38,9 +38,13 @@ export const HASH_PATTERN = /^0x[0-9a-f]{64}$/i;
 
 /** A `POSClient` for one adapter row, pointed at the devnet's contracts. */
 export function initPos(row: AdapterRow): Promise<POSClient> {
+  const env = getTestEnv();
   return POSClient.init({
     network: 'amoy',
-    addresses: getTestEnv().E2E_ADDRESSES_JSON.addresses,
+    addresses: env.E2E_ADDRESSES_JSON.addresses,
+    // The devnet's chain ids are not Amoy's, and the SDK pins bridge writes
+    // to the declared ids rather than trusting the RPC's eth_chainId.
+    chainIds: { parent: env.E2E_L1_CHAIN_ID, child: env.E2E_L2_CHAIN_ID },
     parent: row.parent,
     child: row.child
   });
