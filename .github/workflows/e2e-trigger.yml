@@ -55,7 +55,7 @@ jobs:
       (contains(github.event.pull_request.labels.*.name, 'run-e2e') &&
        (github.event.action != 'labeled' || github.event.label.name == 'run-e2e'))
     runs-on: ubuntu-latest
-    timeout-minutes: 75
+    timeout-minutes: 85
     env:
       # `use_snapshot` is null on pull_request and schedule triggers, and
       # `null == true` is false, so only a dispatch passing use_snapshot=true
@@ -86,10 +86,13 @@ jobs:
       - name: Bring up devnet
         run: bash .github/scripts/e2e-setup.sh
 
-      # Below the job's 75 minutes, so a hung suite still leaves time to dump
-      # the devnet's logs. --down tears down the devnet this job booted.
+      # Below the job's 85 minutes, so a hung suite still leaves time to dump
+      # the devnet's logs. The two-validator devnet runs the suite about ten
+      # minutes slower than one validator did; 55 keeps headroom over that, and
+      # the liveness watch still fails a stalled devnet within minutes.
+      # --down tears down the devnet this job booted.
       - name: Run e2e suite
-        timeout-minutes: 45
+        timeout-minutes: 55
         run: pnpm run e2e -- --down
 
       # A step timeout counts as failure(); cancelled() covers a run
