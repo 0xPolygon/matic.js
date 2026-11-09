@@ -252,7 +252,7 @@ const PrivValidatorKeySchema = z.object({
 });
 
 /**
- * Read the key of validator 1, the devnet's only validator, from the enclave.
+ * Read the key of validator 1 from the enclave.
  *
  * kurtosis-pos stakes each validator with `stakeFor(user = the validator's
  * Ethereum address)`, so that address owns the validator NFT, and it writes
@@ -376,8 +376,16 @@ export function readDevnet(): { devnet: Devnet; teardown: TeardownRecord } {
   if (!uuid || !/^Status:\s+RUNNING/m.test(inspect)) {
     throw new VError(`kurtosis enclave '${ENCLAVE}' is not running`);
   }
-  const bor = resolveServiceName(inspect, /l2-el-\d+-bor-heimdall-v2-validator(-archive)?/);
-  const heimdall = resolveServiceName(inspect, /l2-cl-\d+-heimdall-v2-bor-validator(-archive)?/);
+  // Validator 1's nodes, by name. The devnet runs two validators, and the
+  // harness signs owner writes with validator 1's key, so it must read that
+  // validator's keys artifact and not whichever validator `enclave inspect`
+  // lists first. The lookahead skips the `<service>-keys` artifact name,
+  // which `enclave inspect` also prints.
+  const bor = resolveServiceName(inspect, /\bl2-el-1-bor-heimdall-v2-validator(-archive)?(?=\s)/);
+  const heimdall = resolveServiceName(
+    inspect,
+    /\bl2-cl-1-heimdall-v2-bor-validator(-archive)?(?=\s)/
+  );
 
   return {
     devnet: {

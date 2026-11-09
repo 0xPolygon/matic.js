@@ -30,7 +30,7 @@ You need Docker (Engine 25 or later) running and the [kurtosis CLI](https://docs
 # src/config/constants.star, as linux/amd64.
 docker pull --platform linux/amd64 <toolbox_image>
 
-# Boot the devnet from a kurtosis-pos checkout at v1.4.8 (about 3 minutes with cached images).
+# Boot the devnet from a kurtosis-pos checkout at v1.4.8 (about 4 minutes with cached images).
 git clone --branch v1.4.8 https://github.com/0xPolygon/kurtosis-pos.git
 cd kurtosis-pos
 kurtosis run --enclave pos --args-file <path-to-matic.js>/packages/e2e/kurtosis-params.yml .
@@ -54,11 +54,11 @@ Pass the same `KURTOSIS_ENCLAVE` to every harness command you run by hand (`up`,
 
 ### How long a run takes
 
-Expect about 25 minutes from a cold start, most of it quiet:
+Expect about 35 minutes from a cold start, most of it quiet:
 
-- about 3 minutes for `kurtosis run` to boot the devnet;
+- about 4 minutes for `kurtosis run` to boot the two-validator devnet;
 - about 4 minutes for the SDK build, `up` (waiting for L2 block 256 and the first checkpoint) and `seed`;
-- about 17 minutes for the tests, of which the validator-owner file takes about 5, mostly the 60-second liveness watch after each of its three writes.
+- about 27 minutes for the tests. The validator file takes about 12 of them, mostly the liveness watch of at least 60 seconds after each of its eight groups of writes. The delegation file takes about 5, because validator 1 now shares each checkpoint's reward with validator 2, so its delegators' rewards take longer to pass `minAmount`.
 
 Each bridge and staking cycle waits for state sync or a checkpoint, and takes 90 to 180 seconds with nothing printed in between. Long silences are normal. Every wait has a hard cap and fails with the condition it was waiting for, so a stuck devnet does not hang the run.
 
@@ -67,10 +67,10 @@ Each bridge and staking cycle waits for state sync or a checkpoint, and takes 90
 A passing run reports some skipped tests. They are expected:
 
 - `pol.preparePermit`, one row per adapter in `staking-writes.e2e.test.ts`. The devnet's POL has no ERC-5267 `eip712Domain()`, which `preparePermit` reads; see `STAKING-COVERAGE.md`.
-- The GATED block in `staking-validator.e2e.test.ts` (`stakeFor`, `stakeForMatic`, `unstake`, `claimUnstaked`, `updateSigner`, `migrateDelegation`). Each would stop the single-validator devnet or needs a second validator; see `STAKING-COVERAGE.md`.
-- In snapshot mode only, the validator-owner rows in `staking-validator.e2e.test.ts`. They sign with validator 1's owner key, which `up` reads from the kurtosis enclave, and a restored snapshot has no enclave to read it from.
+- The GATED row in `staking-validator.e2e.test.ts` (`updateSigner`). It reverts until 100 epochs after a validator's stake, about 40 minutes on the devnet; see `STAKING-COVERAGE.md`.
+- In snapshot mode only, every row in `staking-validator.e2e.test.ts`. The validator 1 rows sign with validator 1's owner key, which `up` reads from the kurtosis enclave, and a restored snapshot has no enclave to read it from. The node-less validator rows need the two-validator devnet of `kurtosis-params.yml`, and the published snapshot has one validator.
 
-`kurtosis-params.yml` selects an anvil L1, which boots faster than the default geth and lighthouse L1. `up` waits for the devnet to be ready, so you can start `pnpm run e2e` as soon as `kurtosis run` returns.
+`kurtosis-params.yml` selects an anvil L1, which boots faster than the default geth and lighthouse L1, and two validators, each with its own bor and heimdall node. The second validator is what lets `staking-validator.e2e.test.ts` register and unstake validators of its own: on a one-validator devnet, registering a validator with no node behind it halts block production. Validator 1 is an archive node, as in kurtosis-pos's default config, and the harness reads L2 and heimdall from validator 1's nodes. `up` waits for the devnet to be ready, so you can start `pnpm run e2e` as soon as `kurtosis run` returns.
 
 Teardown is opt-in, and `down` never removes a devnet this run did not boot. `up` records the UUID of the enclave it read and whether `.github/scripts/e2e-setup.sh` booted it in this run (the script exports `E2E_DEVNET_CREATED_BY_HARNESS=1` when it does) or `up` attached to one already running. `down`, run directly or through `--down`, removes exactly the recorded enclave in the first case and refuses in the second, printing the `kurtosis enclave rm` command instead: on a shared engine, an enclave named `pos` may be another session's. If you booted a devnet for this run alone and want `--down` to remove it, export `E2E_DEVNET_CREATED_BY_HARNESS=1` before `pnpm run e2e -- --down`. The kurtosis engine you started with `kurtosis run` keeps running; stop it with `kurtosis engine stop` when you no longer need it.
 
@@ -120,6 +120,8 @@ They are public by construction. Never fund one on a real network. There is one 
 Each suite has three keys, one per adapter: `viem`, `ethers-v5`, `ethers-v6`.
 
 `staking-validator.e2e.test.ts` is the exception. Its writes are allowed only to the owner of a validator, so it signs with the key that owns the devnet's validator 1. That key is public devnet material: kurtosis-pos generates it into its committed list of prefunded accounts, stakes validator 1 for its address, and writes the same key into heimdall's `priv_validator_key.json`. `up` reads it from that file in the enclave's heimdall keys artifact, checks it against the address in the file, and the test checks on chain that it owns validator 1. All three adapter rows sign with this one key, so they run one after another.
+
+The same file also registers six validators of its own, one per adapter for each of `stakeFor` (POL) and `stakeForMatic`, with no node behind them, moves a delegation between them, and then unstakes and claims them. Each signs with a key derived from `maticjs-e2e:nodeless-validator:<pol|matic>:<adapter index>:<run id>`, where the run id is the time the file loaded, so a second run on the same devnet never reuses a signer. The test funds those keys from the admin account itself, because `seed` cannot know the run id: 1 ETH each, plus the stake and heimdall fee in POL or MATIC, and, for the POL validators, one more fee for `topUpHeimdallFee` and 1 POL to delegate and migrate.
 
 `seed` funds them from the kurtosis-pos admin account, whose key is public devnet material documented by kurtosis-pos. It checks each balance first and only sends when a balance is short, so running it twice sends nothing the second time. Per key it ensures:
 
