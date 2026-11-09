@@ -45,7 +45,7 @@ import { privateKeyToAccount } from 'viem/accounts';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { z } from 'zod';
 
-import type { Hex } from '@polygonlabs/maticjs';
+import type { Hex, PreparedTx, TxOptions, TxResult } from '@polygonlabs/maticjs';
 import type { StakingClient as StakingClientType } from '@polygonlabs/maticjs/staking';
 
 import { StakingClient } from '@polygonlabs/maticjs/staking';
@@ -95,6 +95,20 @@ const STATUS_UNSTAKED = 3;
 const RUN_ID = Date.now().toString();
 
 const log = (line: string) => process.stderr.write(`[staking-validator] ${line}\n`);
+
+/**
+ * `unstake` sends with this margin over a fresh estimate, instead of the
+ * SDK's default 15%. It adds the validator's stake to
+ * `validatorStateChanges[currentEpoch + 1]`. After an earlier unstake in the
+ * same epoch those two slots are already nonzero, and the estimate prices
+ * cheap updates. If a checkpoint advances the epoch before the transaction is
+ * mined, it writes the next epoch's slots from zero instead: about 34,000
+ * more gas at pre-Amsterdam storage prices, and 195,840 more measured on
+ * this devnet, whose L1 runs Amsterdam. In CI that outgrew 15%: a MATIC `unstake` used 346,351 of its
+ * 353,299 gas and reverted, right behind a checkpoint in the same block. The
+ * unstake test reproduces the race on purpose.
+ */
+const UNSTAKE_GAS_MARGIN = { numerator: 3n, denominator: 2n };
 
 const GATED_REASON =
   'updateSigner reverts "Not allowed" until signerUpdateLimit (100 epochs, about 40 min on the ' +
@@ -247,6 +261,60 @@ async function land(
   return { hash: tx.hash, blockNumber: receipt.blockNumber };
 }
 
+/**
+ * {@link land} for a StakeManager or ValidatorShare write, logging its gas
+ * evidence: the estimate taken just before sending, the gas limit the
+ * transaction carried, the gas it used, and its block and position. A
+ * revert from gas is otherwise indistinguishable from a logic revert once
+ * the devnet is gone. With `withUnstakeMargin`, sends with
+ * {@link UNSTAKE_GAS_MARGIN} over the estimate.
+ */
+async function landStakingWrite({
+  label,
+  from,
+  prepare,
+  send,
+  withUnstakeMargin = false
+}: {
+  label: string;
+  from: Hex;
+  prepare: (options: TxOptions) => Promise<PreparedTx>;
+  send: (options: TxOptions) => Promise<TxResult>;
+  withUnstakeMargin?: boolean;
+}): Promise<{ hash: Hex; blockNumber: bigint; gasUsed: bigint }> {
+  const { l1 } = readers();
+  const prepared = await prepare(stakingTxOptions());
+  const estimate = await l1.estimateGas({
+    account: from,
+    to: prepared.to,
+    data: prepared.data,
+    value: prepared.value
+  });
+  const { numerator, denominator } = UNSTAKE_GAS_MARGIN;
+  const options: TxOptions = withUnstakeMargin
+    ? { ...stakingTxOptions(), gasLimit: (estimate * numerator) / denominator }
+    : stakingTxOptions();
+  const tx = await send(options);
+  const [sent, mined] = await Promise.all([
+    l1.getTransaction({ hash: tx.hash }),
+    l1.waitForTransactionReceipt({ hash: tx.hash, timeout: 120_000 })
+  ]);
+  log(
+    `${label} gas: ${JSON.stringify({
+      estimate: estimate.toString(),
+      gasLimit: sent.gas.toString(),
+      gasUsed: mined.gasUsed.toString(),
+      status: mined.status,
+      blockNumber: mined.blockNumber.toString(),
+      txIndex: mined.transactionIndex
+    })}`
+  );
+  const receipt = await tx.confirmed();
+  expect(receipt, `${label} (${tx.hash})`).property('status').equals('success');
+  log(`${label}: ${tx.hash}`);
+  return { hash: tx.hash, blockNumber: receipt.blockNumber, gasUsed: mined.gasUsed };
+}
+
 async function stakingClientFor(row: AdapterRow): Promise<StakingClientType> {
   const { StakeManager, MaticToken, PolToken } = getTestEnv().E2E_ADDRESSES_JSON.addresses;
   return StakingClient.init({
@@ -319,12 +387,13 @@ describe.skipIf(!validatorOwner)(
         await land(`${row.name} pol.approveStakeManager`, () =>
           staking.pol.approveStakeManager({ amount: RESTAKE }, stakingTxOptions())
         );
-        const { blockNumber } = await land(`${row.name} stakeManager.restake`, () =>
-          staking.stakeManager.restake(
-            { validatorId: VALIDATOR_ID, amount: RESTAKE, stakeRewards: false },
-            stakingTxOptions()
-          )
-        );
+        const restakeParams = { validatorId: VALIDATOR_ID, amount: RESTAKE, stakeRewards: false };
+        const { blockNumber } = await landStakingWrite({
+          label: `${row.name} stakeManager.restake`,
+          from: owner,
+          prepare: (options) => staking.stakeManager.prepareRestake(restakeParams, options),
+          send: (options) => staking.stakeManager.restake(restakeParams, options)
+        });
         const [validatorBefore, validatorAfter] = await Promise.all([
           validatorAt({ blockNumber: blockNumber - 1n }),
           validatorAt({ blockNumber })
@@ -350,14 +419,17 @@ describe.skipIf(!validatorOwner)(
         const staking = await stakingClientFor(row);
         // Rewards accrue per checkpoint: wait for one since the last withdrawal.
         await waitForEpochAfter({ staking, epoch: lastEpoch, label: `${row.name} withdraw` });
-        const { hash, blockNumber } = await land(
-          `${row.name} stakeManager.withdrawValidatorRewards`,
-          () =>
-            staking.stakeManager.withdrawValidatorRewards(
+        const { hash, blockNumber } = await landStakingWrite({
+          label: `${row.name} stakeManager.withdrawValidatorRewards`,
+          from: owner,
+          prepare: (options) =>
+            staking.stakeManager.prepareWithdrawValidatorRewards(
               { validatorId: VALIDATOR_ID },
-              stakingTxOptions()
-            )
-        );
+              options
+            ),
+          send: (options) =>
+            staking.stakeManager.withdrawValidatorRewards({ validatorId: VALIDATOR_ID }, options)
+        });
         lastEpoch = await staking.stakeManager.getCurrentEpoch();
 
         const claims = parseEventLogs({
@@ -398,14 +470,14 @@ describe.skipIf(!validatorOwner)(
             label: `${row.name} commission cooldown`
           });
         }
-        const { blockNumber } = await land(
-          `${row.name} stakeManager.updateCommissionRate(${rate.toString()})`,
-          () =>
-            staking.stakeManager.updateCommissionRate(
-              { validatorId: VALIDATOR_ID, commissionRate: rate },
-              stakingTxOptions()
-            )
-        );
+        const commissionParams = { validatorId: VALIDATOR_ID, commissionRate: rate };
+        const { blockNumber } = await landStakingWrite({
+          label: `${row.name} stakeManager.updateCommissionRate(${rate.toString()})`,
+          from: owner,
+          prepare: (options) =>
+            staking.stakeManager.prepareUpdateCommissionRate(commissionParams, options),
+          send: (options) => staking.stakeManager.updateCommissionRate(commissionParams, options)
+        });
         const after = await validatorAt({ blockNumber });
         expect(after[8]).equals(rate);
         expect(
@@ -582,13 +654,18 @@ describe.skipIf(!validatorOwner)(
           acceptDelegation: true,
           signerPubkey: validator.signerPubkey
         };
-        const { hash, blockNumber } = await land(
-          `${validator.label} stakeManager.${variant === 'pol' ? 'stakeFor' : 'stakeForMatic'}`,
-          () =>
+        const { hash, blockNumber } = await landStakingWrite({
+          label: `${validator.label} stakeManager.${variant === 'pol' ? 'stakeFor' : 'stakeForMatic'}`,
+          from: validator.owner,
+          prepare: (options) =>
             variant === 'pol'
-              ? staking.stakeManager.stakeFor(params, stakingTxOptions())
-              : staking.stakeManager.stakeForMatic(params, stakingTxOptions())
-        );
+              ? staking.stakeManager.prepareStakeFor(params, options)
+              : staking.stakeManager.prepareStakeForMatic(params, options),
+          send: (options) =>
+            variant === 'pol'
+              ? staking.stakeManager.stakeFor(params, options)
+              : staking.stakeManager.stakeForMatic(params, options)
+        });
 
         const staked = parseEventLogs({
           abi: stakingInfoAbi,
@@ -658,17 +735,21 @@ describe.skipIf(!validatorOwner)(
         await land(`${validator.label} pol.approveStakeManager (delegation)`, () =>
           staking.pol.approveStakeManager({ amount: MIGRATED }, stakingTxOptions())
         );
-        await land(`${validator.label} validatorShare.delegate`, () =>
-          share.delegate({ amount: MIGRATED, minSharesToMint: 0n }, stakingTxOptions())
-        );
-        const { blockNumber } = await land(
-          `${validator.label} stakeManager.migrateDelegation(${fromValidatorId.toString()} -> ${toValidatorId.toString()})`,
-          () =>
-            staking.stakeManager.migrateDelegation(
-              { fromValidatorId, toValidatorId, amount: MIGRATED },
-              stakingTxOptions()
-            )
-        );
+        const delegateParams = { amount: MIGRATED, minSharesToMint: 0n };
+        await landStakingWrite({
+          label: `${validator.label} validatorShare.delegate`,
+          from: validator.owner,
+          prepare: (options) => share.prepareDelegate(delegateParams, options),
+          send: (options) => share.delegate(delegateParams, options)
+        });
+        const migrateParams = { fromValidatorId, toValidatorId, amount: MIGRATED };
+        const { blockNumber } = await landStakingWrite({
+          label: `${validator.label} stakeManager.migrateDelegation(${fromValidatorId.toString()} -> ${toValidatorId.toString()})`,
+          from: validator.owner,
+          prepare: (options) =>
+            staking.stakeManager.prepareMigrateDelegation(migrateParams, options),
+          send: (options) => staking.stakeManager.migrateDelegation(migrateParams, options)
+        });
         // validators(id).delegatedAmount, read with plain viem at the receipt's block and the one before.
         const [fromBefore, fromAfter, toBefore, toAfter] = await Promise.all([
           validatorAt({ validatorId: fromValidatorId, blockNumber: blockNumber - 1n }),
@@ -693,14 +774,13 @@ describe.skipIf(!validatorOwner)(
         await land(`${validator.label} pol.approveStakeManager (fee)`, () =>
           staking.pol.approveStakeManager({ amount: minHeimdallFee }, stakingTxOptions())
         );
-        const { hash, blockNumber } = await land(
-          `${validator.label} stakeManager.topUpHeimdallFee`,
-          () =>
-            staking.stakeManager.topUpHeimdallFee(
-              { user: validator.owner, heimdallFee: minHeimdallFee },
-              stakingTxOptions()
-            )
-        );
+        const topUpParams = { user: validator.owner, heimdallFee: minHeimdallFee };
+        const { hash, blockNumber } = await landStakingWrite({
+          label: `${validator.label} stakeManager.topUpHeimdallFee`,
+          from: validator.owner,
+          prepare: (options) => staking.stakeManager.prepareTopUpHeimdallFee(topUpParams, options),
+          send: (options) => staking.stakeManager.topUpHeimdallFee(topUpParams, options)
+        });
         const topUps = parseEventLogs({
           abi: stakingInfoAbi,
           eventName: 'TopUpFee',
@@ -725,12 +805,39 @@ describe.skipIf(!validatorOwner)(
 
     it('stakeManager.unstake deactivates each node-less validator, and the devnet stays live', async () => {
       const before = await markLiveness();
-      for (const validator of validators) {
+      let previous: { blockNumber: bigint; epoch: bigint } | undefined;
+      for (const [index, validator] of validators.entries()) {
         const validatorId = nodelessIdOf(validator);
         const staking = await stakingClientFor(validator.row);
-        const { hash, blockNumber } = await land(`${validator.label} stakeManager.unstake`, () =>
-          staking.stakeManager.unstake({ validatorId }, stakingTxOptions())
-        );
+        // The last row reproduces the race behind UNSTAKE_GAS_MARGIN: price its
+        // unstake in the state right after the previous row's, then wait for a
+        // checkpoint to move the epoch on before sending it.
+        let racedEstimate: bigint | undefined;
+        if (index === validators.length - 1) {
+          const prior = previous ?? expect.fail('the race needs an earlier unstake');
+          const call = await staking.stakeManager.prepareUnstake(
+            { validatorId },
+            stakingTxOptions()
+          );
+          racedEstimate = await readers().l1.estimateGas({
+            account: validator.owner,
+            to: call.to,
+            data: call.data,
+            blockNumber: prior.blockNumber
+          });
+          await waitForEpochAfter({
+            staking,
+            epoch: prior.epoch,
+            label: `${validator.label} unstake race`
+          });
+        }
+        const { hash, blockNumber, gasUsed } = await landStakingWrite({
+          label: `${validator.label} stakeManager.unstake`,
+          from: validator.owner,
+          prepare: (options) => staking.stakeManager.prepareUnstake({ validatorId }, options),
+          send: (options) => staking.stakeManager.unstake({ validatorId }, options),
+          withUnstakeMargin: true
+        });
         const epoch = await readers().l1.readContract({
           address: getTestEnv().E2E_ADDRESSES_JSON.addresses.StakeManager,
           abi: stakeManagerAbi,
@@ -747,6 +854,25 @@ describe.skipIf(!validatorOwner)(
         // The notice period is one epoch.
         expect(inits[0]?.args.deactivationEpoch).equals(epoch + 1n);
         expect((await validatorAt({ validatorId, blockNumber }))[3]).equals(epoch + 1n);
+
+        if (racedEstimate !== undefined && previous) {
+          log(
+            `${validator.label} unstake race: ${JSON.stringify({
+              estimateEpoch: previous.epoch.toString(),
+              sentEpoch: epoch.toString(),
+              estimate: racedEstimate.toString(),
+              gasUsed: gasUsed.toString()
+            })}`
+          );
+          if (gasUsed <= racedEstimate) {
+            expect.fail(
+              `${validator.label}: unstake after the epoch moved used ${gasUsed.toString()} gas, ` +
+                `no more than its estimate in epoch ${previous.epoch.toString()} ` +
+                `(${racedEstimate.toString()})`
+            );
+          }
+        }
+        previous = { blockNumber, epoch };
       }
       await expectDevnetLive({ label: 'unstake', before });
     });
@@ -771,10 +897,13 @@ describe.skipIf(!validatorOwner)(
             (await staking.stakeManager.getCurrentEpoch()) >= claimableAt ? true : undefined
         });
         const ownStaking = await stakingClientFor(validator.row);
-        const { hash, blockNumber } = await land(
-          `${validator.label} stakeManager.claimUnstaked`,
-          () => ownStaking.stakeManager.claimUnstaked({ validatorId }, stakingTxOptions())
-        );
+        const { hash, blockNumber } = await landStakingWrite({
+          label: `${validator.label} stakeManager.claimUnstaked`,
+          from: validator.owner,
+          prepare: (options) =>
+            ownStaking.stakeManager.prepareClaimUnstaked({ validatorId }, options),
+          send: (options) => ownStaking.stakeManager.claimUnstaked({ validatorId }, options)
+        });
         const unstaked = parseEventLogs({
           abi: stakingInfoAbi,
           eventName: 'Unstaked',
