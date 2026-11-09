@@ -34,7 +34,8 @@ if [ "$E2E_USE_SNAPSHOT" = "1" ]; then
   L2_RPC="http://127.0.0.1:9545"
 else
   inspect=$(kurtosis enclave inspect "$ENCLAVE")
-  bor=$(grep -oE 'l2-el-[0-9]+-bor-heimdall-v2-validator(-archive)?' <<< "$inspect" | head -n1)
+  # Validator 1's node, the one the harness reads (packages/e2e/src/kurtosis.ts).
+  bor=$(grep -oE 'l2-el-1-bor-heimdall-v2-validator(-archive)?' <<< "$inspect" | head -n1)
   L1_RPC=$(kurtosis port print "$ENCLAVE" anvil rpc)
   L2_RPC=$(kurtosis port print "$ENCLAVE" "$bor" rpc)
 fi

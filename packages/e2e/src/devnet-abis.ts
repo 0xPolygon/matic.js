@@ -49,6 +49,9 @@ export const stakeManagerAbi = parseAbi([
   'function NFTContract() view returns (address)',
   'function logger() view returns (address)',
   'function totalHeimdallFee() view returns (uint256)',
+  'function currentEpoch() view returns (uint256)',
+  'function validatorThreshold() view returns (uint256)',
+  'function currentValidatorSetSize() view returns (uint256)',
   'function validators(uint256 validatorId) view returns (uint256 amount, uint256 reward, uint256 activationEpoch, uint256 deactivationEpoch, uint256 jailTime, address signer, address contractAddress, uint8 status, uint256 commissionRate, uint256 lastCommissionUpdate, uint256 delegatorsReward, uint256 delegatedAmount, uint256 initialRewardPerStake)'
 ]);
 
@@ -56,5 +59,8 @@ export const stakeManagerAbi = parseAbi([
 export const stakingInfoAbi = parseAbi([
   'event TopUpFee(address indexed user, uint256 indexed fee)',
   'event ClaimRewards(uint256 indexed validatorId, uint256 indexed amount, uint256 indexed totalAmount)',
-  'event Restaked(uint256 indexed validatorId, uint256 amount, uint256 total)'
+  'event Restaked(uint256 indexed validatorId, uint256 amount, uint256 total)',
+  'event Staked(address indexed signer, uint256 indexed validatorId, uint256 nonce, uint256 indexed activationEpoch, uint256 amount, uint256 total, bytes signerPubkey)',
+  'event UnstakeInit(address indexed user, uint256 indexed validatorId, uint256 nonce, uint256 deactivationEpoch, uint256 indexed amount)',
+  'event Unstaked(address indexed user, uint256 indexed validatorId, uint256 amount, uint256 total)'
 ]);

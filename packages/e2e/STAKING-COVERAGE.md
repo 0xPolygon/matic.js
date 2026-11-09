@@ -22,18 +22,18 @@ Every staking write in this tier passes the devnet's L1 chain id as `chainId`. T
 | `claimUndelegated` | RUNS | `staking-delegation.e2e.test.ts` | | `validatorShare.prepareClaimUndelegated` |
 | `restakeRewards` | RUNS | `staking-delegation.e2e.test.ts` | | `validatorShare.prepareRestakeRewards` |
 | `withdrawRewards` | RUNS | `staking-delegation.e2e.test.ts` | | `validatorShare.prepareWithdrawRewards` |
-| `stakeFor` | GATED | `staking-validator.e2e.test.ts` (skipped) | Registers a second validator with no node behind it. On the single-validator devnet this halts block production: heimdall's producer selection fails ("no candidates found"), bor stops, and checkpoints stop. Observed on kurtosis-pos v1.4.8: L2 stopped about 60 s after `stakeFor` and did not recover in 6 minutes. A halted devnet fails every other test sharing it, so `stakeFor` never runs in a suite. | `stakeManager.prepareStakeFor` |
-| `stakeForMatic` | GATED | `staking-validator.e2e.test.ts` (skipped) | The same registration as `stakeFor`, paid in legacy MATIC, so it halts the devnet the same way. | `stakeManager.prepareStakeForMatic` |
+| `stakeFor` | RUNS | `staking-validator.e2e.test.ts` | Registers a node-less validator of the test's own (`stakeForPOL`); see below. | `stakeManager.prepareStakeFor` |
+| `stakeForMatic` | RUNS | `staking-validator.e2e.test.ts` | Registers a node-less validator paid in legacy MATIC (`stakeFor`); see below. | `stakeManager.prepareStakeForMatic` |
 | `restake` | RUNS | `staking-validator.e2e.test.ts` | Signs as validator 1's owner; see below. | `stakeManager.prepareRestake` |
 | `withdrawValidatorRewards` | RUNS | `staking-validator.e2e.test.ts` | Signs as validator 1's owner; see below. | `stakeManager.prepareWithdrawValidatorRewards` |
 | `topUpHeimdallFee` | RUNS | `staking-writes.e2e.test.ts` | | `stakeManager.prepareTopUpHeimdallFee` |
-| `unstake` | GATED | `staking-validator.e2e.test.ts` (skipped) | Deactivates a validator. The devnet's only validator signs every checkpoint and produces every block, so unstaking it stops the devnet, and a validator the test owns instead needs `stakeFor` (gated). | `stakeManager.prepareUnstake` |
-| `claimUnstaked` | GATED | `staking-validator.e2e.test.ts` (skipped) | Follows `unstake` (gated). | `stakeManager.prepareClaimUnstaked` |
+| `unstake` | RUNS | `staking-validator.e2e.test.ts` | Only on the test's own node-less validators, never validator 1 or 2; see below. | `stakeManager.prepareUnstake` |
+| `claimUnstaked` | RUNS | `staking-validator.e2e.test.ts` | After the withdrawal delay, on the validators the test unstaked; see below. | `stakeManager.prepareClaimUnstaked` |
 | `updateCommissionRate` | RUNS | `staking-validator.e2e.test.ts` | Signs as validator 1's owner; see below. | `stakeManager.prepareUpdateCommissionRate` |
-| `updateSigner` | GATED | `staking-validator.e2e.test.ts` (skipped) | Rotates the key heimdall signs with for a live validator. On the devnet's only validator that would stop checkpoints and block production, and a test-owned validator needs `stakeFor` (gated). | `stakeManager.prepareUpdateSigner` |
-| `migrateDelegation` | GATED | `staking-validator.e2e.test.ts` (skipped) | Moves a delegation between two validators that both accept delegation, and the target's id must be above 7. The devnet has one validator. | `stakeManager.prepareMigrateDelegation` |
+| `updateSigner` | GATED | `staking-validator.e2e.test.ts` (skipped) | StakeManager allows a signer change only `signerUpdateLimit` epochs after the validator's stake or last signer change. The devnet's limit is 100 epochs, about 40 minutes at its checkpoint rate, so on a validator the test registers it reverts `Not allowed` for longer than the run. Validators 1 and 2 are older, but rotating the key a node-backed validator signs with would stop its node signing checkpoints. Measured on a two-validator kurtosis-pos v1.4.8 devnet: `updateSigner` on a validator staked at epoch 15 reverted `Not allowed` at epoch 39. | `stakeManager.prepareUpdateSigner` |
+| `migrateDelegation` | RUNS | `staking-validator.e2e.test.ts` | Between two of the test's node-less validators, to one with an id above 7; see below. | `stakeManager.prepareMigrateDelegation` |
 
-Totals: 13 RUN, 6 GATED.
+Totals: 18 RUN, 1 GATED.
 
 ## How the newer RUNS rows prove their writes
 
@@ -43,7 +43,16 @@ Totals: 13 RUN, 6 GATED.
   - `restake` adds 1 POL (`stakeRewards: false`). Validator 1's `amount` rises by exactly 1 POL and the owner's POL falls by exactly 1 POL between the receipt's block and the one before.
   - `withdrawValidatorRewards` waits for a checkpoint since the last withdrawal, so there is a reward to pay. The receipt has one `ClaimRewards` event for validator 1 with a positive amount, the owner's POL rises by exactly that amount, and validator 1's stored reward is reset to its 1-wei initial value.
   - `updateCommissionRate` sets 5 (viem), then 6 (ethers v5), then the original rate (ethers v6), waiting out the one-change-per-`WITHDRAWAL_DELAY`-epochs cooldown between them. Each rate reads back with plain viem and through the SDK, and validator 1 ends on its original rate.
-  - None of the three changes the validator set, but each acts on the devnet's only validator. After each write's three rows, the test watches L2 for 60 s and fails if no new block arrives for 20 s. All three passed: L2 advanced 60 blocks in each window. Checkpoints kept landing too: the `withdrawValidatorRewards` rows each wait for a new StakeManager epoch, which only a checkpoint advances, and the `updateCommissionRate` rows wait out an epoch-based cooldown. The file runs last, so a halt could not fail the files before it.
+  - None of the three changes the validator set, but each acts on a validator whose node signs checkpoints. After each write's three rows the test runs the liveness watch described below.
+- `stakeFor`, `stakeForMatic`, `migrateDelegation`, `unstake` and `claimUnstaked` run on validators the test registers itself, with no node behind them. That is safe only because the devnet has two node-backed validators (`kurtosis-params.yml`). On a one-validator devnet the same registration halted block production: heimdall's producer selection failed ("no candidates found"), bor stopped about 60 s after `stakeFor` and did not recover in 6 minutes. With two validators the rotation has a second candidate, and a node-less validator with 1 POL of stake has no say in the two-thirds checkpoint majority.
+  - Each adapter row derives a fresh key for the run (`maticjs-e2e:nodeless-validator:<pol|matic>:<adapter index>:<run id>`), funds it from the admin, and registers a validator whose owner and signer are that key, with `acceptDelegation: true`. `stakeFor` pays in POL (`stakeForPOL`), `stakeForMatic` in legacy MATIC (`stakeFor`), which StakeManager converts to POL. Every later write on a validator signs with that validator's own key.
+  - `stakeFor` / `stakeForMatic`: the receipt has one `Staked` event naming the key as signer and a validator id above 2. `validators(id)` holds `minDeposit` as `amount`, the key as signer, status Active and a ValidatorShare contract, the SDK's `getValidatorId` returns the id, and the key's POL or MATIC fell by exactly `minDeposit` plus `minHeimdallFee`.
+  - `migrateDelegation`: StakeManager moves delegations only to a validator id above 7 ("allow to move to any non-foundation node"); the source can be any validator. Each POL row delegates 1 POL to its own validator (3, 4, 5 on a fresh devnet) and migrates it to the test's last-registered validator (8). The source's `delegatedAmount` falls by exactly 1 POL and the destination's rises by it, between the receipt's block and the one before, and the SDK's `getDelegatedAmount` agrees. It runs before `unstake`, because a share contract locks when its validator unstakes.
+  - `topUpHeimdallFee` also runs here, signed by each new validator's owner for its own address: one `TopUpFee` event for the owner and the fee, and `totalHeimdallFee` up by exactly the fee.
+  - `unstake` (`unstakePOL`): the receipt has one `UnstakeInit` event whose deactivation epoch is the current epoch plus one, matching `validators(id)`.
+  - `claimUnstaked` (`unstakeClaimPOL`): the test polls StakeManager's epoch until it reaches the deactivation epoch plus `withdrawalDelay`, failing after 5 minutes with the epoch it was waiting for. The claim's `Unstaked` event pays the stake, the owner's POL rises by exactly the stake (whichever token it was staked in), the validator's amount is 0 with status Unstaked, and the owner holds no validator NFT.
+  - The test refuses, in code, any owner write on a validator id of 2 or below. Unstaking node-backed validator 2 on a two-validator devnet froze checkpoints for good: heimdall dropped it from the signing set at once, but L1 counts its stake until its exit epoch, so validator 1 alone signed less than two thirds and every checkpoint reverted `2/3+1 non-majority!`. The exit epoch is never reached, because only a checkpoint advances the epoch.
+- The liveness watch, after every group of writes in `staking-validator.e2e.test.ts`: L2 must have advanced while the writes landed, must keep producing blocks for 60 s with no gap over 20 s, and heimdall's acknowledged checkpoint count must rise after the writes, within 180 s. Blocks alone are not enough: when validator 2 was unstaked, blocks kept coming while every checkpoint reverted. A stall fails the test with the stalled block or checkpoint count. The file runs last, so a halt could not fail the files before it.
 
 ## Related checks that are not writes
 
@@ -81,6 +90,36 @@ L2 liveness after the validator-owner writes, in that run: L2 went from block 19
 
 Waits observed in the first delegation run: the first rewards above `minAmount` arrived after 48 to 54 s, the next after 71 to 74 s, and an unbond became claimable 16 to 24 s after `undelegate`. Each write confirmed in about 1 s through viem (250 ms polling) and about 4 s through ethers (its default polling).
 
-## Running the gated validator writes
+## Evidence for the validator rows on the two-validator devnet
 
-They need a devnet with a second validator node behind the registered key. This tier boots a single-validator devnet and does not provide one, so the GATED block in `staking-validator.e2e.test.ts` is skipped unconditionally until such a devnet exists.
+Proven on 2026-11-09 in a full run of the whole package (`pnpm run e2e`) against a cold-start kurtosis-pos v1.4.8 devnet (anvil L1, two validators, `kurtosis-params.yml` as committed). It reported 10 test files passed, 87 tests passed and 4 skipped (the three `pol.preparePermit` rows and the gated `updateSigner`), in 1625 s of test time. The hashes below are from that run. They are local devnet transactions and cannot be looked up anywhere else.
+
+| Write | viem | ethers v5 | ethers v6 |
+|---|---|---|---|
+| stakeFor (validators 3, 4, 5) | `0xf7a85a179b7af56038cac34f1e2a7efcbc474390de6c2fe7395274ddc2797338` | `0xd518ae7c16c663b7e68d01e029b118184b2829139d5ac3d6bb4f7b66a5891318` | `0x8837ee3d34bd29dc3d61f0d7b6c40afba5bd6a8075b127d2715263ae47db940e` |
+| stakeForMatic (validators 6, 7, 8) | `0xcb6426ec7e40ecbb3df01d61107294155b05880c2984230d59e4a5dc8a01f31c` | `0xb6f5e262dbf199ee927374083c4ddf8fdcb36f1227ced5e1edb351c6ead30cb1` | `0xe84edacd059d4898c0f61814d4be7dfa4c7ec7ffa4924291fe6ef006674eac12` |
+| migrateDelegation (3, 4, 5 to 8) | `0x69be7dc7350d2f1bd5faa5a23934ca96a17566c62cc63985d29ba8fdcc49a215` | `0x2f504ee8ce1ff8b673d4315c8b3a6582894c80ff341f2f8fe5422788db0541b8` | `0xaf8d8175aa7db0cbe14a7c9c0613ecaf6239b292d7a6a385bb26e00da6db1b65` |
+| topUpHeimdallFee (new owners) | `0xed3e4b405b5d09a28784e810227d1fd8b29e9a367a0a0f957c70943d56c641d5` | `0xcc7457ee1f1cb9aca4f9e2ba4b9244b3a914fa35f7d39d0c533b9096120b509a` | `0x249c32fe2d422115b6c25a22683b649abc1753d094641fcc6f9a4758037057c8` |
+| unstake (POL validators) | `0x3100251f79bfd91589b44b8b735f458f996e3aebd6594165750ea11c395134ad` | `0x7dad8c2e1fcd95848bc85260b00421c265ecc660dbc32f4fc185d6afdb773810` | `0x578381e29421ba91a78fd46e432eae36c5839dc634164455add0027e52cff554` |
+| unstake (MATIC validators) | `0x448d2046f462309c33809b78f829da4b9b936814c3f75f4694ac04c94210f34b` | `0x56bbc91c638dc14e71e6dde0e6745cae820d552f881328c13f392e9b897ec317` | `0xefde9d6ca3e9ed9032203d608bb126bd5579e969997220ae8442d9f6e9d9bc0f` |
+| claimUnstaked (POL validators) | `0x93288d66c8c3891da9ec6874b72a14ae53294ebc7e258d49d9b0c479010acb3c` | `0x78ec03847ae2f532d23bc0ab3aac2a16cee9056917d10d3dd43c96b221ee96a7` | `0x6b936311e0cfc9acc39bddc8ca8ebc9ed771999f3f5380105253eb3dcf3def41` |
+| claimUnstaked (MATIC validators) | `0x1d08265c7d98c310f8787d0a9b40b01e0947858c87339e0f525c53e815f5e843` | `0x28fde61ecee273fc1a6095c1e486a237b3846d4498f3751c51e91e656a10b899` | `0x3107ccd9a43eddd1969e8fee7df83e9efa0cdb9de6751a0e031a51a3e280799a` |
+
+The liveness watch in that run, as L2 block and heimdall checkpoint acks before the writes, right after them, and at the end of the watch:
+
+| Writes | Before | After the writes | End of watch |
+|---|---|---|---|
+| restake (validator 1) | 1243, 41 | 1261, 42 | 1321, 44 |
+| withdrawValidatorRewards (validator 1) | 1321, 44 | 1364, 46 | 1424, 48 |
+| updateCommissionRate (validator 1) | 1424, 48 | 1473, 50 | 1533, 52 |
+| stakeFor | 1537, 52 | 1555, 53 | 1615, 55 |
+| stakeForMatic | 1615, 55 | 1634, 55 | 1691, 57 |
+| migrateDelegation | 1691, 57 | 1718, 57 | 1779, 59 |
+| unstake | 1797, 59 | 1815, 60 | 1875, 62 |
+| claimUnstaked | 1875, 62 | 1893, 62 | 1953, 64 |
+
+Each watch lasted 60 s. The same file had passed twice before on another two-validator devnet of the same config: once whole, and once for the node-less rows alone, re-run on the same devnet with fresh keys (validators 9 to 14), which also covers a reused devnet.
+
+## The gated write
+
+`updateSigner` stays gated: see its row. It could run on a test-owned validator only after waiting out `signerUpdateLimit` (100 epochs, about 40 minutes), or on a devnet deployed with a lower limit.
