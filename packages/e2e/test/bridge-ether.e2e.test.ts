@@ -56,7 +56,7 @@ describe.concurrent('ether deposit and exit cycle', { timeout: CYCLE_TIMEOUT_MS 
       done: (balance) => balance === childBefore + AMOUNT,
       label: `${row.name} child MaticWETH balance`
     });
-    expect(await pos.isDeposited(deposit.transactionHash)).equals(true);
+    expect((await pos.getDepositStatus(deposit.transactionHash)).deposited).equals(true);
 
     const burn = await confirmSuccess(await childWeth.startWithdraw(AMOUNT));
     expect(await childWeth.getBalance(row.address)).equals(childBefore);
@@ -65,7 +65,7 @@ describe.concurrent('ether deposit and exit cycle', { timeout: CYCLE_TIMEOUT_MS 
       burnHash: burn.transactionHash,
       label: `${row.name} burn ${burn.transactionHash}`
     });
-    expect(await parentEther.isWithdrawExited(burn.transactionHash)).equals(false);
+    expect((await parentEther.getWithdrawExitStatus(burn.transactionHash)).exited).equals(false);
 
     const l1BeforeExit = await l1.getBalance({ address: row.address });
     const exit = await exitWhenCheckpointed({
@@ -76,7 +76,7 @@ describe.concurrent('ether deposit and exit cycle', { timeout: CYCLE_TIMEOUT_MS 
     const exitGas = await gasPaid({ client: l1, hash: exit.transactionHash });
     expect(l1AfterExit - l1BeforeExit + exitGas).equals(AMOUNT);
 
-    expect(await parentEther.isWithdrawExited(burn.transactionHash)).equals(true);
+    expect((await parentEther.getWithdrawExitStatus(burn.transactionHash)).exited).equals(true);
   });
 });
 

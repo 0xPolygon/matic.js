@@ -100,7 +100,7 @@ export function waitForStateSync<T>({
 /**
  * Wait until a burn's L2 block is covered by a checkpoint on L1.
  *
- * The `isWithdrawExited*` reads derive the exit hash from the checkpoint,
+ * The `getWithdrawExitStatus*` reads derive the exit hash from the checkpoint,
  * so before it lands they throw `BURN_TX_NOT_CHECKPOINTED` rather than
  * returning `false`. A "not exited yet" check therefore has to wait here
  * first.
@@ -115,7 +115,7 @@ export async function waitForCheckpoint({
   label: string;
 }): Promise<void> {
   await pollUntil({
-    fn: async () => ((await pos.isCheckpointed(burnHash)) ? true : undefined),
+    fn: async () => ((await pos.getCheckpointStatus(burnHash)).checkpointed ? true : undefined),
     pollMs: POLL_MS,
     timeoutMs: CHECKPOINT_TIMEOUT_MS,
     label: `checkpoint: ${label}`
