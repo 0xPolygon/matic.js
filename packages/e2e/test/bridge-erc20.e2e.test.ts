@@ -58,7 +58,7 @@ describe.concurrent('ERC-20 deposit and exit cycle', { timeout: CYCLE_TIMEOUT_MS
       label: `${row.name} child DummyERC20 balance`
     });
     expect(await childToken.getBalance(row.address)).equals(childBefore + AMOUNT);
-    expect(await pos.isDeposited(deposit.transactionHash)).equals(true);
+    expect((await pos.getDepositStatus(deposit.transactionHash)).deposited).equals(true);
 
     const burn = await confirmSuccess(await childToken.startWithdraw(AMOUNT));
     expect(await childBalance()).equals(childBefore);
@@ -67,14 +67,14 @@ describe.concurrent('ERC-20 deposit and exit cycle', { timeout: CYCLE_TIMEOUT_MS
       burnHash: burn.transactionHash,
       label: `${row.name} burn ${burn.transactionHash}`
     });
-    expect(await parentToken.isWithdrawExited(burn.transactionHash)).equals(false);
+    expect((await parentToken.getWithdrawExitStatus(burn.transactionHash)).exited).equals(false);
 
     await exitWhenCheckpointed({
       exit: () => parentToken.completeWithdraw(burn.transactionHash),
       label: `${row.name} ERC-20 burn ${burn.transactionHash}`
     });
 
-    expect(await parentToken.isWithdrawExited(burn.transactionHash)).equals(true);
+    expect((await parentToken.getWithdrawExitStatus(burn.transactionHash)).exited).equals(true);
     expect(await parentBalance()).equals(parentBefore);
     expect(await parentToken.getBalance(row.address)).equals(parentBefore);
   });

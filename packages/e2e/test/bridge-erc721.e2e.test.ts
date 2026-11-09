@@ -7,7 +7,7 @@
  * batch path (`depositMany` → `startWithdrawMany` → one
  * `completeWithdrawOnIndex` per token). The batch burn is exited one token
  * at a time so the partly-exited state can be observed: after exiting
- * index 0, `isWithdrawExitedOnIndices` must report `[true, false]`.
+ * index 0, `getWithdrawExitStatusOnIndices` must report exited `[true, false]`.
  * Ownership is checked on both chains with plain reads at every step.
  */
 import type { Address, PublicClient } from 'viem';
@@ -152,8 +152,8 @@ describe.concurrent('ERC-721 deposit and exit cycle', { timeout: CYCLE_TIMEOUT_M
       done: (count) => count === childCountBefore + TOKENS_PER_CYCLE,
       label: `${row.name} child DummyERC721 count`
     });
-    expect(await pos.isDeposited(singleDeposit.transactionHash)).equals(true);
-    expect(await pos.isDeposited(batchDeposit.transactionHash)).equals(true);
+    expect((await pos.getDepositStatus(singleDeposit.transactionHash)).deposited).equals(true);
+    expect((await pos.getDepositStatus(batchDeposit.transactionHash)).deposited).equals(true);
     for (const tokenId of moved) {
       expect(await ownerOf({ client: l2, token: tokens.child.erc721, tokenId })).equals(
         row.address
@@ -169,19 +169,29 @@ describe.concurrent('ERC-721 deposit and exit cycle', { timeout: CYCLE_TIMEOUT_M
       burnHash: batchBurn.transactionHash,
       label: `${row.name} batch burn ${batchBurn.transactionHash}`
     });
-    expect(await parentToken.isWithdrawExited(singleBurn.transactionHash)).equals(false);
+    expect((await parentToken.getWithdrawExitStatus(singleBurn.transactionHash)).exited).equals(
+      false
+    );
     expect(
-      await parentToken.isWithdrawExitedOnIndices(batchBurn.transactionHash, [0, 1])
+      (await parentToken.getWithdrawExitStatusOnIndices(batchBurn.transactionHash, [0, 1])).map(
+        (status) => status.exited
+      )
     ).deep.equals([false, false]);
 
     await exitWhenCheckpointed({
       exit: () => parentToken.completeWithdraw(singleBurn.transactionHash),
       label: `${row.name} ERC-721 single burn ${singleBurn.transactionHash}`
     });
-    expect(await parentToken.isWithdrawExited(singleBurn.transactionHash)).equals(true);
-    expect(await parentToken.isWithdrawExitedOnIndex(singleBurn.transactionHash, 0)).equals(true);
+    expect((await parentToken.getWithdrawExitStatus(singleBurn.transactionHash)).exited).equals(
+      true
+    );
     expect(
-      await parentToken.isWithdrawExitedOnIndices(singleBurn.transactionHash, [0])
+      (await parentToken.getWithdrawExitStatusOnIndex(singleBurn.transactionHash, 0)).exited
+    ).equals(true);
+    expect(
+      (await parentToken.getWithdrawExitStatusOnIndices(singleBurn.transactionHash, [0])).map(
+        (status) => status.exited
+      )
     ).deep.equals([true]);
     expect(await ownerOf({ client: l1, token: tokens.root.erc721, tokenId: single })).equals(
       row.address
@@ -193,16 +203,22 @@ describe.concurrent('ERC-721 deposit and exit cycle', { timeout: CYCLE_TIMEOUT_M
       label: `${row.name} ERC-721 batch burn ${batchBurn.transactionHash} index 0`
     });
     expect(
-      await parentToken.isWithdrawExitedOnIndices(batchBurn.transactionHash, [0, 1])
+      (await parentToken.getWithdrawExitStatusOnIndices(batchBurn.transactionHash, [0, 1])).map(
+        (status) => status.exited
+      )
     ).deep.equals([true, false]);
-    expect(await parentToken.isWithdrawExitedOnIndex(batchBurn.transactionHash, 1)).equals(false);
+    expect(
+      (await parentToken.getWithdrawExitStatusOnIndex(batchBurn.transactionHash, 1)).exited
+    ).equals(false);
     expect(await ownerOf({ client: l1, token: tokens.root.erc721, tokenId: batchA })).equals(
       row.address
     );
 
     await confirmSuccess(await parentToken.completeWithdrawOnIndex(batchBurn.transactionHash, 1));
     expect(
-      await parentToken.isWithdrawExitedOnIndices(batchBurn.transactionHash, [0, 1])
+      (await parentToken.getWithdrawExitStatusOnIndices(batchBurn.transactionHash, [0, 1])).map(
+        (status) => status.exited
+      )
     ).deep.equals([true, true]);
     expect(await ownerOf({ client: l1, token: tokens.root.erc721, tokenId: batchB })).equals(
       row.address
