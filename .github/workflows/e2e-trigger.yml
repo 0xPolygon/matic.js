@@ -29,8 +29,8 @@ on:
       kurtosis_pos_ref:
         description: 'commit SHA (or ref) of 0xPolygon/kurtosis-pos: cold-start source, and the snapshot restore scripts'
         required: false
-        # kurtosis-pos v1.4.8, pinned by commit because a tag can be moved.
-        default: 'b2f5b7a8ce6569cc32b48240862dda63e9ad340a'
+        # kurtosis-pos v1.4.9, pinned by commit because a tag can be moved.
+        default: 'dbdc77d1f7c5b0802d637b3b2a092afb11144c6c'
   pull_request:
     types: [labeled, synchronize, reopened]
 
@@ -62,12 +62,12 @@ jobs:
       # selects the snapshot; everything else cold-starts.
       E2E_USE_SNAPSHOT: ${{ inputs.use_snapshot == true && '1' || '0' }}
       # Bump the image digest and KURTOSIS_POS_REF together: the image is
-      # the `v1.4.8` build of kurtosis-pos b2f5b7a8ce65, and the restore
+      # the `v1.4.9-anvil` build of kurtosis-pos dbdc77d1f7c5, and the restore
       # scripts are taken from the same commit. Get the new digest with
       # `docker buildx imagetools inspect ghcr.io/0xpolygon/pos-devnet-small:<tag>`.
       # Pinned by digest because the tag is mutable.
-      E2E_SNAPSHOT_IMAGE: ghcr.io/0xpolygon/pos-devnet-small@sha256:2544a2c6e4d8ef721e19d253fa49fcdbda13239c33c510b17fd26ce8ae5047f7
-      KURTOSIS_POS_REF: ${{ inputs.kurtosis_pos_ref || 'b2f5b7a8ce6569cc32b48240862dda63e9ad340a' }}
+      E2E_SNAPSHOT_IMAGE: ghcr.io/0xpolygon/pos-devnet-small@sha256:6523b82cb3768d41917d5e2e624bc3dccab542df85a5a4226fcf45fb96add579
+      KURTOSIS_POS_REF: ${{ inputs.kurtosis_pos_ref || 'dbdc77d1f7c5b0802d637b3b2a092afb11144c6c' }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 

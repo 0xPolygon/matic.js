@@ -13,7 +13,7 @@
 import type { Address, PublicClient } from 'viem';
 
 import { createWalletClient, http } from 'viem';
-import { describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import type { Suite } from '../src/keys.ts';
 
@@ -33,11 +33,21 @@ import {
   waitForCheckpoint,
   waitForStateSync
 } from './cycle.ts';
+import {
+  RAISED_STATE_SYNC_GAS_LIMIT,
+  readStateSyncGasLimit,
+  setStateSyncGasLimit,
+  stateCommittedSuccess,
+  stateSyncIdsOf,
+  UBURU_STATE_SYNC_GAS_LIMIT
+} from './state-sync-gas.ts';
 
 const SUITE: Suite = 'bridge-erc721';
 const TOKENS_PER_CYCLE = 3;
 
 const rows = buildAdapters({ suite: SUITE });
+
+const log = (line: string) => process.stderr.write(`[bridge-erc721] ${line}\n`);
 
 async function ownerOf({
   client,
@@ -103,7 +113,75 @@ async function ensureRootTokens({
   }
 }
 
+// Runs first, under the limit the devnet boots with. It fails on purpose and
+// asserts the failure: under Uburu, a pos-portal ERC-721 deposit's state sync
+// runs out of the 160,000 per-record gas and is committed FAILED on L2, so the
+// token never reaches L2. See state-sync-gas.ts.
+describe(
+  'ERC-721 deposit under the Uburu state-sync gas limit',
+  { timeout: CYCLE_TIMEOUT_MS },
+  () => {
+    it('is committed FAILED on L2 at 160,000 gas, and the child token never appears', async () => {
+      const row = rows[0] ?? expect.fail('no adapter rows');
+      const { tokens, addresses } = getTestEnv().E2E_ADDRESSES_JSON;
+      expect(await readStateSyncGasLimit()).equals(UBURU_STATE_SYNC_GAS_LIMIT);
+      const pos = await initPos(row);
+      const parentToken = pos.parent.erc721(tokens.root.erc721);
+      await ensureRootTokens({
+        adapterIndex: ADAPTERS.indexOf(row.name),
+        address: row.address,
+        have: await parentToken.getTokensCount(row.address)
+      });
+      const [tokenId] = await parentToken.getAllTokens(row.address, 1);
+      if (tokenId === undefined) expect.fail(`${row.name}: no root token to deposit`);
+      await revokeApprovalForAll({
+        suite: SUITE,
+        adapter: row.name,
+        token: tokens.root.erc721,
+        operator: addresses.ERC721Predicate
+      });
+      await confirmSuccess(await parentToken.approveAll());
+
+      const deposit = await confirmSuccess(await parentToken.deposit(tokenId, row.address));
+      const stateIds = await stateSyncIdsOf(deposit.transactionHash);
+      expect(stateIds).length(1);
+      const stateId = stateIds[0] ?? expect.fail('no state-sync id');
+      const success = await stateCommittedSuccess({
+        stateId,
+        label: `${row.name} ERC-721 deposit ${deposit.transactionHash}`
+      });
+      log(
+        `deposit at the shipped limit: ${JSON.stringify({
+          gasLimit: UBURU_STATE_SYNC_GAS_LIMIT.toString(),
+          stateId: stateId.toString(),
+          committedSuccess: success
+        })}`
+      );
+      expect(success).equals(false);
+      expect(await ownerOf({ client: readers().l2, token: tokens.child.erc721, tokenId })).equals(
+        undefined
+      );
+    });
+  }
+);
+
 describe.concurrent('ERC-721 deposit and exit cycle', { timeout: CYCLE_TIMEOUT_MS }, () => {
+  // Raised for these rows only, so every other row runs under the shipped
+  // 160,000. Restored in afterAll, which also runs when a row fails.
+  let restoreTo: bigint | undefined;
+  beforeAll(async () => {
+    restoreTo = await readStateSyncGasLimit();
+    await setStateSyncGasLimit(RAISED_STATE_SYNC_GAS_LIMIT);
+    log(
+      `state-sync gas limit raised: ${restoreTo.toString()} -> ${(await readStateSyncGasLimit()).toString()}`
+    );
+  });
+  afterAll(async () => {
+    if (restoreTo === undefined) return;
+    await setStateSyncGasLimit(restoreTo);
+    log(`state-sync gas limit restored: ${(await readStateSyncGasLimit()).toString()}`);
+  });
+
   it.each(rows)('via $name', async (row) => {
     const { tokens, addresses } = getTestEnv().E2E_ADDRESSES_JSON;
     const { l1, l2 } = readers();

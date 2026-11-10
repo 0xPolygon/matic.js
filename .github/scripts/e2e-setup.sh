@@ -31,7 +31,7 @@
 #   KURTOSIS_POS_REF     kurtosis-pos commit to check out; supplies
 #                        scripts/snapshot/ in snapshot mode and the source in
 #                        cold-start mode. A full 40-hex SHA (the default, the
-#                        v1.4.8 commit) is verified after checkout; a tag or
+#                        v1.4.9 commit) is verified after checkout; a tag or
 #                        branch is accepted for a manual dispatch but is mutable.
 #   WORK_DIR             scratch dir for the kurtosis-pos clone.
 #   REPO_ROOT            matic.js checkout (default: $GITHUB_WORKSPACE, else $PWD).
@@ -46,9 +46,9 @@ set -euo pipefail
 E2E_USE_SNAPSHOT="${E2E_USE_SNAPSHOT:-0}"
 E2E_SNAPSHOT_IMAGE="${E2E_SNAPSHOT_IMAGE:-}"
 ENCLAVE="${KURTOSIS_ENCLAVE:-pos}"
-# kurtosis-pos v1.4.8. Pinned by commit because a tag can be moved.
-KURTOSIS_POS_REF="${KURTOSIS_POS_REF:-b2f5b7a8ce6569cc32b48240862dda63e9ad340a}"
-# The kurtosis CLI kurtosis-pos v1.4.8 itself pins in its CI, installed from
+# kurtosis-pos v1.4.9. Pinned by commit because a tag can be moved.
+KURTOSIS_POS_REF="${KURTOSIS_POS_REF:-dbdc77d1f7c5b0802d637b3b2a092afb11144c6c}"
+# The kurtosis CLI kurtosis-pos v1.4.9 itself pins in its CI, installed from
 # the release .deb and checked against the sha256 in that release's
 # checksums.txt (github.com/kurtosis-tech/kurtosis-cli-release-artifacts).
 KURTOSIS_CLI_VERSION="1.22.2"

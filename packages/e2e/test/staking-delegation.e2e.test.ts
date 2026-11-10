@@ -20,7 +20,6 @@ import { describe, expect, it } from 'vitest';
 
 import type { Hex } from '@polygonlabs/maticjs';
 import type {
-  PermitDomain,
   PermitTypedData,
   StakingClient as StakingClientType,
   ValidatorShare
@@ -236,24 +235,11 @@ describe.concurrent('staking delegation cycle (devnet)', { timeout: 900_000 }, (
       max: UNDELEGATION
     });
 
-    // delegateWithPermit, with a harness-built EIP-712 domain. The devnet
-    // POL has no ERC-5267 `eip712Domain()`, so `preparePermit` cannot read
-    // it (GATED; see STAKING-COVERAGE.md). The domain is checked against the
-    // token's own DOMAIN_SEPARATOR before anything is signed.
+    // delegateWithPermit, signing exactly what preparePermit returns: the
+    // domain it read from the token's ERC-5267 `eip712Domain()`. The domain is
+    // checked against the token's own DOMAIN_SEPARATOR before anything is signed.
     const polAddress = await pol.getAddress();
-    const domain: PermitDomain = {
-      name: 'POL',
-      version: '1',
-      chainId: getTestEnv().E2E_L1_CHAIN_ID,
-      verifyingContract: polAddress
-    };
     const l1Public = createPublicClient({ chain: devnetChains().l1, transport: http() });
-    const onChainSeparator = await l1Public.readContract({
-      address: polAddress,
-      abi: PolTokenABI,
-      functionName: 'DOMAIN_SEPARATOR'
-    });
-    expect(domainSeparator({ domain })).equals(onChainSeparator);
 
     // Zero the allowance first, so the delegation can only land through the permit.
     await land(`${tag} approveStakeManager(0)`, () =>
@@ -262,26 +248,21 @@ describe.concurrent('staking delegation cycle (devnet)', { timeout: 900_000 }, (
     const block = await l1Public.getBlock({ blockTag: 'latest' });
     const deadline = block.timestamp + PERMIT_TTL_SECONDS;
     const permitNonce = await pol.getNonce({ owner: user });
-    const typed: PermitTypedData = {
-      domain,
-      types: {
-        Permit: [
-          { name: 'owner', type: 'address' },
-          { name: 'spender', type: 'address' },
-          { name: 'value', type: 'uint256' },
-          { name: 'nonce', type: 'uint256' },
-          { name: 'deadline', type: 'uint256' }
-        ]
-      },
-      primaryType: 'Permit',
-      message: {
-        owner: user,
-        spender: await staking.stakeManager.getAddress(),
-        value: DELEGATION,
-        nonce: permitNonce,
-        deadline
-      }
-    };
+    const typed: PermitTypedData = await pol.preparePermit({
+      owner: user,
+      value: DELEGATION,
+      deadline
+    });
+    const onChainSeparator = await l1Public.readContract({
+      address: polAddress,
+      abi: PolTokenABI,
+      functionName: 'DOMAIN_SEPARATOR'
+    });
+    expect(domainSeparator({ domain: typed.domain })).equals(onChainSeparator);
+    expect(typed.message.nonce).equals(permitNonce);
+    expect(typed.message.spender.toLowerCase()).equals(
+      (await staking.stakeManager.getAddress()).toLowerCase()
+    );
     const signature = splitSignature(await signPermit(row, typed));
     const stakeBeforePermit = (await vs.getTotalStake({ user })).stake;
     await land(`${tag} delegateWithPermit`, () =>
