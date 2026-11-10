@@ -30,8 +30,8 @@ You need Docker (Engine 25 or later) running and the [kurtosis CLI](https://docs
 # src/config/constants.star, as linux/amd64.
 docker pull --platform linux/amd64 <toolbox_image>
 
-# Boot the devnet from a kurtosis-pos checkout at v1.4.8 (about 4 minutes with cached images).
-git clone --branch v1.4.8 https://github.com/0xPolygon/kurtosis-pos.git
+# Boot the devnet from a kurtosis-pos checkout at v1.4.9 (about 4 minutes with cached images).
+git clone --branch v1.4.9 https://github.com/0xPolygon/kurtosis-pos.git
 cd kurtosis-pos
 kurtosis run --enclave pos --args-file <path-to-matic.js>/packages/e2e/kurtosis-params.yml .
 
@@ -66,7 +66,6 @@ Each bridge and staking cycle waits for state sync or a checkpoint, and takes 90
 
 A passing run reports some skipped tests. They are expected:
 
-- `pol.preparePermit`, one row per adapter in `staking-writes.e2e.test.ts`. The devnet's POL has no ERC-5267 `eip712Domain()`, which `preparePermit` reads; see `STAKING-COVERAGE.md`.
 - The GATED row in `staking-validator.e2e.test.ts` (`updateSigner`). It reverts until 100 epochs after a validator's stake, about 40 minutes on the devnet; see `STAKING-COVERAGE.md`.
 - In snapshot mode only, every row in `staking-validator.e2e.test.ts`. The validator 1 rows sign with validator 1's owner key, which `up` reads from the kurtosis enclave, and a restored snapshot has no enclave to read it from. The node-less validator rows need the two-validator devnet of `kurtosis-params.yml`, and the published snapshot has one validator.
 
@@ -76,13 +75,19 @@ Teardown is opt-in, and `down` never removes a devnet this run did not boot. `up
 
 Never pipe kurtosis CLI output into `head`: closing the pipe can kill an auto-started engine mid-start and leave a container that blocks every later `engine start`.
 
+### ERC-721 deposits and the Uburu state-sync gas limit
+
+From the Uburu hard fork (bor v2.11.0, enabled at block 128 by kurtosis-pos v1.4.9), bor gives each L1-to-L2 state-sync record at most the `gasLimit()` of a gas oracle, 160,000 as the devnet boots, and commits a record that runs out of gas as failed. Minting a pos-portal ERC-721 on L2 needs about 213,000, so under that limit an ERC-721 deposit lands on L1 and never reaches L2.
+
+`bridge-erc721.e2e.test.ts` records both sides of this. Its first row deposits one token under the limit the devnet boots with and asserts that L2 commits the record as failed and that the child token never appears. The deposit-and-exit cycle after it raises the limit to 500,000 as the devnet admin, who owns the oracle, and restores it when the cycle ends, pass or fail; kurtosis-pos's own e2e does the same (pos-e2e #132). Every other file runs under the limit the devnet boots with.
+
 ## Running in CI
 
 CI cold-starts the devnet from kurtosis-pos source with the same `kurtosis-params.yml` as a local run (`.github/scripts/e2e-setup.sh`). It checks kurtosis-pos out at a pinned commit and installs a pinned kurtosis CLI `.deb`, verified by its sha256. It then runs `pnpm run e2e -- --down`, so the devnet it booted is removed when the suite passes.
 
 ### Snapshot (opt-in)
 
-A manual dispatch with `use_snapshot=true` restores the published kurtosis-pos snapshot image with `docker compose` instead. It is not the default because its geth and lighthouse L1 stops minting blocks once the image is more than a few minutes old: the beacon chain's genesis time is part of the restored state, and a lone lighthouse whose head slot is far behind the wall-clock slot never counts itself synced, so it never proposes. The readiness check fails fast on that stall and prints the L1 head block's age. Set `E2E_SNAPSHOT_ADDRESSES_JSON` to the `contractAddresses.json` extracted from the image. `up` then reads addresses from that file and uses the snapshot's fixed host ports (L1 `8545`, L2 `9545`, heimdall `1317`). `down` stops that compose project (`docker compose --file <dir of the JSON>/docker-compose.yaml down --volumes`) and nothing else. The snapshot's contract addresses are the same as a cold start's, because kurtosis-pos deploys deterministically.
+A manual dispatch with `use_snapshot=true` restores the published kurtosis-pos snapshot image with `docker compose` instead: the anvil variant (`pos-devnet-small:v1.4.9-anvil`, pinned by digest in `e2e-trigger.yml`), which has no slot clock and so restores at any age. The image is linux/amd64 only. It is not the default because it is kurtosis-pos's one-validator devnet: `staking-validator.e2e.test.ts` needs the two validators of `kurtosis-params.yml`, so in snapshot mode that file's rows are skipped. The readiness check still fails fast if the restored L1 does not advance, and prints the L1 head block's age. Set `E2E_SNAPSHOT_ADDRESSES_JSON` to the `contractAddresses.json` extracted from the image. `up` then reads addresses from that file and uses the snapshot's fixed host ports (L1 `8545`, L2 `9545`, heimdall `1317`). `down` stops that compose project (`docker compose --file <dir of the JSON>/docker-compose.yaml down --volumes`) and nothing else. The snapshot's contract addresses are the same as a cold start's, because kurtosis-pos deploys deterministically.
 
 ## Running one file
 

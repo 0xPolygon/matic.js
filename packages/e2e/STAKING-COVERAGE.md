@@ -17,7 +17,7 @@ Every staking write in this tier passes the devnet's L1 chain id as `chainId`. T
 | `approveMaxForStakeManager` | RUNS | `staking-writes.e2e.test.ts` | | `pol.prepareApproveMaxForStakeManager`, `matic.prepareApproveMaxForStakeManager` |
 | `delegate` | RUNS | `staking-delegation.e2e.test.ts` | | `validatorShare.prepareDelegate` |
 | `delegateMatic` | RUNS | `staking-writes.e2e.test.ts` | | `validatorShare.prepareDelegateMatic` |
-| `delegateWithPermit` | RUNS | `staking-delegation.e2e.test.ts` | The typed data is signed over a domain the test builds (`name: 'POL'`, `version: '1'`, the devnet chain id, the POL address). The test first checks that domain against the token's on-chain `DOMAIN_SEPARATOR`. The SDK's own `preparePermit` cannot be used here; see below. | `validatorShare.prepareDelegateWithPermit`, `pol.preparePermit` |
+| `delegateWithPermit` | RUNS | `staking-delegation.e2e.test.ts` | The test signs exactly the typed data `pol.preparePermit` returns, whose domain the SDK reads from the token's ERC-5267 `eip712Domain()`. It first checks that domain against the token's on-chain `DOMAIN_SEPARATOR`. | `validatorShare.prepareDelegateWithPermit`, `pol.preparePermit` |
 | `undelegate` | RUNS | `staking-delegation.e2e.test.ts` | | `validatorShare.prepareUndelegate` |
 | `claimUndelegated` | RUNS | `staking-delegation.e2e.test.ts` | | `validatorShare.prepareClaimUndelegated` |
 | `restakeRewards` | RUNS | `staking-delegation.e2e.test.ts` | | `validatorShare.prepareRestakeRewards` |
@@ -59,7 +59,7 @@ Totals: 18 RUN, 1 GATED.
 
 - `pol.prepareApproveStakeManager` RUNS: `staking-writes.e2e.test.ts` checks that its `to` is the POL address and its `data` is byte-equal to the adapter library's own `approve` encoding (viem `encodeFunctionData`, ethers v5 and v6 `Interface.encodeFunctionData`).
 - `matic.preparePermit` RUNS: it is refused with a `PermitNotSupportedError` (found in the `PermitError` cause chain), because MATIC has no EIP-2612 permit.
-- `pol.preparePermit` is GATED on the devnet. It reads the EIP-712 domain from the token's ERC-5267 `eip712Domain()`. kurtosis-pos deploys POL as a generic `ERC20Permit` with `permit` and `DOMAIN_SEPARATOR` but without `eip712Domain()`, so the read reverts there. Mainnet POL implements `eip712Domain()`, and `packages/maticjs/tests/live/staking-permit-domain.live.test.ts` runs `preparePermit` against it read-only on every `pnpm test`, checking the name, version, chain id and verifying contract.
+- `pol.preparePermit` RUNS, one row per adapter in `staking-writes.e2e.test.ts`. kurtosis-pos v1.4.9 deploys the production POL token, which implements ERC-5267 `eip712Domain()`. The row checks that the domain the SDK returns matches `eip712Domain()` field by field, that it hashes to the token's `DOMAIN_SEPARATOR`, and that the message carries the StakeManager as spender and the owner's current nonce. `delegateWithPermit` then signs what it returns. Mainnet POL is also checked read-only by `packages/maticjs/tests/live/staking-permit-domain.live.test.ts` on every `pnpm test`.
 
 ## Evidence for the RUNS verdicts
 

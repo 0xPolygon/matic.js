@@ -15,6 +15,7 @@ import { Interface } from 'ethers';
 import { utils as utilsV5 } from 'ethers-v5';
 import {
   createPublicClient,
+  domainSeparator,
   encodeFunctionData,
   getAddress,
   http,
@@ -295,14 +296,39 @@ describe('staking token writes (devnet)', () => {
       }
     });
 
-    // GATED on this devnet: kurtosis-pos deploys POL as a generic
-    // ERC20Permit without ERC-5267 `eip712Domain()`, and `preparePermit`
-    // reads the domain only from that function, so it reverts here. The
-    // domain read is proven against mainnet POL by the live-read tier
-    // (`packages/maticjs`), and the permit itself by `delegateWithPermit`
-    // in staking-delegation.e2e.test.ts with a harness-built domain.
-    it.skip('pol.preparePermit — GATED: devnet POL has no ERC-5267 eip712Domain()', () => {
-      expect.fail('gated on this devnet; see STAKING-COVERAGE.md');
+    // The devnet deploys the production POL token, which implements ERC-5267,
+    // so the domain preparePermit reads must be the one the token signs over.
+    it('pol.preparePermit reads the domain from eip712Domain() and it matches DOMAIN_SEPARATOR', async () => {
+      const staking = await stakingClientFor(row);
+      const { PolToken, StakeManager } = getTestEnv().E2E_ADDRESSES_JSON.addresses;
+      const typed = await staking.pol.preparePermit({ owner: row.address, value: 1n });
+      const l1 = createPublicClient({ chain: devnetChains().l1, transport: http() });
+      const [onChainDomain, separator, nonce] = await Promise.all([
+        l1.readContract({ address: PolToken, abi: PolTokenABI, functionName: 'eip712Domain' }),
+        l1.readContract({ address: PolToken, abi: PolTokenABI, functionName: 'DOMAIN_SEPARATOR' }),
+        l1.readContract({
+          address: PolToken,
+          abi: PolTokenABI,
+          functionName: 'nonces',
+          args: [row.address]
+        })
+      ]);
+      expect(typed.domain.name).equals(onChainDomain[1]);
+      expect(typed.domain.version).equals(onChainDomain[2]);
+      expect(typed.domain.chainId).equals(getTestEnv().E2E_L1_CHAIN_ID);
+      expect(getAddress(typed.domain.verifyingContract)).equals(getAddress(PolToken));
+      expect(domainSeparator({ domain: typed.domain })).equals(separator);
+      expect(typed.primaryType).equals('Permit');
+      expect(getAddress(typed.message.owner)).equals(getAddress(row.address));
+      expect(getAddress(typed.message.spender)).equals(getAddress(StakeManager));
+      expect(typed.message.value).equals(1n);
+      expect(typed.message.nonce).equals(nonce);
+      log(
+        `${row.name} pol.preparePermit domain: ${JSON.stringify({
+          name: typed.domain.name,
+          version: typed.domain.version
+        })}`
+      );
     });
   });
 });
