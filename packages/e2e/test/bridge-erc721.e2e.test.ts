@@ -10,9 +10,10 @@
  * index 0, `getWithdrawExitStatusOnIndices` must report exited `[true, false]`.
  * Ownership is checked on both chains with plain reads at every step.
  */
-import type { Address, PublicClient } from 'viem';
+import type { Address, Hex, PublicClient } from 'viem';
 
-import { createWalletClient, http } from 'viem';
+import { createWalletClient, http, parseAbi, parseEventLogs } from 'viem';
+import { privateKeyToAccount } from 'viem/accounts';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import type { Suite } from '../src/keys.ts';
@@ -39,6 +40,7 @@ import {
   setStateSyncGasLimit,
   stateCommittedSuccess,
   stateSyncIdsOf,
+  stateSyncOf,
   UBURU_STATE_SYNC_GAS_LIMIT
 } from './state-sync-gas.ts';
 
@@ -46,6 +48,13 @@ const SUITE: Suite = 'bridge-erc721';
 const TOKENS_PER_CYCLE = 3;
 
 const rows = buildAdapters({ suite: SUITE });
+
+/** bor's L2 StateReceiver system contract. */
+const STATE_RECEIVER = '0x0000000000000000000000000000000000001001';
+const replayAbi = parseAbi([
+  'function replayFailedStateSyncWithData(uint256 stateId, address receiver, bytes data)',
+  'event StateSyncReplay(uint256 indexed stateId)'
+]);
 
 const log = (line: string) => process.stderr.write(`[bridge-erc721] ${line}\n`);
 
@@ -121,6 +130,18 @@ describe(
   'ERC-721 deposit under the Uburu state-sync gas limit',
   { timeout: CYCLE_TIMEOUT_MS },
   () => {
+    // Set by the probe row, read by the replay row that follows it.
+    let failed:
+      | {
+          depositHash: Hex;
+          tokenId: bigint;
+          depositor: Address;
+          stateId: bigint;
+          receiver: Hex;
+          data: Hex;
+        }
+      | undefined;
+
     it('is committed FAILED on L2 at 160,000 gas, and the child token never appears', async () => {
       const row = rows[0] ?? expect.fail('no adapter rows');
       const { tokens, addresses } = getTestEnv().E2E_ADDRESSES_JSON;
@@ -160,6 +181,86 @@ describe(
       expect(success).equals(false);
       expect(await ownerOf({ client: readers().l2, token: tokens.child.erc721, tokenId })).equals(
         undefined
+      );
+
+      // Independent of the SDK: the event is decoded here with the e2e's own ABI.
+      const sync = await stateSyncOf(deposit.transactionHash);
+      expect(sync.stateId).equals(stateId);
+      expect(await pos.getDepositStatus(deposit.transactionHash)).deep.equals({
+        deposited: false,
+        reason: 'delivery-failed',
+        stateId: sync.stateId,
+        receiver: sync.receiver,
+        // Uburu is live from block 128 on the devnet, so its failed records are hashes.
+        record: 'hash',
+        replayable: true
+      });
+      // E2E_ADDRESSES_JSON carries no ChildChainManager address (see
+      // DevnetContractsSchema), so `receiver` has no devnet value to be compared with.
+      failed = {
+        depositHash: deposit.transactionHash,
+        tokenId,
+        depositor: row.address,
+        ...sync
+      };
+    });
+
+    // Replay is permissionless: anyone can resubmit a failed record to the L2
+    // StateReceiver, so this is how a user whose deposit hit the gas limit
+    // recovers it. The oracle is raised first because the replay runs the same
+    // ~213,000-gas mint that overran 160,000. This is test-only use of an
+    // entry point whose source is unpublished; it is not an SDK feature.
+    it('flips to deposited once the failed record is replayed', async () => {
+      if (failed === undefined) {
+        expect.fail('the probe row did not record a failed deposit, so there is nothing to replay');
+      }
+      const { depositHash, tokenId, depositor, stateId, receiver, data } = failed;
+      const row = rows[0] ?? expect.fail('no adapter rows');
+      const { tokens, admin } = getTestEnv().E2E_ADDRESSES_JSON;
+      const pos = await initPos(row);
+      const before = await pos.getDepositStatus(depositHash);
+      const restoreTo = await readStateSyncGasLimit();
+      let replayHash: Hex;
+      try {
+        await setStateSyncGasLimit(RAISED_STATE_SYNC_GAS_LIMIT);
+        const wallet = createWalletClient({
+          account: privateKeyToAccount(admin.privateKey),
+          chain: devnetChains().l2,
+          transport: http(),
+          pollingInterval: VIEM_POLLING_INTERVAL_MS
+        });
+        replayHash = await wallet.writeContract({
+          address: STATE_RECEIVER,
+          abi: replayAbi,
+          functionName: 'replayFailedStateSyncWithData',
+          args: [stateId, receiver, data]
+        });
+        const receipt = await readers().l2.waitForTransactionReceipt({ hash: replayHash });
+        expect(receipt, `replay ${replayHash}`).property('status').equals('success');
+        const replays = parseEventLogs({
+          abi: replayAbi,
+          eventName: 'StateSyncReplay',
+          logs: receipt.logs
+        });
+        expect(replays.map((event) => event.args.stateId)).deep.equals([stateId]);
+      } finally {
+        await setStateSyncGasLimit(restoreTo);
+      }
+      const after = await pos.getDepositStatus(depositHash);
+      log(
+        `replay: ${JSON.stringify(
+          {
+            stateId: stateId.toString(),
+            replayTx: replayHash,
+            before,
+            after
+          },
+          (_key, value: unknown) => (typeof value === 'bigint' ? value.toString() : value)
+        )}`
+      );
+      expect(after).deep.equals({ deposited: true });
+      expect(await ownerOf({ client: readers().l2, token: tokens.child.erc721, tokenId })).equals(
+        depositor
       );
     });
   }

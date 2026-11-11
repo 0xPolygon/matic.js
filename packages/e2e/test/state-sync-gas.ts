@@ -74,6 +74,28 @@ export async function stateSyncIdsOf(hash: Hex): Promise<bigint[]> {
   );
 }
 
+/**
+ * The deposit's first L1 `StateSynced` event, decoded with the e2e's own viem
+ * ABI so it checks the SDK's answer independently. `receiver` is lowercase,
+ * the case the SDK reports.
+ */
+export async function stateSyncOf(
+  hash: Hex
+): Promise<{ stateId: bigint; receiver: Hex; data: Hex }> {
+  const receipt = await readers().l1.getTransactionReceipt({ hash });
+  const [event] = parseEventLogs({
+    abi: stateSyncedAbi,
+    eventName: 'StateSynced',
+    logs: receipt.logs
+  });
+  if (event === undefined) expect.fail(`no StateSynced event in ${hash}`);
+  return {
+    stateId: event.args.id,
+    receiver: event.args.contractAddress.toLowerCase() as Hex,
+    data: event.args.data
+  };
+}
+
 /** Wait for L2 to commit a state-sync record, and return whether it succeeded. */
 export async function stateCommittedSuccess({
   stateId,
