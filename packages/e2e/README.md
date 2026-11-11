@@ -81,6 +81,8 @@ From the Uburu hard fork (bor v2.11.0, enabled at block 128 by kurtosis-pos v1.4
 
 `bridge-erc721.e2e.test.ts` records both sides of this. Its first row deposits one token under the limit the devnet boots with and asserts that L2 commits the record as failed and that the child token never appears. The deposit-and-exit cycle after it raises the limit to 500,000 as the devnet admin, who owns the oracle, and restores it when the cycle ends, pass or fail; kurtosis-pos's own e2e does the same (pos-e2e #132). Every other file runs under the limit the devnet boots with.
 
+The first row also asserts that the SDK's `getDepositStatus` answers `delivery-failed`, with the state id and receiver the e2e decodes itself from the L1 `StateSynced` log. A second row then replays the failed record on L2 as the devnet admin and asserts the status flips to deposited and the token appears.
+
 ## Running in CI
 
 CI cold-starts the devnet from kurtosis-pos source with the same `kurtosis-params.yml` as a local run (`.github/scripts/e2e-setup.sh`). It checks kurtosis-pos out at a pinned commit and installs a pinned kurtosis CLI `.deb`, verified by its sha256. It then runs `pnpm run e2e -- --down`, so the devnet it booted is removed when the suite passes.
