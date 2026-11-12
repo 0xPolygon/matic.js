@@ -16,7 +16,7 @@ import { createAddressFetcher, trustedPredicates } from '../../src/services/addr
  * failed on both networks. The parser must read the legacy NESTED
  * maticjs layout, selecting the exact Proxy entries the 0.x SDK read.
  *
- * The companion live test (`tests/integration/live-cdn.test.ts`)
+ * The companion live test (`tests/live/live-cdn.live.test.ts`)
  * asserts the real CDN still serves this shape.
  */
 

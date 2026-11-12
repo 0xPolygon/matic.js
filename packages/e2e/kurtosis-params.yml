@@ -1,0 +1,18 @@
+dev:
+  l1_backend: anvil
+# Two validators, so the staking tests can register a node-less validator of
+# their own and unstake it without stopping the devnet. On one validator a
+# node-less registration halts block production (see STAKING-COVERAGE.md).
+# Validator 1 stays an archive node, as in kurtosis-pos's default
+# single-validator config, so the harness reads L2 from the same kind of node.
+polygon_pos_package:
+  participants:
+    - kind: validator
+      el_type: bor
+      cl_type: heimdall-v2
+      el_bor_archive_mode: true
+      count: 1
+    - kind: validator
+      el_type: bor
+      cl_type: heimdall-v2
+      count: 1

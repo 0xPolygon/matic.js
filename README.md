@@ -119,6 +119,10 @@ pnpm --filter @polygonlabs/maticjs run build
 pnpm --filter @polygonlabs/maticjs run test
 ```
 
+The end-to-end tier runs the SDK's bridge and staking writes against a local
+Polygon PoS devnet. It is opt-in and not part of `pnpm test`: boot the devnet,
+then run `pnpm run e2e`. See [`packages/e2e/README.md`](packages/e2e/README.md).
+
 Releases are managed via [changesets](https://github.com/changesets/changesets).
 The release workflow publishes automatically on merge to `master`.
 
