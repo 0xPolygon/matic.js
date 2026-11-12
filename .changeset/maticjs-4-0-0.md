@@ -90,6 +90,10 @@ Renames from the 3.x plugin:
 - `getPermitData` → `preparePermit` + `splitSignature`
 - `client.getConfig(...)` → `getAddresses()`
 
+Behaviour change since the pre-releases:
+
+- `stakeManager.unstake` now adds a fixed 250,000 gas on top of its usual estimate-plus-15% gas limit. If a checkpoint advances the epoch between estimation and inclusion, the call writes storage the estimate never saw, and the 15% margin did not cover that: an unstake could run out of gas. The extra gas is refunded when unused, but the sending wallet must hold native balance for the full limit × fee. A `gasLimit` you pass is used exactly as given, and no other write changes.
+
 Two 3.x names now mean something different, so check every call site:
 
 - `stakeFor(...)` (MATIC) → `stakeForMatic({ ... })`. In 4.0, `stakeFor` stakes POL. A 3.x positional call no longer compiles, so this one is caught at build time.

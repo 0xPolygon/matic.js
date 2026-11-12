@@ -1276,6 +1276,8 @@ Writes (each also has a `prepareXxx` sibling returning `{ to, data, value? }`):
 | `polToken.approveMaxForStakingManager()`                        | `staking.pol.approveMaxForStakeManager()`                                                                                                                    |
 | _(new)_                                                         | `staking.pol.approveStakeManager({ amount })` — approve an exact amount instead of the maximum                                                               |
 
+The gas limit of `stakeManager.unstake` carries extra headroom for the epoch race (a checkpoint landing between estimation and inclusion makes the call write storage the estimate did not see); unused gas is refunded, but the wallet must hold native balance for the full limit × fee when sending. Pass `gasLimit` to set it yourself; it is then used exactly as given.
+
 Legacy MATIC variants that stay, with a `Matic` suffix so the POL name is
 the unsuffixed default:
 

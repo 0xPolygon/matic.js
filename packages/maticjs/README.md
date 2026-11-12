@@ -292,6 +292,8 @@ To pin addresses instead of fetching the address index, pass
 `addresses: { StakeManager, MaticToken, PolToken }` to `StakingClient.init`.
 Staking needs only those three, not the bridge addresses `POSClient` requires.
 
+The gas limit of `stakeManager.unstake` carries extra headroom for the epoch race (a checkpoint landing between estimation and inclusion makes the call write storage the estimate did not see); unused gas is refunded, but the wallet must hold native balance for the full limit × fee when sending. Pass `gasLimit` to set it yourself; it is then used exactly as given.
+
 Coming from `@maticnetwork/maticjs-staking`? See the
 [migration guide](./MIGRATION.md#staking-migrating-from-maticnetworkmaticjs-staking)
 for the method mapping and the permit flow.

@@ -67,6 +67,21 @@ export interface ContractCallerOptions {
   blockTag?: BlockTag;
 }
 
+/**
+ * Per-call settings only SDK code passes to {@link ContractCaller.write}.
+ * They are a separate argument, not fields of `ContractCallerOptions`,
+ * because that type is the public `TxOptions`: a field there would let any
+ * consumer set it on any write.
+ */
+export interface InternalWriteSettings {
+  /**
+   * Fixed gas added on top of the multiplied estimate, for a call whose
+   * estimate is known to undershoot. Ignored when `gasLimit` is supplied,
+   * which always wins untouched.
+   */
+  gasHeadroom?: bigint;
+}
+
 export interface ContractCallerConfig {
   adapter: Adapter;
   /**
@@ -212,7 +227,8 @@ export class ContractCaller {
   async write(
     method: string,
     args: readonly unknown[] = [],
-    options: ContractCallerOptions = {}
+    options: ContractCallerOptions = {},
+    internal: InternalWriteSettings = {}
   ): Promise<TxResult> {
     assertOptionsObject({ method: 'write', options });
     const address = await this.getAddress();
@@ -229,7 +245,9 @@ export class ContractCaller {
       );
     }
 
-    const gasLimit = options.gasLimit ?? (await this.estimateGas(method, args, options));
+    const gasLimit =
+      options.gasLimit ??
+      (await this.estimateGas(method, args, options)) + (internal.gasHeadroom ?? 0n);
 
     const req: WriteRequest = {
       address,

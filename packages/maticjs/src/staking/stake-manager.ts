@@ -48,6 +48,20 @@ export function pinChainId(options: TxOptions | undefined, l1ChainId: number): T
 }
 
 /**
+ * Fixed gas added to `unstake`'s multiplied estimate. `_unstake` writes
+ * `validatorStateChanges[currentEpoch + 1]`, two storage slots. If a
+ * checkpoint advances the epoch between `eth_estimateGas` and inclusion,
+ * and another validator already unstaked in the earlier epoch, execution
+ * writes two fresh slots the estimate never saw, and the 1.15 multiplier
+ * cannot cover that. Under Amsterdam pricing each fresh slot costs
+ * 97,920 more than the already-warm write the estimate priced, so the
+ * race costs 2 × 97,920 = 195,840; the 1.25 safety factor on that, rounded,
+ * gives 250,000. Before Amsterdam the delta is only 34,200, so this
+ * over-provisions there; unused gas is refunded.
+ */
+export const UNSTAKE_GAS_HEADROOM = 250_000n;
+
+/**
  * Coerce one decoded integer to `bigint`. viem and ethers v6 return
  * `bigint`; ethers v5 returns a `BigNumber`, whose string form is a
  * decimal quantity.
@@ -194,9 +208,10 @@ export class StakeManager {
   private async write(
     method: string,
     args: readonly unknown[],
-    options?: TxOptions
+    options?: TxOptions,
+    gasHeadroom?: bigint
   ): Promise<TxResult> {
-    return this.caller.write(method, args, pinChainId(options, this.l1ChainId));
+    return this.caller.write(method, args, pinChainId(options, this.l1ChainId), { gasHeadroom });
   }
 
   private async prepare(
@@ -321,12 +336,19 @@ export class StakeManager {
     });
   }
 
-  /** Calls `unstakePOL(validatorId)`. */
+  /**
+   * Calls `unstakePOL(validatorId)`. The gas limit carries extra headroom
+   * for the epoch race (a checkpoint landing between estimation and
+   * inclusion makes the call write storage the estimate did not see);
+   * unused gas is refunded, but the wallet must hold native balance for
+   * the full limit × fee when sending. An explicit `gasLimit` is used
+   * as given.
+   */
   async unstake(params: ValidatorIdParams, options?: TxOptions): Promise<TxResult> {
     return withOperation({
       error: StakingWriteError,
       info: { operation: 'unstake', mode: 'write', method: 'unstakePOL' },
-      run: () => this.write('unstakePOL', [params.validatorId], options)
+      run: () => this.write('unstakePOL', [params.validatorId], options, UNSTAKE_GAS_HEADROOM)
     });
   }
 
