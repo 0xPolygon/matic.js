@@ -81,7 +81,7 @@ From the Uburu hard fork (bor v2.11.0, enabled at block 128 by kurtosis-pos v1.4
 
 `bridge-erc721.e2e.test.ts` records both sides of this. Its first row deposits one token under the limit the devnet boots with and asserts that L2 commits the record as failed and that the child token never appears. The deposit-and-exit cycle after it raises the limit to 500,000 as the devnet admin, who owns the oracle, and restores it when the cycle ends, pass or fail; kurtosis-pos's own e2e does the same (pos-e2e #132). Every other file runs under the limit the devnet boots with.
 
-The first row also asserts that the SDK's `getDepositStatus` answers `delivery-failed`, with the state id and receiver the e2e decodes itself from the L1 `StateSynced` log. A second row then replays the failed record on L2 as the devnet admin and asserts the status flips to deposited and the token appears.
+The first row also asserts that the SDK's `getDepositStatus` answers `delivery-failed`, with the state id and receiver the e2e decodes itself from the L1 `StateSynced` log. The next rows go through the SDK's `prepareReplayDeposit` and `replayDeposit`: the replay is sent from the depositor's own wallet at the limit the devnet boots with, with no admin key and no oracle raise, and the rows assert the status flips to deposited and the token appears on L2. A last row replays the now-delivered deposit again and asserts the SDK rejects it with `DepositNotReplayableError` without sending a transaction.
 
 ## Running in CI
 

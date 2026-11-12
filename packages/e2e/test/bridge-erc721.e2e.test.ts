@@ -12,9 +12,10 @@
  */
 import type { Address, Hex, PublicClient } from 'viem';
 
-import { createWalletClient, http, parseAbi, parseEventLogs } from 'viem';
-import { privateKeyToAccount } from 'viem/accounts';
+import { createWalletClient, encodeFunctionData, http, parseAbi, parseEventLogs } from 'viem';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+
+import { DepositNotReplayableError } from '@polygonlabs/maticjs';
 
 import type { Suite } from '../src/keys.ts';
 
@@ -57,6 +58,16 @@ const replayAbi = parseAbi([
 ]);
 
 const log = (line: string) => process.stderr.write(`[bridge-erc721] ${line}\n`);
+
+/** The error `run` rejects with; fails the row when it resolves instead. */
+async function rejection(run: () => Promise<unknown>): Promise<unknown> {
+  try {
+    await run();
+  } catch (err) {
+    return err;
+  }
+  return expect.fail('expected the call to reject');
+}
 
 async function ownerOf({
   client,
@@ -130,7 +141,7 @@ describe(
   'ERC-721 deposit under the Uburu state-sync gas limit',
   { timeout: CYCLE_TIMEOUT_MS },
   () => {
-    // Set by the probe row, read by the replay row that follows it.
+    // Set by the probe row, read by the replay rows that follow it.
     let failed:
       | {
           depositHash: Hex;
@@ -141,6 +152,10 @@ describe(
           data: Hex;
         }
       | undefined;
+    // Set by the replay row; the negative row needs a delivered deposit.
+    let replayed = false;
+    const NOTHING_TO_REPLAY =
+      'the probe row did not record a failed deposit, so there is nothing to replay';
 
     it('is committed FAILED on L2 at 160,000 gas, and the child token never appears', async () => {
       const row = rows[0] ?? expect.fail('no adapter rows');
@@ -205,63 +220,100 @@ describe(
       };
     });
 
-    // Replay is permissionless: anyone can resubmit a failed record to the L2
-    // StateReceiver, so this is how a user whose deposit hit the gas limit
-    // recovers it. The oracle is raised first because the replay runs the same
-    // ~213,000-gas mint that overran 160,000. This is test-only use of an
-    // entry point whose source is unpublished; it is not an SDK feature.
-    it('flips to deposited once the failed record is replayed', async () => {
-      if (failed === undefined) {
-        expect.fail('the probe row did not record a failed deposit, so there is nothing to replay');
-      }
-      const { depositHash, tokenId, depositor, stateId, receiver, data } = failed;
+    // The SDK's replayDeposit is what a user recovers with, so these rows drive
+    // it from the depositor's own wallet at the limit the devnet boots with: no
+    // admin key, and no oracle raise. The replay runs the same ~213,000-gas
+    // mint that overran 160,000 as a state sync, but as an ordinary transaction
+    // it spends the sender's gas, not the per-record cap.
+    it('prepareReplayDeposit builds the StateReceiver replay call for the failed record', async () => {
+      const { depositHash, stateId, receiver, data } = failed ?? expect.fail(NOTHING_TO_REPLAY);
       const row = rows[0] ?? expect.fail('no adapter rows');
-      const { tokens, admin } = getTestEnv().E2E_ADDRESSES_JSON;
       const pos = await initPos(row);
-      const before = await pos.getDepositStatus(depositHash);
-      const restoreTo = await readStateSyncGasLimit();
-      let replayHash: Hex;
-      try {
-        await setStateSyncGasLimit(RAISED_STATE_SYNC_GAS_LIMIT);
-        const wallet = createWalletClient({
-          account: privateKeyToAccount(admin.privateKey),
-          chain: devnetChains().l2,
-          transport: http(),
-          pollingInterval: VIEM_POLLING_INTERVAL_MS
-        });
-        replayHash = await wallet.writeContract({
-          address: STATE_RECEIVER,
+      const prepared = await pos.prepareReplayDeposit(depositHash);
+      expect(prepared.data.startsWith('0x94453fd3')).equals(true);
+      // The expected calldata is encoded from the event the e2e decoded itself,
+      // so a wrong decode inside the SDK cannot make both sides agree.
+      expect(prepared).deep.equals({
+        to: STATE_RECEIVER,
+        data: encodeFunctionData({
           abi: replayAbi,
           functionName: 'replayFailedStateSyncWithData',
           args: [stateId, receiver, data]
-        });
-        const receipt = await readers().l2.waitForTransactionReceipt({ hash: replayHash });
-        expect(receipt, `replay ${replayHash}`).property('status').equals('success');
-        const replays = parseEventLogs({
-          abi: replayAbi,
-          eventName: 'StateSyncReplay',
-          logs: receipt.logs
-        });
-        expect(replays.map((event) => event.args.stateId)).deep.equals([stateId]);
-      } finally {
-        await setStateSyncGasLimit(restoreTo);
-      }
+        })
+      });
+    });
+
+    it('replayDeposit recovers the deposit from the depositor wallet at the shipped limit', async () => {
+      const { depositHash, tokenId, depositor, stateId } = failed ?? expect.fail(NOTHING_TO_REPLAY);
+      const row = rows[0] ?? expect.fail('no adapter rows');
+      const { tokens } = getTestEnv().E2E_ADDRESSES_JSON;
+      expect(row.address).equals(depositor);
+      const pos = await initPos(row);
+      const before = await pos.getDepositStatus(depositHash);
+      const limitBefore = await readStateSyncGasLimit();
+      const tx = await pos.replayDeposit(depositHash);
+      await confirmSuccess(tx);
+      // The SDK's receipt type carries no gasUsed or logs, so read the chain's.
+      const receipt = await readers().l2.getTransactionReceipt({ hash: tx.hash });
+      const limitAfter = await readStateSyncGasLimit();
+      const replays = parseEventLogs({
+        abi: replayAbi,
+        eventName: 'StateSyncReplay',
+        logs: receipt.logs
+      });
+      expect(replays.map((event) => event.args.stateId)).deep.equals([stateId]);
       const after = await pos.getDepositStatus(depositHash);
       log(
         `replay: ${JSON.stringify(
           {
             stateId: stateId.toString(),
-            replayTx: replayHash,
+            replayTx: tx.hash,
+            gasUsed: receipt.gasUsed.toString(),
+            oracleLimitBefore: limitBefore.toString(),
+            oracleLimitAfter: limitAfter.toString(),
             before,
             after
           },
           (_key, value: unknown) => (typeof value === 'bigint' ? value.toString() : value)
         )}`
       );
+      expect(limitBefore).equals(UBURU_STATE_SYNC_GAS_LIMIT);
+      expect(limitAfter).equals(UBURU_STATE_SYNC_GAS_LIMIT);
       expect(after).deep.equals({ deposited: true });
       expect(await ownerOf({ client: readers().l2, token: tokens.child.erc721, tokenId })).equals(
         depositor
       );
+      replayed = true;
+    });
+
+    it('refuses to replay a deposit that is already delivered, and sends nothing', async () => {
+      const { depositHash } = failed ?? expect.fail(NOTHING_TO_REPLAY);
+      if (!replayed)
+        expect.fail('the replay row did not deliver the deposit, so it is not delivered');
+      const row = rows[0] ?? expect.fail('no adapter rows');
+      const pos = await initPos(row);
+      const nonce = () =>
+        readers().l2.getTransactionCount({ address: row.address, blockTag: 'pending' });
+      const nonceBefore = await nonce();
+
+      const replayErr = await rejection(() => pos.replayDeposit(depositHash));
+      expect(DepositNotReplayableError.has(replayErr)).equals(true);
+      expect(DepositNotReplayableError.find(replayErr))
+        .property('info')
+        .deep.equals({
+          transactionHash: depositHash,
+          status: { deposited: true }
+        });
+      expect(await nonce()).equals(nonceBefore);
+
+      const prepareErr = await rejection(() => pos.prepareReplayDeposit(depositHash));
+      expect(DepositNotReplayableError.has(prepareErr)).equals(true);
+      expect(DepositNotReplayableError.find(prepareErr))
+        .property('info')
+        .property('status')
+        .deep.equals({
+          deposited: true
+        });
     });
   }
 );
