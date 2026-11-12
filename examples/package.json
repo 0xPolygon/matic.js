@@ -1,18 +1,12 @@
 {
-  "name": "examples",
-  "version": "1.0.0",
-  "description": "## How to use",
-  "main": "config.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "link:lib": "npm link @maticnetwork/maticjs"
-  },
-  "author": "",
-  "license": "ISC",
+  "name": "maticjs-examples",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Runnable consumer-shaped examples for @polygonlabs/maticjs. Deliberately OUTSIDE the pnpm workspace so imports resolve exactly as they would for an npm consumer; the SDK is wired via link: so `pnpm install` here always points at the local build.",
   "dependencies": {
-    "@maticnetwork/maticjs": "^3.9.2",
-    "@maticnetwork/maticjs-web3": "^1.0.4",
-    "@truffle/hdwallet-provider": "^1.5.1-alpha.1",
-    "dotenv": "^10.0.0"
+    "@polygonlabs/maticjs": "link:../packages/maticjs",
+    "ethers": "^6.13.0",
+    "viem": "^2.21.0"
   }
 }

@@ -14,5 +14,11 @@ permissions:
 jobs:
   claude-review:
     uses: 0xPolygon/pipelines/.github/workflows/apps-claude-code-review.yml@main
+    # approve: the review is submitted as an APPROVED or CHANGES_REQUESTED
+    # review state that counts toward branch protection, not an advisory
+    # comment. It posts as claude[bot], which is fine here because no PR in
+    # this repo is authored by that app.
+    with:
+      mode: approve
     secrets:
       CLAUDE_API_KEY: ${{ secrets.CLAUDE_API_KEY }}
