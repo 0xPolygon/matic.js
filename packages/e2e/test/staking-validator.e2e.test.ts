@@ -97,18 +97,28 @@ const RUN_ID = Date.now().toString();
 const log = (line: string) => process.stderr.write(`[staking-validator] ${line}\n`);
 
 /**
- * `unstake` sends with this margin over a fresh estimate, instead of the
- * SDK's default 15%. It adds the validator's stake to
- * `validatorStateChanges[currentEpoch + 1]`. After an earlier unstake in the
- * same epoch those two slots are already nonzero, and the estimate prices
- * cheap updates. If a checkpoint advances the epoch before the transaction is
- * mined, it writes the next epoch's slots from zero instead: about 34,000
- * more gas at pre-Amsterdam storage prices, and 195,840 more measured on
- * this devnet, whose L1 runs Amsterdam. In CI that outgrew 15%: a MATIC `unstake` used 346,351 of its
- * 353,299 gas and reverted, right behind a checkpoint in the same block. The
- * unstake test reproduces the race on purpose.
+ * The SDK's fixed `unstake` gas headroom (`UNSTAKE_GAS_HEADROOM` in
+ * `packages/maticjs/src/staking/stake-manager.ts`, deliberately not a public
+ * export). It covers the epoch race: `unstake` adds the validator's stake to
+ * `validatorStateChanges[currentEpoch + 1]`, and if a checkpoint advances the
+ * epoch between the estimate and inclusion, two fresh storage slots are
+ * written from zero (195,840 more gas measured here, on an Amsterdam L1). The
+ * gate sends with the SDK's default options and asserts that headroom is on
+ * the transaction, so a regression in the SDK's margin fails here.
  */
-const UNSTAKE_GAS_MARGIN = { numerator: 3n, denominator: 2n };
+const SDK_UNSTAKE_GAS_HEADROOM = 250_000n;
+
+/** The SDK's default gas multiplier, `1.15`, truncated the way `ContractCaller` does. */
+const sdkGasLimit = ({ estimate, headroom }: { estimate: bigint; headroom: bigint }): bigint =>
+  BigInt(Math.trunc(Number(estimate) * 1.15)) + headroom;
+
+/**
+ * Slack for the SDK's own estimate differing from this test's, which is taken
+ * a few hundred milliseconds earlier. 5,000 gas is under 2% of a ~300,000-gas
+ * unstake: enough for a warm/cold access shift, far below the 250,000
+ * headroom a regression would drop.
+ */
+const ESTIMATE_DRIFT_TOLERANCE = 5_000n;
 
 const GATED_REASON =
   'updateSigner reverts "Not allowed" until signerUpdateLimit (100 epochs, about 40 min on the ' +
@@ -266,23 +276,30 @@ async function land(
  * evidence: the estimate taken just before sending, the gas limit the
  * transaction carried, the gas it used, and its block and position. A
  * revert from gas is otherwise indistinguishable from a logic revert once
- * the devnet is gone. With `withUnstakeMargin`, sends with
- * {@link UNSTAKE_GAS_MARGIN} over the estimate.
+ * the devnet is gone. Sends with the SDK's default options, so the gas limit
+ * on chain is the SDK's own. `naturalRace` is evidence only: whether the
+ * epoch changed between this estimate and the inclusion block.
  */
 async function landStakingWrite({
   label,
   from,
   prepare,
-  send,
-  withUnstakeMargin = false
+  send
 }: {
   label: string;
   from: Hex;
   prepare: (options: TxOptions) => Promise<PreparedTx>;
   send: (options: TxOptions) => Promise<TxResult>;
-  withUnstakeMargin?: boolean;
-}): Promise<{ hash: Hex; blockNumber: bigint; gasUsed: bigint }> {
+}): Promise<{ hash: Hex; blockNumber: bigint; gasUsed: bigint; estimate: bigint; gasLimit: bigint }> {
   const { l1 } = readers();
+  const stakeManager = getTestEnv().E2E_ADDRESSES_JSON.addresses.StakeManager;
+  const estimateBlock = await l1.getBlockNumber();
+  const epochAtEstimate = await l1.readContract({
+    address: stakeManager,
+    abi: stakeManagerAbi,
+    functionName: 'currentEpoch',
+    blockNumber: estimateBlock
+  });
   const prepared = await prepare(stakingTxOptions());
   const estimate = await l1.estimateGas({
     account: from,
@@ -290,15 +307,17 @@ async function landStakingWrite({
     data: prepared.data,
     value: prepared.value
   });
-  const { numerator, denominator } = UNSTAKE_GAS_MARGIN;
-  const options: TxOptions = withUnstakeMargin
-    ? { ...stakingTxOptions(), gasLimit: (estimate * numerator) / denominator }
-    : stakingTxOptions();
-  const tx = await send(options);
+  const tx = await send(stakingTxOptions());
   const [sent, mined] = await Promise.all([
     l1.getTransaction({ hash: tx.hash }),
     l1.waitForTransactionReceipt({ hash: tx.hash, timeout: 120_000 })
   ]);
+  const epochAtInclusion = await l1.readContract({
+    address: stakeManager,
+    abi: stakeManagerAbi,
+    functionName: 'currentEpoch',
+    blockNumber: mined.blockNumber
+  });
   log(
     `${label} gas: ${JSON.stringify({
       estimate: estimate.toString(),
@@ -306,13 +325,20 @@ async function landStakingWrite({
       gasUsed: mined.gasUsed.toString(),
       status: mined.status,
       blockNumber: mined.blockNumber.toString(),
-      txIndex: mined.transactionIndex
+      txIndex: mined.transactionIndex,
+      naturalRace: epochAtInclusion !== epochAtEstimate
     })}`
   );
   const receipt = await tx.confirmed();
   expect(receipt, `${label} (${tx.hash})`).property('status').equals('success');
   log(`${label}: ${tx.hash}`);
-  return { hash: tx.hash, blockNumber: receipt.blockNumber, gasUsed: mined.gasUsed };
+  return {
+    hash: tx.hash,
+    blockNumber: receipt.blockNumber,
+    gasUsed: mined.gasUsed,
+    estimate,
+    gasLimit: sent.gas
+  };
 }
 
 async function stakingClientFor(row: AdapterRow): Promise<StakingClientType> {
@@ -809,7 +835,7 @@ describe.skipIf(!validatorOwner)(
       for (const [index, validator] of validators.entries()) {
         const validatorId = nodelessIdOf(validator);
         const staking = await stakingClientFor(validator.row);
-        // The last row reproduces the race behind UNSTAKE_GAS_MARGIN: price its
+        // The last row reproduces the race the SDK's unstake headroom covers: price its
         // unstake in the state right after the previous row's, then wait for a
         // checkpoint to move the epoch on before sending it.
         let racedEstimate: bigint | undefined;
@@ -831,13 +857,20 @@ describe.skipIf(!validatorOwner)(
             label: `${validator.label} unstake race`
           });
         }
-        const { hash, blockNumber, gasUsed } = await landStakingWrite({
+        const { hash, blockNumber, gasUsed, estimate, gasLimit } = await landStakingWrite({
           label: `${validator.label} stakeManager.unstake`,
           from: validator.owner,
           prepare: (options) => staking.stakeManager.prepareUnstake({ validatorId }, options),
-          send: (options) => staking.stakeManager.unstake({ validatorId }, options),
-          withUnstakeMargin: true
+          send: (options) => staking.stakeManager.unstake({ validatorId }, options)
         });
+        // The SDK, not the test, supplied this limit.
+        const expectedMinLimit =
+          sdkGasLimit({ estimate, headroom: SDK_UNSTAKE_GAS_HEADROOM }) - ESTIMATE_DRIFT_TOLERANCE;
+        expect(
+          gasLimit >= expectedMinLimit,
+          `${validator.label}: unstake gas limit ${gasLimit.toString()} is below the SDK's ` +
+            `estimate x 1.15 + ${SDK_UNSTAKE_GAS_HEADROOM.toString()} (minus tolerance): ${expectedMinLimit.toString()}`
+        ).equals(true);
         const epoch = await readers().l1.readContract({
           address: getTestEnv().E2E_ADDRESSES_JSON.addresses.StakeManager,
           abi: stakeManagerAbi,
@@ -856,14 +889,25 @@ describe.skipIf(!validatorOwner)(
         expect((await validatorAt({ validatorId, blockNumber }))[3]).equals(epoch + 1n);
 
         if (racedEstimate !== undefined && previous) {
+          const sdkLimitFromStaleEstimate = sdkGasLimit({
+            estimate: racedEstimate,
+            headroom: SDK_UNSTAKE_GAS_HEADROOM
+          });
           log(
             `${validator.label} unstake race: ${JSON.stringify({
               estimateEpoch: previous.epoch.toString(),
               sentEpoch: epoch.toString(),
-              estimate: racedEstimate.toString(),
+              racedEstimate: racedEstimate.toString(),
+              sdkLimitFromStaleEstimate: sdkLimitFromStaleEstimate.toString(),
               gasUsed: gasUsed.toString()
             })}`
           );
+          // Deterministic proof the SDK's margin covers the race.
+          expect(
+            sdkLimitFromStaleEstimate >= gasUsed,
+            `${validator.label}: the SDK limit from the stale estimate ` +
+              `(${sdkLimitFromStaleEstimate.toString()}) is below the raced gas used (${gasUsed.toString()})`
+          ).equals(true);
           if (gasUsed <= racedEstimate) {
             expect.fail(
               `${validator.label}: unstake after the epoch moved used ${gasUsed.toString()} gas, ` +
