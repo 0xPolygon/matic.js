@@ -93,8 +93,12 @@ switch to a paid provider.
 `getDepositStatus` against real mainnet state syncs: fx-tunnel messages
 (which it reads like any deposit) and PoS deposits, some delivered after a
 replay and some whose delivery failed, before or since the Uburu fork (state
-ids 3212421 and 3192364 are the unreplayed ones). It signs nothing and needs no
-key, only two RPC URLs, and is skipped unless both are set:
+ids 3212421 and 3192364 are the unreplayed ones). It also simulates
+`prepareReplayDeposit`'s calldata for those two with `eth_call` and asserts
+the StateReceiver accepts the record (the revert, when there is one, is the
+receiving contract's, not the SDK's). The `'payload'` replay cannot run on the
+devnet, so the unit stub and this simulation are its only coverage. It signs
+nothing and needs no key, only two RPC URLs, and is skipped unless both are set:
 
 - `POS_SDK_TEST_MAINNET_PARENT_RPC` — Ethereum mainnet.
 - `POS_SDK_TEST_MAINNET_CHILD_RPC` — Polygon PoS mainnet.

@@ -94,12 +94,17 @@ Do not add a boolean predicate beside a status read. Two calls can disagree
   and ethers, viem, wallet and RPC failures, rethrown unchanged under "Error
   ownership". The answer is never an error.
 - Methods that REQUIRE the condition (`completeWithdraw`, `buildExitPayload`,
-  `exit`) keep rejecting with the condition error when it is unmet.
+  `exit`, `replayDeposit`) keep rejecting with the condition error when it is
+  unmet.
 
 Example: `pos.getCheckpointStatus(burnTx)` resolves `{ checkpointed: true }`,
 or `{ checkpointed: false, reason: 'pending' | 'not-checkpointed' }`; it does
 not reject with `BurnTxNotCheckpointedError`. `buildExitPayload` on the same
 burn still does.
+
+A status read whose unmet answer has a remedy in the SDK names it in its JSDoc
+(`'delivery-failed'` → `replayDeposit`), so a reader of the types is led to the
+fix rather than to the contracts.
 
 Enforced by `packages/maticjs/tests/unit/status-reads.test.ts`. Its
 registries must list every `is*` / `has*` method (each resolves `false` when

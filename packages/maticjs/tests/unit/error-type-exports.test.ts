@@ -14,6 +14,7 @@ import type {
   BurnTxNotCheckpointedInfo,
   ChainSideInfo,
   ContractNotAvailableOnNetworkInfo,
+  DepositNotReplayableInfo,
   Eip1559NotSupportedInfo,
   EmptyInfo,
   ErrorInfo,
@@ -88,6 +89,7 @@ type Root = [
   BurnTxNotCheckpointedInfo,
   ChainSideInfo,
   ContractNotAvailableOnNetworkInfo,
+  DepositNotReplayableInfo,
   Eip1559NotSupportedInfo,
   EmptyInfo,
   ErrorInfo,
@@ -143,9 +145,9 @@ type Staking = [
 
 describe('error type exports', () => {
   it('every info and option type is importable from the root and staking entries', () => {
-    const root: Root['length'] = 36;
+    const root: Root['length'] = 37;
     const staking: Staking['length'] = 18;
-    expect(root).equals(36);
+    expect(root).equals(37);
     expect(staking).equals(18);
   });
 

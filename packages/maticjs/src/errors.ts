@@ -3,6 +3,7 @@ import { VError } from '@polygonlabs/verror';
 import type { Hex, Receipt } from './adapter.js';
 import type { ReplacementReason } from './internal/confirmation.js';
 import type { Network } from './networks.js';
+import type { DepositStatus } from './pos/bridge-status.js';
 
 import { redactDeep, redactTokens, sanitiseError } from './adapters/sanitise.js';
 
@@ -71,7 +72,8 @@ const CONDITION_NAMES = [
   'OnlyAllowedOnMainnetError',
   'PermitNotSupportedError',
   'UntrustedPredicateError',
-  'CheckpointRangeInvalidError'
+  'CheckpointRangeInvalidError',
+  'DepositNotReplayableError'
 ] as const;
 
 const OPERATION_NAMES = [
@@ -483,6 +485,8 @@ export type CheckpointRangeInvalidInfo = {
   txBlockNumber: number;
   reason: 'inverted' | 'not-containing' | 'too-large';
 };
+/** The status the SDK read before refusing to replay; branch on it as on `getDepositStatus`. */
+export type DepositNotReplayableInfo = { transactionHash: string; status: DepositStatus };
 
 /** A root-chain-only method was called on a child-chain token. */
 export class AllowedOnRootError extends VError {
@@ -1029,6 +1033,26 @@ export class CheckpointRangeInvalidError extends VError {
   static readonly find = finderFor<CheckpointRangeInvalidError>('CheckpointRangeInvalidError');
   static readonly has = hasFor('CheckpointRangeInvalidError');
   constructor(message: string, options: RequiredInfoErrorOptions<CheckpointRangeInvalidInfo>) {
+    super(message, options);
+    sealMessage({ error: this, constructorOpt: new.target });
+  }
+  override toJSON(): Record<string, unknown> {
+    return safeJSON({ error: this, json: super.toJSON() });
+  }
+}
+
+/**
+ * `replayDeposit` / `prepareReplayDeposit` was asked to replay a deposit
+ * that is not in a replayable state. `info.status` is the status the SDK
+ * read, the same shape `getDepositStatus` returns: branch on it as you
+ * would there. The message says what to do next.
+ */
+export class DepositNotReplayableError extends VError {
+  override readonly name = 'DepositNotReplayableError' as const;
+  declare readonly info: DepositNotReplayableInfo;
+  static readonly find = finderFor<DepositNotReplayableError>('DepositNotReplayableError');
+  static readonly has = hasFor('DepositNotReplayableError');
+  constructor(message: string, options: RequiredInfoErrorOptions<DepositNotReplayableInfo>) {
     super(message, options);
     sealMessage({ error: this, constructorOpt: new.target });
   }

@@ -311,6 +311,16 @@ const posCases: Record<string, Case> = {
     mode: 'read',
     call: () => pos.getDepositStatus(BURN_TX)
   },
+  replayDeposit: {
+    error: DepositError,
+    mode: 'write',
+    call: () => pos.replayDeposit(BURN_TX)
+  },
+  prepareReplayDeposit: {
+    error: DepositError,
+    mode: 'prepare',
+    call: () => pos.prepareReplayDeposit(BURN_TX)
+  },
   buildExitPayload: {
     error: ProofBuildError,
     mode: 'read',

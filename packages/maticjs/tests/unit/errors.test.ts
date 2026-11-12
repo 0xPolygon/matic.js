@@ -45,6 +45,7 @@ const {
   PermitNotSupportedError,
   UntrustedPredicateError,
   CheckpointRangeInvalidError,
+  DepositNotReplayableError,
   ProofApiNotSetError,
   ProofBuildError,
   ProofNodeKeyMismatchError,
@@ -157,6 +158,10 @@ const FACTORIES: Record<MaticjsErrorName, () => Error> = {
     new CheckpointRangeInvalidError('m', {
       info: { start: '0', end: '1', txBlockNumber: 5, reason: 'not-containing' }
     }),
+  DepositNotReplayableError: () =>
+    new DepositNotReplayableError('m', {
+      info: { transactionHash: TOKEN, status: { deposited: true } }
+    }),
   InitError: () => new InitError({ info: { operation: 'init', mode: 'init' } }),
   AddressLookupError: () =>
     new AddressLookupError({ info: { operation: 'getAddresses', mode: 'read' } }),
@@ -194,9 +199,9 @@ const rejection = async (run: () => Promise<unknown>): Promise<unknown> => {
 };
 
 describe('error classes', () => {
-  it('there are exactly 51 named classes and MATICJS_ERROR_NAMES lists each once', () => {
-    expect(Object.keys(FACTORIES).length).equals(51);
-    expect(MATICJS_ERROR_NAMES.size).equals(51);
+  it('there are exactly 52 named classes and MATICJS_ERROR_NAMES lists each once', () => {
+    expect(Object.keys(FACTORIES).length).equals(52);
+    expect(MATICJS_ERROR_NAMES.size).equals(52);
     expect([...Object.keys(FACTORIES)].sort()).deep.equals([...NAMES].sort());
   });
 

@@ -38,3 +38,42 @@ export const FailedStateSyncHashesABI = [
     type: 'function'
   }
 ] as const;
+
+/**
+ * ABI fragment for the child `StateReceiver`'s two replay entry points, kept
+ * beside the failed-record getters for the same reason: the published
+ * `@polygonlabs/meta` ABI predates the Uburu fork. `replayFailedStateSync(uint256)`
+ * (selector `0x03112a17`) is published source (PIP-36, `StateReceiver.sol` of
+ * `0xPolygon/genesis-contracts`) and replays a record kept as a payload.
+ * `replayFailedStateSyncWithData(uint256,address,bytes)` (selector
+ * `0x94453fd3`) replays a record kept as a hash: its name is the keccak
+ * preimage of that selector, and the function and its calling convention
+ * were confirmed by the protocol team, while the post-Uburu contract source
+ * remains unpublished. Both are exercised against mainnet in the live
+ * state-sync test. Fold this into the generated ABI once `@polygonlabs/meta`
+ * publishes it.
+ */
+export const ReplayFailedStateSyncABI = [
+  {
+    constant: false,
+    inputs: [{ internalType: 'uint256', name: 'stateId', type: 'uint256' }],
+    name: 'replayFailedStateSync',
+    outputs: [],
+    payable: false,
+    stateMutability: 'nonpayable',
+    type: 'function'
+  },
+  {
+    constant: false,
+    inputs: [
+      { internalType: 'uint256', name: 'stateId', type: 'uint256' },
+      { internalType: 'address', name: 'receiver', type: 'address' },
+      { internalType: 'bytes', name: 'data', type: 'bytes' }
+    ],
+    name: 'replayFailedStateSyncWithData',
+    outputs: [],
+    payable: false,
+    stateMutability: 'nonpayable',
+    type: 'function'
+  }
+] as const;

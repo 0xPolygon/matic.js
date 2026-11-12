@@ -314,6 +314,7 @@ directly for odd-length or non-hex input.
 | `PermitNotSupportedError`            | A permit helper was called on a staking token without EIP-2612 `permit`                                                                                                                                                                                                                                                                                                                                                                                                   | —                                   |
 | `UntrustedPredicateError`            | A default-spender approval was refused because the predicate the RootChainManager reported is not in the address index                                                                                                                                                                                                                                                                                                                                                    | —                                   |
 | `CheckpointRangeInvalidError`        | A checkpoint range from the chain does not contain the burn's block, is inverted, or spans more than 65,536 blocks                                                                                                                                                                                                                                                                                                                                                        | —                                   |
+| `DepositNotReplayableError`          | `replayDeposit` / `prepareReplayDeposit` was asked to replay a deposit whose status is not `delivery-failed` with `replayable: true`; `info.status` is the status the SDK read | — |
 
 The 3.x type `allowed_on_non_native_token` is never raised by 4.0. Only
 the zkEVM bridge raised it, and 4.0 does not include the zkEVM bridge (see
@@ -366,7 +367,7 @@ ask about a plain chain fact with no reason (`isApproved`, `isApprovedAll`,
 | `CheckpointReadError` | `RootChain.getLastChildBlock`, `RootChain.findRootBlockFromChild`                                                                                                                |
 | `TokenReadError`      | Token reads: `getBalance`, `getAllowance`, `getTokensCount`, `getTokenIdAtIndexForUser`, `getAllTokens`, `isApproved`, `isApprovedAll`                                           |
 | `ApproveError`        | `approve`, `approveMax`, `approveAll`, `approveAllForMintable` and their `prepare*` siblings                                                                                     |
-| `DepositError`        | `deposit`, `depositMany`, `depositWithGas`, `depositEther`, `depositEtherWithGas` and their `prepare*` siblings                                                                  |
+| `DepositError`        | `deposit`, `depositMany`, `depositWithGas`, `depositEther`, `depositEtherWithGas` and their `prepare*` siblings, `replayDeposit`, `prepareReplayDeposit`                                                                  |
 | `WithdrawStartError`  | `startWithdraw`, `startWithdrawMany`, `startWithdrawWithMetaData` and their `prepare*` siblings                                                                                  |
 | `ExitError`           | `completeWithdraw`, `completeWithdrawFast`, `completeWithdrawOnIndex`, `completeWithdrawMany`, `completeWithdrawFastMany`, `RootChainManager.exit` and their `prepare*` siblings |
 | `TransferError`       | `transfer`, `prepareTransfer`                                                                                                                                                    |
@@ -515,7 +516,10 @@ ETH deposits.
 The prepared path is pure — no chain-id lookup, no gas estimation, no fee-cap
 guard. The wallet that eventually signs the transaction fills those in. If
 you need a pre-computed gas estimate, call your own client's `estimateGas`
-against the prepared `to`/`data`/`value`.
+against the prepared `to`/`data`/`value`. The one exception is
+`prepareReplayDeposit`, which reads the deposit's receipt and the state
+receiver's failed record to build its calldata; it still estimates no gas and
+checks no chain id.
 
 ## Direct access to bridge helpers (`buildExitPayload`, `getCheckpointStatus`, …)
 
@@ -531,6 +535,7 @@ as flat methods on `POSClient`:
 | `pos.exitUtil.buildMultiplePayloadsForExit(burnTx, sig, fast)` | `pos.buildExitPayloads(burnTx, sig, fast?)` → `string[]`                                                                                                                                                                         |
 | `pos.isCheckPointed(burnTx)`                                   | `pos.getCheckpointStatus(burnTx)`                                                                                                                                                                                                   |
 | `pos.isDeposited(depositTx)`                                   | `pos.getDepositStatus(depositTx)` — now also reports `'delivery-failed'`                                                                                                                                                                                                   |
+| — (no 3.x equivalent)                                          | `pos.replayDeposit(depositTx)` / `pos.prepareReplayDeposit(depositTx)` — resend a delivery that failed on the child chain |
 | `pos.exitUtil.getBlockProof(blockNum, { start, end })`         | `pos.getBlockProof(blockNum, { start, end })`                                                                                                                                                                                    |
 | `pos.exitUtil.rootChain.getLastChildBlock()`                   | `pos.rootChain.getLastChildBlock()`                                                                                                                                                                                              |
 | `pos.exitUtil.rootChain.findRootBlockFromChild(n)`             | `pos.rootChain.findRootBlockFromChild(n)`                                                                                                                                                                                        |
@@ -572,17 +577,24 @@ The SDK reports the condition; it cannot prevent it. The check needs a child cha
 when the failed record the `StateReceiver` holds is this deposit's own
 `(receiver, data)`, so a replay can be attempted with this deposit's data. It
 does not mean the replay will succeed: the receiving contract may still revert.
-The post-Uburu `StateReceiver` source is not published, so whether a failed
-replay attempt could clear the stored hash, and so turn `replayable` stale, is
-unverified. To recover, call the `StateReceiver`
-(`0x0000000000000000000000000000000000001001`) on the child chain, from any
-account, paying the gas yourself. The call depends on `record`: for `'payload'`
-call `replayFailedStateSync(stateId)`; for `'hash'` call
-`replayFailedStateSyncWithData(stateId, receiver, data)` with the `receiver`
-and `data` of the deposit's `StateSynced` event. The SDK has no replay method
-in 4.0.0, and the post-Uburu contract's source is not published, so the
-`…WithData` call shape is the one mainnet replays use. Once replayed, the
-deposit reads `{ deposited: true }`.
+To recover, call `pos.replayDeposit(depositTx)` from the child-chain signer, or
+`pos.prepareReplayDeposit(depositTx)` to get the unsigned `{ to, data }` for another signer.
+The SDK re-reads the deposit, refuses with `DepositNotReplayableError` (under `DepositError`)
+unless the status is `delivery-failed` with `replayable: true`, and picks the call from
+`record`: `replayFailedStateSync(stateId)` for `'payload'`, `replayFailedStateSyncWithData(stateId, receiver, data)`
+for `'hash'`, both on the child chain's `StateReceiver` (`0x0000000000000000000000000000000000001001`).
+Anyone may replay; the replay runs with your transaction's gas, not the per-record limit that
+failed the delivery. A replay the receiving contract rejects reverts as a whole and leaves the
+record in place: without `gasLimit` that surfaces as your client library's `eth_estimateGas`
+error before anything is sent. Once a replay succeeds, the deposit reads `{ deposited: true }`.
+If someone else's replay clears the record between the SDK's read and your send, the
+`StateReceiver` itself reverts `!found`; that is your client library's error too, and
+`getDepositStatus` then reads `{ deposited: true }`.
+The same calls can be made by hand with any client, using the `receiver` and `data` of the
+deposit's `StateSynced` event for `'hash'`. `replayFailedStateSync` is published source
+(PIP-36); `replayFailedStateSyncWithData` and its calling convention
+were confirmed by the protocol team, while the post-Uburu contract source itself
+remains unpublished.
 If one deposit transaction emitted several `StateSynced` logs, the status
 reports the first. Deliveries that failed before PIP-36 (the Ahmedabad upgrade
 of the child chain's node software) are kept in no mapping, so the SDK cannot

@@ -252,6 +252,7 @@ const child1155 = (pos: POSClient) => pos.child.erc1155(TOKEN);
  */
 const WRITES: Record<string, Write> = {
   'POSClient.depositEther': (pos) => pos.depositEther(1n, USER, GAS),
+  'POSClient.replayDeposit': (pos) => pos.replayDeposit(BURN_TX, GAS),
   'ERC20.approve': (pos) => parent20(pos).approve(1n, { ...GAS, spenderAddress: PREDICATE }),
   'ERC20.approveMax': (pos) => parent20(pos).approveMax({ ...GAS, spenderAddress: PREDICATE }),
   'ERC20.deposit': (pos) => parent20(pos).deposit(1n, USER, GAS),
@@ -328,6 +329,15 @@ describe('bridge writes pin the chain ids', () => {
         vi.spyOn(POSBridgeHelpers.prototype, 'buildExitPayload').mockResolvedValue('0x01');
         vi.spyOn(POSBridgeHelpers.prototype, 'buildExitPayloadOnIndex').mockResolvedValue('0x01');
         vi.spyOn(POSBridgeHelpers.prototype, 'getPredicateAddress').mockResolvedValue(PREDICATE);
+        // The replay reads the deposit before it writes; the hostile RPC has
+        // no deposit to read, so the call it would encode is supplied.
+        vi.spyOn(
+          POSBridgeHelpers.prototype as unknown as { replayCallOf: () => Promise<unknown> },
+          'replayCallOf'
+        ).mockResolvedValue({
+          method: 'replayFailedStateSyncWithData',
+          args: [1n, USER, '0x']
+        });
         const parent = build(HOSTILE_CHAIN);
         const child = build(HOSTILE_CHAIN);
         const pos = await POSClient.init({

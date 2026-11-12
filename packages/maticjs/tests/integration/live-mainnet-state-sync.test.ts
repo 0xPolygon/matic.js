@@ -1,7 +1,16 @@
-import { createPublicClient, http } from 'viem';
+import {
+  BaseError,
+  createPublicClient,
+  decodeErrorResult,
+  encodeFunctionData,
+  http,
+  parseAbi,
+  parseEventLogs
+} from 'viem';
 import { describe, expect, it } from 'vitest';
 
 import { viemAdapter } from '../../src/adapters/viem.ts';
+import { DepositError, DepositNotReplayableError } from '../../src/errors.ts';
 import { POSClient } from '../../src/pos-client.ts';
 
 /**
@@ -12,6 +21,11 @@ import { POSClient } from '../../src/pos-client.ts';
  * RPC URLs because public endpoints differ in what they serve (old blocks,
  * log ranges); it only reads a receipt and latest-state `eth_call`s, no wallet,
  * and is skipped when either variable is unset.
+ *
+ * It also simulates `prepareReplayDeposit`'s calldata with `eth_call` against
+ * the two stuck records. The StateReceiver must accept the record (so neither
+ * `!found` nor `!data`); a revert from the receiving contract further down is
+ * the expected outcome and is the receiver's, not the SDK's.
  */
 const PARENT_RPC = process.env.POS_SDK_TEST_MAINNET_PARENT_RPC;
 const CHILD_RPC = process.env.POS_SDK_TEST_MAINNET_CHILD_RPC;
@@ -32,6 +46,17 @@ const LEGACY_STUCK_STATE_ID = 3192364n;
 const LEGACY_REPLAYED_DEPOSIT =
   '0x696341927ed338c7c6dc044248d8b58917cdd2ae781fcf40c36799ee49b1bb55';
 const ADDR = '0x0000000000000000000000000000000000000001';
+const SIMULATED_SENDER = '0x000000000000000000000000000000000000dEaD';
+const replayAbi = parseAbi([
+  'function replayFailedStateSync(uint256 stateId)',
+  'function replayFailedStateSyncWithData(uint256 stateId, address receiver, bytes data)'
+]);
+const stateSyncedAbi = parseAbi([
+  'event StateSynced(uint256 indexed id, address indexed contractAddress, bytes data)'
+]);
+const errorStringAbi = [
+  { type: 'error', name: 'Error', inputs: [{ name: 'message', type: 'string' }] }
+] as const;
 
 describe.skipIf(!HAS_RPCS)('live mainnet state-sync delivery', { timeout: 60_000 }, () => {
   const build = async (): Promise<POSClient> =>
@@ -108,5 +133,110 @@ describe.skipIf(!HAS_RPCS)('live mainnet state-sync delivery', { timeout: 60_000
       record: 'payload',
       replayable: true
     });
+  });
+
+  /** The `Error(string)` a node's `eth_call` reverts with, or undefined when the call succeeds. */
+  const revertReasonOf = async ({
+    to,
+    data
+  }: {
+    to: string;
+    data: string;
+  }): Promise<string | undefined> => {
+    const client = createPublicClient({ transport: http(CHILD_RPC) });
+    try {
+      await client.call({
+        account: SIMULATED_SENDER,
+        to: to as `0x${string}`,
+        data: data as `0x${string}`
+      });
+      return undefined;
+    } catch (err) {
+      if (!(err instanceof BaseError)) throw err;
+      // The node's revert data rides on the transport's RPC error, below viem's call error.
+      const revertErr = err.walk(
+        (e) => e instanceof Error && typeof Reflect.get(e, 'data') === 'string'
+      );
+      const revertData: unknown = revertErr === null ? undefined : Reflect.get(revertErr, 'data');
+      if (typeof revertData !== 'string') throw err;
+      // A receiver may revert with a custom error rather than Error(string).
+      // Report its raw data so the row still tells it apart from the state
+      // receiver's own `!found` / `!data`, instead of failing on the decode.
+      if (!revertData.startsWith('0x08c379a0')) return `custom error ${revertData}`;
+      return decodeErrorResult({ abi: errorStringAbi, data: revertData as `0x${string}` }).args[0];
+    }
+  };
+
+  /** The test's own decode of a deposit's `StateSynced` log, independent of the SDK's. */
+  const stateSyncOf = async (depositTx: string) => {
+    const receipt = await createPublicClient({ transport: http(PARENT_RPC) }).getTransactionReceipt(
+      {
+        hash: depositTx as `0x${string}`
+      }
+    );
+    const [log] = parseEventLogs({ abi: stateSyncedAbi, logs: receipt.logs });
+    if (log === undefined) throw new Error('no StateSynced log in the deposit receipt');
+    return { stateId: log.args.id, receiver: log.args.contractAddress, data: log.args.data };
+  };
+
+  it('prepareReplayDeposit of the hash record: the receiver accepts the record, any revert is its own', async () => {
+    const pos = await build();
+    const status = await pos.getDepositStatus(STUCK_DEPOSIT);
+    if (status.deposited) expect.fail('fixture replayed: rotate the stuck-deposit fixture');
+    const prepared = await pos.prepareReplayDeposit(STUCK_DEPOSIT);
+    const { stateId, receiver, data } = await stateSyncOf(STUCK_DEPOSIT);
+    expect(stateId).equal(STUCK_STATE_ID);
+    expect(prepared).property('to').equal(STATE_RECEIVER);
+    expect(prepared.data.slice(0, 10)).equal('0x94453fd3');
+    expect(prepared)
+      .property('data')
+      .equal(
+        encodeFunctionData({
+          abi: replayAbi,
+          functionName: 'replayFailedStateSyncWithData',
+          args: [stateId, receiver, data]
+        })
+      );
+    const reason = await revertReasonOf(prepared);
+    console.info(
+      `hash-record replay simulation: ${reason === undefined ? 'would succeed' : `reverts with ${JSON.stringify(reason)}`}`
+    );
+    // `!found` or `!data` would mean the calldata does not match the stored record.
+    expect(reason).not.equal('!found');
+    expect(reason).not.equal('!data');
+  });
+
+  it('prepareReplayDeposit of the payload record: the receiver accepts the record, any revert is its own', async () => {
+    const pos = await build();
+    const status = await pos.getDepositStatus(LEGACY_STUCK_DEPOSIT);
+    if (status.deposited) expect.fail('fixture replayed: rotate the pre-Uburu fixture');
+    const prepared = await pos.prepareReplayDeposit(LEGACY_STUCK_DEPOSIT);
+    expect(prepared).property('to').equal(STATE_RECEIVER);
+    expect(prepared.data.slice(0, 10)).equal('0x03112a17');
+    expect(prepared)
+      .property('data')
+      .equal(
+        encodeFunctionData({
+          abi: replayAbi,
+          functionName: 'replayFailedStateSync',
+          args: [LEGACY_STUCK_STATE_ID]
+        })
+      );
+    const reason = await revertReasonOf(prepared);
+    console.info(
+      `payload-record replay simulation: ${reason === undefined ? 'would succeed' : `reverts with ${JSON.stringify(reason)}`}`
+    );
+    expect(reason).not.equal('!found');
+  });
+
+  it('replayDeposit of a delivered deposit is refused before any wallet is touched', async () => {
+    const pos = await build();
+    const err = await pos.replayDeposit(REPLAYED_DEPOSIT).then(
+      () => undefined,
+      (e: unknown) => e
+    );
+    expect(DepositError.find(err)).property('info').property('operation').equal('replayDeposit');
+    // A Web3ClientNotInitializedError here would mean the wallet was reached first.
+    expect(DepositNotReplayableError.find(err)?.info.status).deep.equal({ deposited: true });
   });
 });

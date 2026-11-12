@@ -17,7 +17,8 @@ All three perform the same flow:
 3. Submit an `approve(...)` to the bridge predicate.
 4. Wait for the receipt via `result.confirmed()`.
 
-The actual `deposit(...)` call is left commented in `viem.ts` — uncomment
+The actual `deposit(...)` call, and the `getDepositStatus` → `replayDeposit`
+check after it, are left commented in `viem.ts` — uncomment
 once you are happy with the wiring; on Amoy a deposit costs sepolia ETH.
 
 ## Running

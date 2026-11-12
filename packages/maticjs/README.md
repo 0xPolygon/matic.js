@@ -133,7 +133,10 @@ await safeClient.proposeTransaction({ to: tx.to, data: tx.data, value: tx.value 
 Use this for Safe / Sequence / account abstraction bundlers, batched
 multicall flows, pre-flight inspection, or any path where the SDK should
 encode the bridge call but a different signer should send it. The prepared
-path is pure — no chain-id lookup, no gas estimation, no fee-cap guard.
+path is pure — no chain-id lookup, no gas estimation, no fee-cap guard. The one
+exception is `prepareReplayDeposit`, which reads the deposit's receipt and the
+state receiver's failed record to build its calldata; it still estimates no gas
+and checks no chain id.
 
 ### Direct bridge helpers
 
@@ -147,6 +150,8 @@ await pos.buildExitPayload(burnTxHash, eventSig, false); // exit calldata
 await pos.getBlockProof(blockNumber, { start, end });    // Merkle proof
 await pos.getPredicateAddress(token);                    // bridge predicate
 await pos.getWithdrawStatus(burnTxHash, eventSig);       // exited, or why not
+await pos.replayDeposit(depositTxHash);                  // resend a failed delivery, paying its gas
+await pos.prepareReplayDeposit(depositTxHash);           // the same, unsigned
 ```
 
 The token classes (`pos.parent.erc20(...).completeWithdraw(...)`) wrap these
@@ -390,7 +395,7 @@ two calls that can disagree:
 | ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
 | Has this burn been exited?          | `pos.getWithdrawStatus`, `pos.getWithdrawStatusOnIndex`, and on the tokens `getWithdrawExitStatus` (plus `…OnIndex`, `…OnIndices`, `…Many` where the token has them) | `{ exited: true }` or `{ exited: false, reason: 'pending' \| 'not-checkpointed' \| 'not-exited' }` |
 | Is this burn checkpointed?          | `pos.getCheckpointStatus(burnTx)`                                                                                                   | `{ checkpointed: true }` or `{ checkpointed: false, reason: 'pending' \| 'not-checkpointed' }` |
-| Has this deposit landed on the child chain? | `pos.getDepositStatus(depositTx)`                                                                                           | `{ deposited: true }` or `{ deposited: false, reason: 'pending' \| 'not-synced' }` or `{ deposited: false, reason: 'delivery-failed', stateId, receiver, record, replayable }` |
+| Has this deposit landed on the child chain? | `pos.getDepositStatus(depositTx)`                                                                                           | `{ deposited: true }` or `{ deposited: false, reason: 'pending' \| 'not-synced' }` or `{ deposited: false, reason: 'delivery-failed', stateId, receiver, record, replayable }` → `pos.replayDeposit(depositTx)` |
 
 The result types are exported as `WithdrawStatus`, `CheckpointStatus` and
 `DepositStatus`, with their reason unions `WithdrawNotExitedReason`,
@@ -414,17 +419,24 @@ The SDK reports the condition; it cannot prevent it. The check needs a child cha
 when the failed record the `StateReceiver` holds is this deposit's own
 `(receiver, data)`, so a replay can be attempted with this deposit's data. It
 does not mean the replay will succeed: the receiving contract may still revert.
-The post-Uburu `StateReceiver` source is not published, so whether a failed
-replay attempt could clear the stored hash, and so turn `replayable` stale, is
-unverified. To recover, call the `StateReceiver`
-(`0x0000000000000000000000000000000000001001`) on the child chain, from any
-account, paying the gas yourself. The call depends on `record`: for `'payload'`
-call `replayFailedStateSync(stateId)`; for `'hash'` call
-`replayFailedStateSyncWithData(stateId, receiver, data)` with the `receiver`
-and `data` of the deposit's `StateSynced` event. The SDK has no replay method
-in 4.0.0, and the post-Uburu contract's source is not published, so the
-`…WithData` call shape is the one mainnet replays use. Once replayed, the
-deposit reads `{ deposited: true }`.
+To recover, call `pos.replayDeposit(depositTx)` from the child-chain signer, or
+`pos.prepareReplayDeposit(depositTx)` to get the unsigned `{ to, data }` for another signer.
+The SDK re-reads the deposit, refuses with `DepositNotReplayableError` (under `DepositError`)
+unless the status is `delivery-failed` with `replayable: true`, and picks the call from
+`record`: `replayFailedStateSync(stateId)` for `'payload'`, `replayFailedStateSyncWithData(stateId, receiver, data)`
+for `'hash'`, both on the child chain's `StateReceiver` (`0x0000000000000000000000000000000000001001`).
+Anyone may replay; the replay runs with your transaction's gas, not the per-record limit that
+failed the delivery. A replay the receiving contract rejects reverts as a whole and leaves the
+record in place: without `gasLimit` that surfaces as your client library's `eth_estimateGas`
+error before anything is sent. Once a replay succeeds, the deposit reads `{ deposited: true }`.
+If someone else's replay clears the record between the SDK's read and your send, the
+`StateReceiver` itself reverts `!found`; that is your client library's error too, and
+`getDepositStatus` then reads `{ deposited: true }`.
+The same calls can be made by hand with any client, using the `receiver` and `data` of the
+deposit's `StateSynced` event for `'hash'`. `replayFailedStateSync` is published source
+(PIP-36); `replayFailedStateSyncWithData` and its calling convention
+were confirmed by the protocol team, while the post-Uburu contract source itself
+remains unpublished.
 If one deposit transaction emitted several `StateSynced` logs, the status
 reports the first. Deliveries that failed before PIP-36 (the Ahmedabad upgrade
 of the child chain's node software) are kept in no mapping, so the SDK cannot

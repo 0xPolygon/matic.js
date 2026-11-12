@@ -101,6 +101,10 @@ async function main(): Promise<void> {
   //
   //   const deposit = await erc20.deposit(1_000_000n, account.address);
   //   await deposit.confirmed();
+  //   const status = await pos.getDepositStatus(deposit.hash);
+  //   if (!status.deposited && status.reason === 'delivery-failed' && status.replayable) {
+  //     await (await pos.replayDeposit(deposit.hash)).confirmed(); // resend the failed delivery, paying its gas
+  //   }
   //   console.log('deposit hash:', deposit.hash);
 }
 

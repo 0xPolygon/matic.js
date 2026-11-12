@@ -8,6 +8,9 @@
  * - `buildExitPayload(burnTxHash, eventSig, isFast)` — exit payload
  *   for `RootChainManager.exit(...)`
  * - the indexed variants `getWithdrawStatusOnIndex` / `buildExitPayloadOnIndex`
+ * - `getDepositStatus(depositTxHash)` and the recovery write beside it,
+ *   `replayDeposit` / `prepareReplayDeposit` (the one write here, on the child
+ *   chain's `StateReceiver`)
  *
  * # Why this lives in `internal/`
  *
@@ -36,7 +39,15 @@
 
 import { RLP } from '@ethereumjs/rlp';
 
-import type { Adapter, BlockTag, Hex, Receipt, ReceiptLog } from '../adapter.js';
+import type {
+  Adapter,
+  BlockTag,
+  Hex,
+  PreparedTx,
+  Receipt,
+  ReceiptLog,
+  TxResult
+} from '../adapter.js';
 import type {
   IBlockWithTransaction,
   IRootBlockInfo,
@@ -46,14 +57,16 @@ import type { Logger } from '../logger.js';
 import type { CheckpointStatus, DepositStatus } from '../pos/bridge-status.js';
 import type { WithdrawStatus } from '../pos/withdraw-status.js';
 import type { ProofChildClient } from '../utils/proof_util.js';
+import type { ContractCallerOptions } from './contract-caller.js';
 import type { ProofApiClient } from './proof-api-client.js';
 
-import { FailedStateSyncHashesABI } from '../abi/failed-state-sync.js';
+import { FailedStateSyncHashesABI, ReplayFailedStateSyncABI } from '../abi/failed-state-sync.js';
 import { StateReceiverABI } from '../abi/index.js';
 import { LogEventSignature } from '../constant.js';
 import {
   BurnTxNotCheckpointedError,
   CheckpointRangeInvalidError,
+  DepositNotReplayableError,
   HttpRequestFailedError,
   IndexOutOfBoundsError,
   InvalidTokenTypeError,
@@ -139,6 +152,11 @@ export interface POSBridgeHelpersConfig {
    */
   parentAdapter: Adapter;
   /**
+   * Pinned id of the child chain, so the replay write is checked against the
+   * signer like every other bridge write.
+   */
+  childChainId?: number;
+  /**
    * Concrete proof-API client, built from `proofGenerationApiUrl` in
    * `POSClient.init`. `undefined` means no URL was configured: the
    * fast-exit path throws `ProofApiNotSetError` and all
@@ -218,6 +236,7 @@ export class POSBridgeHelpers {
   private readonly childClient: BridgeChildClient;
   private readonly childAdapter: Adapter;
   private readonly parentAdapter: Adapter;
+  private readonly stateReceiverCaller: ContractCaller;
   private readonly proofApiClient: ProofApiClient | undefined;
   private readonly rootChainDefaultBlock: BlockTag;
   private readonly logger: Logger;
@@ -231,6 +250,14 @@ export class POSBridgeHelpers {
     this.childClient = config.childClient;
     this.childAdapter = config.childAdapter;
     this.parentAdapter = config.parentAdapter;
+    this.stateReceiverCaller = new ContractCaller({
+      adapter: config.childAdapter,
+      getAddress: () => Promise.resolve(STATE_RECEIVER_ADDRESS),
+      abi: [...StateReceiverABI, ...FailedStateSyncHashesABI, ...ReplayFailedStateSyncABI],
+      isParent: false,
+      logger: config.logger,
+      chainId: config.childChainId
+    });
     this.proofApiClient = config.proofApiClient;
     this.rootChainDefaultBlock = config.rootChainDefaultBlock ?? DEFAULT_ROOT_CHAIN_BLOCK;
     this.logger = config.logger;
@@ -460,14 +487,48 @@ export class POSBridgeHelpers {
    * reads as delivered.
    */
   async getDepositStatus(depositTxHash: string): Promise<DepositStatus> {
-    const stateReceiverCaller = new ContractCaller({
-      adapter: this.childAdapter,
-      getAddress: () => Promise.resolve(STATE_RECEIVER_ADDRESS),
-      abi: [...StateReceiverABI, ...FailedStateSyncHashesABI],
-      isParent: false,
-      logger: this.logger
-    });
+    return (await this.readDelivery(depositTxHash)).status;
+  }
 
+  /**
+   * Resend a failed delivery from the child-chain signer. The read is
+   * shared with prepare so the two cannot disagree on which entry point
+   * they encode; a deposit that is not `delivery-failed` and `replayable`
+   * is refused here, before the wallet is touched.
+   */
+  async replayDeposit({
+    depositTxHash,
+    options
+  }: {
+    depositTxHash: string;
+    options: ContractCallerOptions;
+  }): Promise<TxResult> {
+    const { method, args } = await this.replayCallOf(depositTxHash);
+    return this.stateReceiverCaller.write(method, args, options);
+  }
+
+  /** The unsigned `{ to, data }` of {@link replayDeposit}; reads the chain to build it. */
+  async prepareReplayDeposit({
+    depositTxHash,
+    options
+  }: {
+    depositTxHash: string;
+    options: ContractCallerOptions;
+  }): Promise<PreparedTx> {
+    const { method, args } = await this.replayCallOf(depositTxHash);
+    return this.stateReceiverCaller.prepareWrite(method, args, options);
+  }
+
+  /**
+   * The status read behind {@link getDepositStatus}, plus the deposit's
+   * `(receiver, data)` on the `delivery-failed` branch only (where
+   * `stateSyncPayloadOf` already runs), so the not-synced and delivered
+   * answers still never decode the log.
+   */
+  private async readDelivery(
+    depositTxHash: string
+  ): Promise<{ status: DepositStatus; payload: { receiver: Hex; data: Hex } | undefined }> {
+    const stateReceiverCaller = this.stateReceiverCaller;
     const [receipt, lastStateId] = await Promise.all([
       this.parentAdapter.getTransactionReceipt(depositTxHash),
       stateReceiverCaller.read<bigint | string>('lastStateId', [])
@@ -480,14 +541,16 @@ export class POSBridgeHelpers {
         'eth_getTransactionByHash',
         [depositTxHash]
       );
-      if (tx !== null && tx.blockNumber === null) return { deposited: false, reason: 'pending' };
+      if (tx !== null && tx.blockNumber === null)
+        return { status: { deposited: false, reason: 'pending' }, payload: undefined };
       throw new TransactionNotFoundError(`No receipt for deposit transaction ${depositTxHash}`, {
         info: { transactionHash: depositTxHash }
       });
     }
 
     const stateSync = stateSyncOf({ receipt, depositTxHash });
-    if (BigInt(lastStateId) < stateSync.stateId) return { deposited: false, reason: 'not-synced' };
+    if (BigInt(lastStateId) < stateSync.stateId)
+      return { status: { deposited: false, reason: 'not-synced' }, payload: undefined };
 
     const [storedHash, storedPayload] = await Promise.all([
       stateReceiverCaller.read<string>('failedStateSyncHashes', [stateSync.stateId]),
@@ -496,7 +559,9 @@ export class POSBridgeHelpers {
     // Both empty: delivered, or replayed since. Both set is impossible by
     // construction; the hash wins so the answer is still defined.
     const hasHash = BigInt(storedHash) !== 0n;
-    if (!hasHash && storedPayload === '0x') return { deposited: true };
+    if (!hasHash && storedPayload === '0x') {
+      return { status: { deposited: true }, payload: undefined };
+    }
 
     const { receiver, data } = stateSyncPayloadOf({ log: stateSync.log, depositTxHash });
     const expected = this.childAdapter.keccak256(
@@ -504,13 +569,60 @@ export class POSBridgeHelpers {
     );
     const stored = hasHash ? storedHash : this.childAdapter.keccak256(storedPayload);
     return {
-      deposited: false,
-      reason: 'delivery-failed',
-      stateId: stateSync.stateId,
-      receiver,
-      record: hasHash ? 'hash' : 'payload',
-      replayable: expected.toLowerCase() === stored.toLowerCase()
+      status: {
+        deposited: false,
+        reason: 'delivery-failed',
+        stateId: stateSync.stateId,
+        receiver,
+        record: hasHash ? 'hash' : 'payload',
+        replayable: expected.toLowerCase() === stored.toLowerCase()
+      },
+      payload: { receiver, data }
     };
+  }
+
+  /**
+   * The replay call for a deposit, or `DepositNotReplayableError` when the
+   * deposit is not in a replayable state.
+   */
+  private async replayCallOf(depositTxHash: string): Promise<{
+    method: 'replayFailedStateSync' | 'replayFailedStateSyncWithData';
+    args: readonly unknown[];
+  }> {
+    const { status, payload } = await this.readDelivery(depositTxHash);
+    if (status.deposited) {
+      throw new DepositNotReplayableError(
+        `Deposit ${depositTxHash} has been delivered on the child chain; there is nothing to replay.`,
+        { info: { transactionHash: depositTxHash, status } }
+      );
+    }
+    if (status.reason !== 'delivery-failed') {
+      throw new DepositNotReplayableError(
+        status.reason === 'pending'
+          ? `Deposit ${depositTxHash} is not mined yet; there is nothing to replay. Wait for it to mine, then poll getDepositStatus.`
+          : `Deposit ${depositTxHash} has not reached the child chain's state receiver yet; there is nothing to replay. Poll getDepositStatus until it answers deposited or delivery-failed.`,
+        { info: { transactionHash: depositTxHash, status } }
+      );
+    }
+    if (payload === undefined) {
+      // readDelivery always returns the payload on the delivery-failed branch,
+      // so a miss here is an SDK bug, not a consumer condition: a plain Error
+      // keeps it out of the typed classes and away from the "check the hash"
+      // message below.
+      throw new Error(`internal invariant: no state-sync payload for deposit ${depositTxHash}`);
+    }
+    if (!status.replayable) {
+      throw new DepositNotReplayableError(
+        `The state receiver's failed record for state id ${status.stateId} is not this deposit's receiver and payload; it cannot be replayed with this deposit's data. Check the deposit transaction hash: the record belongs to a different state sync.`,
+        { info: { transactionHash: depositTxHash, status } }
+      );
+    }
+    return status.record === 'hash'
+      ? {
+          method: 'replayFailedStateSyncWithData',
+          args: [status.stateId, payload.receiver, payload.data]
+        }
+      : { method: 'replayFailedStateSync', args: [status.stateId] };
   }
 
   // ---- internals --------------------------------------------------------

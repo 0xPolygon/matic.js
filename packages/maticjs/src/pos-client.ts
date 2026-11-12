@@ -402,6 +402,7 @@ export class POSClient {
       childClient: childBridgeClient,
       childAdapter,
       parentAdapter,
+      childChainId: l2ChainId,
       getTrustedPredicates: async () => trustedPredicates(await fetcher.get()),
       ...(proofApiClient !== undefined ? { proofApiClient } : {}),
       ...(config.rootChainDefaultBlock !== undefined
@@ -644,12 +645,79 @@ export class POSClient {
    * fork's code, as Polygon mainnet and Amoy have; on an older child chain
    * the call reverts and the read rejects with your client library's own
    * call error rather than answering.
+   *
+   * On `'delivery-failed'` the next step is {@link replayDeposit} with the same
+   * `depositTxHash` (or {@link prepareReplayDeposit} for an unsigned
+   * transaction); nothing in the answer needs to be re-derived or passed
+   * back. `'pending'` and `'not-synced'` resolve on their own: keep polling.
    */
   async getDepositStatus(depositTxHash: string): Promise<DepositStatus> {
     return withOperation({
       error: BridgeStatusError,
       info: { operation: 'getDepositStatus', mode: 'read', transactionHash: depositTxHash },
       run: () => this.bridge.getDepositStatus(depositTxHash)
+    });
+  }
+
+  /**
+   * Resend a deposit whose child-chain delivery failed, from the child-chain
+   * signer, paying the gas. Call it after {@link getDepositStatus} answered
+   * `{ deposited: false, reason: 'delivery-failed', replayable: true }`, with
+   * the same `depositTxHash`; the SDK re-reads the deposit and refuses, with
+   * `DepositNotReplayableError` (carrying the status it read in
+   * `info.status`) under `DepositError` and nothing sent, for any other
+   * status: not mined yet, not yet reached by the state receiver, already
+   * delivered or replayed, or a failed record that is not this deposit's
+   * (`replayable: false`). The call is chosen from the status's `record`:
+   * `replayFailedStateSyncWithData(stateId, receiver, data)` for `'hash'`,
+   * `replayFailedStateSync(stateId)` for `'payload'`, both on the child
+   * chain's `StateReceiver`.
+   *
+   * The state receiver forwards this transaction's gas to the receiving
+   * contract, so the per-record limit that failed the delivery does not
+   * apply. The receiving contract may still reject the replay (it already
+   * processed the message, a token hook reverts, …): without
+   * `options.gasLimit` that is your client library's own `eth_estimateGas`
+   * error, before anything is broadcast; with it, the transaction is sent
+   * and reverts on chain. Anyone may replay a record; it is cleared only by
+   * a replay the receiver accepts, after which the deposit reads
+   * `{ deposited: true }`. If someone else's replay clears it between the
+   * SDK's read and your send, the state receiver itself reverts `!found`;
+   * that is also your client library's error, and `getDepositStatus` then
+   * reads `{ deposited: true }`. Use {@link prepareReplayDeposit} to sign through
+   * a Safe, a bundler or a batch.
+   */
+  // Positional `(depositTxHash, options)` like every public write on this
+  // client, although the repo rule prefers a params object for two or more
+  // parameters: one public method in a different shape would be the odd one
+  // out. The internal helpers take params objects.
+  async replayDeposit(
+    depositTxHash: string,
+    options: ContractCallerOptions = {}
+  ): Promise<TxResult> {
+    return withOperation({
+      error: DepositError,
+      info: { operation: 'replayDeposit', mode: 'write', transactionHash: depositTxHash },
+      run: () => this.bridge.replayDeposit({ depositTxHash, options })
+    });
+  }
+
+  /**
+   * Same as {@link replayDeposit} but returns the unsigned `{ to, data }`.
+   * Call it under the same conditions as {@link replayDeposit}; it refuses
+   * with the same `DepositNotReplayableError`. Unlike the other `prepareXxx`
+   * methods this one reads the chain: the deposit's parent-chain receipt and
+   * the state receiver's failed record are what the calldata is built from.
+   * It still estimates no gas and checks no chain id.
+   */
+  async prepareReplayDeposit(
+    depositTxHash: string,
+    options: ContractCallerOptions = {}
+  ): Promise<PreparedTx> {
+    return withOperation({
+      error: DepositError,
+      info: { operation: 'prepareReplayDeposit', mode: 'prepare', transactionHash: depositTxHash },
+      run: () => this.bridge.prepareReplayDeposit({ depositTxHash, options })
     });
   }
 
