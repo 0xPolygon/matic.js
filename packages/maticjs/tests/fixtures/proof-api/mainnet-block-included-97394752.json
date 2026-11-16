@@ -1,0 +1,10 @@
+{
+  "headerBlockNumber": "0x45bb1ad0",
+  "blockNumber": "97394752",
+  "start": { "type": "BigNumber", "hex": "0x05ce1fa6" },
+  "end": { "type": "BigNumber", "hex": "0x05ce25a5" },
+  "proposer": "0x4B265385E2F5589563238234e90AE76E71ddCAb8",
+  "root": "0xb23e112cc4016325b0504e6543841860d33c63c70d7f8a6fda4c32a611c222c6",
+  "createdAt": { "type": "BigNumber", "hex": "0x6afa7cb3" },
+  "message": "success"
+}

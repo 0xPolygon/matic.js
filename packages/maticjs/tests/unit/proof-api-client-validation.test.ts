@@ -8,6 +8,8 @@
  * A thrown `HttpRequestFailedError` is what the bridge helpers catch to fall back
  * to local construction, so rejecting is the documented degrade path.
  */
+import { readFileSync } from 'node:fs';
+
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { ProofApiClient } from '../../src/internal/proof-api-client.ts';
@@ -107,5 +109,65 @@ describe('ProofApiClient — block-included response validation', () => {
     mockFetch({ headerBlockNumber: '1', start: '30', end: '20' });
     const err = await rejects(client().getBlockIncluded(25));
     expect(err).property('name').equals('HttpRequestFailedError');
+  });
+});
+
+/**
+ * Recorded with a read-only GET of the production API
+ * (`/api/v1/matic/block-included/97394752`) on 2026-11-16. `start`, `end`
+ * and `createdAt` are ethers-BigNumber JSON; `headerBlockNumber` is a hex
+ * string and `blockNumber` a decimal string.
+ */
+const recordedBlockIncluded: unknown = JSON.parse(
+  readFileSync(
+    new URL('../fixtures/proof-api/mainnet-block-included-97394752.json', import.meta.url),
+    'utf8'
+  )
+);
+
+describe('ProofApiClient — block-included wire shapes', () => {
+  it('accepts the recorded production response (BigNumber JSON start/end)', async () => {
+    mockFetch(recordedBlockIncluded);
+    const res = await client().getBlockIncluded(97394752);
+    expect(res).property('headerBlockNumber').equals(1169890000n);
+    expect(res).property('start').equals(97394598n);
+    expect(res).property('end').equals(97396133n);
+  });
+
+  it('accepts plain JSON numbers', async () => {
+    mockFetch({ headerBlockNumber: 10_000, start: 20_001, end: 30_000 });
+    const res = await client().getBlockIncluded(25_500);
+    expect(res).property('headerBlockNumber').equals(10_000n);
+    expect(res).property('start').equals(20_001n);
+    expect(res).property('end').equals(30_000n);
+  });
+
+  for (const [label, start, causeType] of [
+    ['BigNumber JSON with non-hex `hex`', { type: 'BigNumber', hex: '0xzz' }, SyntaxError],
+    ['BigNumber JSON without `hex`', { type: 'BigNumber' }, TypeError],
+    ['BigNumber JSON with a numeric `hex`', { type: 'BigNumber', hex: 97394598 }, TypeError],
+    ['an object of another type', { type: 'FixedNumber', hex: '0x05ce1fa6' }, TypeError],
+    ['an object with no type', { hex: '0x05ce1fa6' }, TypeError],
+    ['null', null, TypeError],
+    ['a boolean', true, TypeError],
+    ['a fractional number', 1.5, RangeError]
+  ] as const) {
+    it(`rejects ${label} with HttpRequestFailedError`, async () => {
+      mockFetch({
+        headerBlockNumber: '0x45bb1ad0',
+        start,
+        end: { type: 'BigNumber', hex: '0x05ce25a5' }
+      });
+      const err = await rejects(client().getBlockIncluded(97394752));
+      expect(err).property('name').equals('HttpRequestFailedError');
+      expect(err).nested.property('info.field').equals('start');
+      expect(err).property('cause').instanceOf(causeType);
+    });
+  }
+
+  it('records a rejected object value as JSON, not [object Object]', async () => {
+    mockFetch({ headerBlockNumber: '1', start: { type: 'Other', hex: '0x1' }, end: '2' });
+    const err = await rejects(client().getBlockIncluded(1));
+    expect(err).nested.property('info.value').equals('{"type":"Other","hex":"0x1"}');
   });
 });

@@ -53,9 +53,9 @@ export interface ProofApiClientConfig {
 }
 
 /**
- * Root-block inclusion info as returned by `block-included`. Values on
- * the wire may be hex (`0x…`) or decimal strings; this client normalises
- * everything to `bigint`.
+ * Root-block inclusion info as returned by `block-included`. Each value
+ * arrives in one of the wire shapes `parseQuantity` accepts; this client
+ * normalises everything to `bigint`.
  */
 export interface BlockIncludedResult {
   headerBlockNumber: bigint;
@@ -63,11 +63,15 @@ export interface BlockIncludedResult {
   end: bigint;
 }
 
-/** Raw `block-included` 200 body — superset of fields we consume. */
+/**
+ * Raw `block-included` 200 body — superset of fields we consume. The
+ * fields are `unknown` because their wire shape varies (see
+ * `parseQuantity`), so each one is narrowed where it is read.
+ */
 interface RawBlockIncluded {
-  headerBlockNumber: string | number;
-  start: string | number;
-  end: string | number;
+  headerBlockNumber: unknown;
+  start: unknown;
+  end: unknown;
 }
 
 /** Raw `exit-payload` / `all-exit-payloads` 200 body. */
@@ -106,14 +110,46 @@ function networkSegment(network: Network): string {
 }
 
 /**
- * Normalise a hex-or-decimal string/number to `bigint`. The 0.x
- * `NetworkService` branched on a `0x` prefix to pick `parseInt(x, 16)`
- * vs decimal; native `BigInt(...)` already parses both a `0x`-prefixed
- * hex string and a decimal string (and a number) correctly, so no
- * prefix branch is needed.
+ * The JSON form of an ethers v5 `BigNumber`, which is what the proof API
+ * serialises for quantities it read from the chain: the production
+ * `block-included` endpoint returns `start`, `end` and `createdAt` as
+ * `{"type":"BigNumber","hex":"0x…"}` while `headerBlockNumber` is a plain
+ * hex string. The API also serves 3.x clients, so the SDK accepts its
+ * shape rather than asking for a change.
  */
-function toBigInt(value: string | number): bigint {
-  return BigInt(value);
+interface BigNumberJson {
+  type: 'BigNumber';
+  hex: string;
+}
+
+function isBigNumberJson(value: unknown): value is BigNumberJson {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'type' in value &&
+    value.type === 'BigNumber' &&
+    'hex' in value &&
+    typeof value.hex === 'string'
+  );
+}
+
+/**
+ * Normalise one wire quantity to `bigint`. Native `BigInt(...)` parses a
+ * `0x`-prefixed hex string, a decimal string and an integral number;
+ * ethers-BigNumber JSON is unwrapped to its `hex`. Anything else — an
+ * object of another shape, a boolean, null — is not a quantity, and
+ * throws a `TypeError` that `parseQuantity` turns into the typed failure.
+ */
+function toBigInt(value: unknown): bigint {
+  if (typeof value === 'string' || typeof value === 'number') return BigInt(value);
+  if (isBigNumberJson(value)) return BigInt(value.hex);
+  throw new TypeError(`expected a number, a numeric string or BigNumber JSON, got ${typeof value}`);
+}
+
+/** A bounded, readable rendering of a rejected wire value for `info`. */
+function describeValue(value: unknown): string {
+  const text = typeof value === 'object' && value !== null ? JSON.stringify(value) : String(value);
+  return text.slice(0, 80);
 }
 
 export class ProofApiClient {
@@ -277,7 +313,7 @@ function requirePayloadHex(payload: string, url: string): string {
  * accepts negatives, neither of which is a checkpoint quantity; both
  * become the typed HTTP failure the caller already handles.
  */
-function parseQuantity(value: string | number, field: string, url: string): bigint {
+function parseQuantity(value: unknown, field: string, url: string): bigint {
   let parsed: bigint;
   try {
     parsed = toBigInt(value);
@@ -285,7 +321,7 @@ function parseQuantity(value: string | number, field: string, url: string): bigi
     throw new HttpRequestFailedError(
       `proof API block-included field \`${field}\` is not a number`,
       {
-        info: { url, field, value: String(value).slice(0, 80) },
+        info: { url, field, value: describeValue(value) },
         cause: err instanceof Error ? err : new Error(String(err))
       }
     );
