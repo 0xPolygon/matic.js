@@ -13,6 +13,11 @@
 # written, so the tests fall back to their defaults or skip their live
 # layers instead of calling an endpoint that would reject them.
 #
+# When the key is set it also writes REQUIRE_LIVE_RPC=1. The gated live
+# tests then fail instead of skipping if their URLs still came out unset
+# (an empty base-URL variable), so a misconfigured run cannot go green
+# without checking anything live (packages/maticjs/tests/live/helpers.ts).
+#
 # Inputs (env):
 #   POS_SDK_TEST_ERPC_API_KEY        secret; appended as ?token=<key>
 #   POS_SDK_TEST_ETHEREUM_RPC_URL    -> POS_SDK_TEST_MAINNET_PARENT_RPC
@@ -30,6 +35,8 @@ fi
 : "${GITHUB_ENV:?GITHUB_ENV must point at the step environment file}"
 
 echo "::add-mask::${key}"
+
+echo "REQUIRE_LIVE_RPC=1" >>"$GITHUB_ENV"
 
 compose() {
   local target="$1" base="$2"

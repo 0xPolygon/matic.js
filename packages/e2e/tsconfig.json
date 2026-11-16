@@ -1,0 +1,14 @@
+{
+  "extends": ["@tsconfig/node24/tsconfig.json", "@tsconfig/node-ts/tsconfig.json"],
+  "compilerOptions": {
+    "noEmit": true,
+    "strict": true,
+    "erasableSyntaxOnly": true,
+    "noUncheckedSideEffectImports": true,
+    "verbatimModuleSyntax": true,
+    "allowImportingTsExtensions": true,
+    "customConditions": ["@polygonlabs/source"],
+    "types": ["node", "vitest"]
+  },
+  "include": ["src/**/*", "scripts/**/*", "test/**/*", "vitest.e2e.config.ts"]
+}

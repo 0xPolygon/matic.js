@@ -1,0 +1,110 @@
+name: e2e
+
+# End-to-end tier against a local kurtosis-pos devnet (packages/e2e).
+# Opt-in per PR: the `run-e2e` label starts a run and every later push to a
+# labelled PR re-runs it. There is no branch filter, so a PR stacked on a
+# non-default base runs too. The nightly schedule keeps the tier honest
+# against the pinned devnet, and a manual dispatch can switch devnet source.
+#
+# Two devnet sources, picked by `use_snapshot`:
+#   - cold start (default): boot kurtosis-pos from source at
+#     `kurtosis_pos_ref` with an anvil L1 (packages/e2e/kurtosis-params.yml).
+#   - snapshot (opt-in dispatch): restore the published kurtosis-pos snapshot
+#     image. Its L1 is geth + lighthouse with 1 s slots, and the beacon chain
+#     cannot resume once its genesis is more than a few minutes old: with no
+#     peers lighthouse sits at the snapshot's head slot while the wall-clock
+#     slot runs thousands ahead, so L1 never mints a block. The image is
+#     published hours before any run here, so it is unusable as the default.
+on:
+  schedule:
+    # 03:00 UTC, off-hours for the team.
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+    inputs:
+      use_snapshot:
+        description: 'Restore the published snapshot image instead of a cold start (its L1 stalls once the image is old)'
+        type: boolean
+        required: false
+        default: false
+      kurtosis_pos_ref:
+        description: 'commit SHA (or ref) of 0xPolygon/kurtosis-pos: cold-start source, and the snapshot restore scripts'
+        required: false
+        # kurtosis-pos v1.4.9, pinned by commit because a tag can be moved.
+        default: 'dbdc77d1f7c5b0802d637b3b2a092afb11144c6c'
+  pull_request:
+    types: [labeled, synchronize, reopened]
+
+# One devnet per ref: two in parallel would exhaust Docker resources.
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+# The snapshot image is public and the tier uses no secrets, so the token
+# needs read access to this repository and nothing else.
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    name: e2e (kurtosis devnet)
+    # On a pull_request, run only when the PR carries `run-e2e`, and on a
+    # `labeled` event only when the label just added is `run-e2e` itself, so
+    # adding an unrelated label to a labelled PR does not start a second run.
+    if: >-
+      github.event_name != 'pull_request' ||
+      (contains(github.event.pull_request.labels.*.name, 'run-e2e') &&
+       (github.event.action != 'labeled' || github.event.label.name == 'run-e2e'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 85
+    env:
+      # `use_snapshot` is null on pull_request and schedule triggers, and
+      # `null == true` is false, so only a dispatch passing use_snapshot=true
+      # selects the snapshot; everything else cold-starts.
+      E2E_USE_SNAPSHOT: ${{ inputs.use_snapshot == true && '1' || '0' }}
+      # Bump the image digest and KURTOSIS_POS_REF together: the image is
+      # the `v1.4.9-anvil` build of kurtosis-pos dbdc77d1f7c5, and the restore
+      # scripts are taken from the same commit. Get the new digest with
+      # `docker buildx imagetools inspect ghcr.io/0xpolygon/pos-devnet-small:<tag>`.
+      # Pinned by digest because the tag is mutable.
+      E2E_SNAPSHOT_IMAGE: ghcr.io/0xpolygon/pos-devnet-small@sha256:6523b82cb3768d41917d5e2e624bc3dccab542df85a5a4226fcf45fb96add579
+      KURTOSIS_POS_REF: ${{ inputs.kurtosis_pos_ref || 'dbdc77d1f7c5b0802d637b3b2a092afb11144c6c' }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: .nvmrc
+          # .nvmrc pins a major; without check-latest the runner's cached
+          # patch wins.
+          check-latest: true
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Bring up devnet
+        run: bash .github/scripts/e2e-setup.sh
+
+      # Below the job's 85 minutes, so a hung suite still leaves time to dump
+      # the devnet's logs. The two-validator devnet runs the suite about ten
+      # minutes slower than one validator did; 55 keeps headroom over that, and
+      # the liveness watch still fails a stalled devnet within minutes.
+      # --down tears down the devnet this job booted.
+      - name: Run e2e suite
+        timeout-minutes: 55
+        run: pnpm run e2e -- --down
+
+      # A step timeout counts as failure(); cancelled() covers a run
+      # superseded by a newer push or stopped by hand.
+      - name: Collect devnet logs
+        if: failure() || cancelled()
+        run: bash .github/scripts/e2e-setup.sh dump
+
+      - name: Upload devnet dump
+        if: failure() || cancelled()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: devnet-dump-${{ github.run_id }}
+          path: /tmp/devnet-dump
+          retention-days: 7
