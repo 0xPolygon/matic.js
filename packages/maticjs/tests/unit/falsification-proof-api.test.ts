@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+
 import { createPublicClient, custom } from 'viem';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -321,5 +323,41 @@ describe('slow exit: the API block proof is unusable and the local block proof f
 
     expect(logger.warnings).lengthOf(1);
     expect(rootCause(loggedErr(logger.warnings[0]))).instanceOf(SyntaxError);
+  });
+});
+
+describe('slow exit: block-included in the production BigNumber JSON shape', () => {
+  /**
+   * The recorded production body (see the fixture) with only the two
+   * BigNumber `hex` values moved onto this stub chain's burn block, so the
+   * range holds the burn. Every field keeps its production wire shape.
+   */
+  const recorded: unknown = JSON.parse(
+    readFileSync(
+      new URL('../fixtures/proof-api/mainnet-block-included-97394752.json', import.meta.url),
+      'utf8'
+    )
+  );
+  const production = json({
+    ...(typeof recorded === 'object' && recorded !== null ? recorded : {}),
+    start: { type: 'BigNumber', hex: toQuantity(TX_BLOCK) },
+    end: { type: 'BigNumber', hex: toQuantity(TX_BLOCK + 1) }
+  });
+
+  it('uses the API range: no block-included fallback warning, and fast-merkle-proof is asked for that range', async () => {
+    stubProofApi({ 'block-included': production, 'fast-merkle-proof': htmlPage });
+    const logger = recordingLogger();
+    const pos = await posClient(new ProofChain({ burnMined: true }), logger);
+
+    await rejectionOf(pos.buildExitPayload(BURN_TX, LogEventSignature.Erc20Transfer, false));
+
+    // The only warning is the (deliberately broken) fast-merkle-proof one.
+    expect(logger.warnings.map((w) => w.msg)).deep.equals([
+      'fast-merkle-proof API failed; falling back to local construction'
+    ]);
+    const merkle = fetchedUrls.find((u) => u.includes('/fast-merkle-proof'));
+    expect(merkle)
+      .contains(`start=${TX_BLOCK}`)
+      .and.contains(`end=${TX_BLOCK + 1}`);
   });
 });
