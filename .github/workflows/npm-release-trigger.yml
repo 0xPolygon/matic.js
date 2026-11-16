@@ -19,6 +19,7 @@ permissions:
   contents: write
   pull-requests: write
   id-token: write # required for npm OIDC trusted publishing
+  attestations: write # the attest job stores build provenance attestations
 
 jobs:
   release:
