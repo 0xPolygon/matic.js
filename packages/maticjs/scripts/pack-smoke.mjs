@@ -1,0 +1,258 @@
+/**
+ * Packed-tarball smoke test — verifies the artifact npm consumers
+ * actually receive, not the workspace shape. This is the gate that the
+ * go-live review found missing: every packaging defect it caught
+ * (declaration files importing a devDep alias, exports conditions
+ * pointing at files not in the tarball, a dist-less tarball, broken
+ * subpath resolution) is invisible to unit tests and only reproduces
+ * against the packed package installed into a clean consumer.
+ *
+ * Flow: build → `pnpm pack` → install the tarball into two throwaway
+ * consumers (viem + ethers v6, and ethers v5 — separate consumers
+ * because the two ethers majors can't coexist) → for each: import every
+ * subpath at runtime, `require()` every subpath from a `.cjs` file
+ * (the README promises native require of ES modules), verify
+ * that a shipped error class is recognised by name (finder, `isMaticjsError`,
+ * legacy `type`), and typecheck ESM
+ * and CJS (`.cts`) probes with `skipLibCheck: false` so a broken
+ * shipped declaration fails loudly (the ethers-v5 d.ts bug was silent
+ * under the default `skipLibCheck: true`).
+ *
+ * Run locally: `pnpm run test:pack` (from packages/maticjs). CI runs it
+ * in the build matrix on every PR — hence plain JavaScript: the matrix
+ * includes Node 22, whose releases before 22.18 cannot execute TypeScript
+ * without a flag.
+ */
+import { execSync } from 'node:child_process';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const pkgDir = join(dirname(fileURLToPath(import.meta.url)), '..');
+const work = mkdtempSync(join(tmpdir(), 'maticjs-pack-smoke-'));
+
+const run = (cmd, cwd) => {
+  return execSync(cmd, { cwd, stdio: ['ignore', 'pipe', 'inherit'], encoding: 'utf8' });
+};
+
+// require() of ES modules is unflagged on Node >= 22.12 and 23+, which is
+// why `engines.node` is ">=22.12": every supported Node takes this path.
+// On an older Node, outside the supported range, the probe skips LOUDLY
+// rather than failing, so a local run still reports everything else.
+const [nodeMajor, nodeMinor] = process.versions.node.split('.').map(Number);
+const requireEsmFlag = (nodeMajor === 22 && nodeMinor >= 12) || nodeMajor >= 23 ? '' : null;
+
+// Run from a .cjs file so the consumer's `"type": "module"` can't turn
+// the probe into ESM: this is exactly what a CommonJS caller executes.
+const requireProbe = `
+const [spec, exportName] = process.argv.slice(2);
+const mod = require(spec);
+if (mod[exportName] === undefined) throw new Error(spec + ' has no export ' + exportName);
+console.log('ok');
+`;
+
+let failed = false;
+const fail = (msg) => {
+  console.error(`✗ ${msg}`);
+  failed = true;
+};
+const ok = (msg) => {
+  console.log(`✓ ${msg}`);
+};
+
+try {
+  // 1. Build + pack.
+  run('pnpm run build', pkgDir);
+  // Bridge entry must not load staking ABIs; staking entry must not load
+  // the bridge's MPT/RLP proof deps. Exits non-zero on a leak.
+  try {
+    run('node scripts/check-entry-isolation.mjs', pkgDir);
+    ok('entry isolation (bridge ↔ staking)');
+  } catch {
+    fail('entry isolation FAILED (see scripts/check-entry-isolation.mjs output above)');
+  }
+  const tarball = join(work, 'maticjs.tgz');
+  run(`pnpm pack --out ${tarball}`, pkgDir);
+  ok('built and packed');
+
+  const consumers = [
+    {
+      name: 'viem+ethers6',
+      installs: ['viem@^2', 'ethers@^6'],
+      imports: [
+        '@polygonlabs/maticjs',
+        '@polygonlabs/maticjs/abi',
+        '@polygonlabs/maticjs/viem',
+        '@polygonlabs/maticjs/ethers-v6',
+        '@polygonlabs/maticjs/staking'
+      ],
+      // spec → an export that must exist on the require()d namespace.
+      requires: {
+        '@polygonlabs/maticjs': 'POSClient',
+        '@polygonlabs/maticjs/abi': 'RootChainManagerABI',
+        '@polygonlabs/maticjs/viem': 'viemAdapter',
+        '@polygonlabs/maticjs/ethers-v6': 'ethersV6Adapter',
+        '@polygonlabs/maticjs/staking': 'StakingClient'
+      },
+      probe: `
+import { POSClient, ProofApiNotSetError, isMaticjsError, rootCause } from '@polygonlabs/maticjs';
+import type { POSClientConfig, TxResult } from '@polygonlabs/maticjs';
+import { viemAdapter } from '@polygonlabs/maticjs/viem';
+import { ethersV6Adapter } from '@polygonlabs/maticjs/ethers-v6';
+import { RootChainManagerABI } from '@polygonlabs/maticjs/abi';
+import { StakingClient, splitSignature } from '@polygonlabs/maticjs/staking';
+import type { StakingClientConfig } from '@polygonlabs/maticjs/staking';
+// Types must be real (not any): assigning a wrong shape must fail.
+// @ts-expect-error — viemAdapter requires a config object, not a number
+const bad = viemAdapter(42);
+const abiIsTyped: typeof RootChainManagerABI extends readonly unknown[] ? true : never = true;
+// @ts-expect-error — StakingClient.init requires a config object
+const badStaking = StakingClient.init(42);
+console.log(typeof POSClient, typeof ProofApiNotSetError, typeof isMaticjsError, typeof rootCause, typeof ethersV6Adapter, Boolean(bad), abiIsTyped);
+console.log(typeof splitSignature, Boolean(badStaking));
+export type { POSClientConfig, TxResult, StakingClientConfig };
+`
+    },
+    {
+      name: 'ethers5',
+      installs: ['ethers@^5.8.0'],
+      imports: [
+        '@polygonlabs/maticjs',
+        '@polygonlabs/maticjs/ethers-v5',
+        '@polygonlabs/maticjs/staking'
+      ],
+      requires: {
+        '@polygonlabs/maticjs': 'POSClient',
+        '@polygonlabs/maticjs/ethers-v5': 'ethersV5Adapter',
+        '@polygonlabs/maticjs/staking': 'StakingClient'
+      },
+      probe: `
+import { providers, Wallet } from 'ethers';
+import { ethersV5Adapter } from '@polygonlabs/maticjs/ethers-v5';
+import { StakingClient, splitSignature } from '@polygonlabs/maticjs/staking';
+import type { StakingClientConfig } from '@polygonlabs/maticjs/staking';
+// The shipped d.ts must resolve its 'ethers' import against the
+// CONSUMER'S ethers v5 — if it still references the internal
+// 'ethers-v5' alias, this file fails to typecheck (skipLibCheck off).
+const provider = new providers.JsonRpcProvider('http://127.0.0.1:1');
+const signer = Wallet.createRandom().connect(provider);
+const adapter = ethersV5Adapter({ provider, signer });
+// @ts-expect-error — adapter config requires a provider, not a string
+const bad = ethersV5Adapter({ provider: 'nope' });
+// @ts-expect-error — StakingClient.init requires a config object
+const badStaking = StakingClient.init(42);
+console.log(Boolean(adapter), Boolean(bad), typeof splitSignature, Boolean(badStaking));
+export type { StakingClientConfig };
+`
+    }
+  ];
+
+  for (const consumer of consumers) {
+    const dir = join(work, consumer.name);
+    run(`mkdir -p ${dir}`, work);
+    writeFileSync(
+      join(dir, 'package.json'),
+      JSON.stringify(
+        { name: `smoke-${consumer.name}`, private: true, type: 'module', version: '0.0.0' },
+        null,
+        2
+      )
+    );
+    // npm (not pnpm): plainest consumer install shape, no workspace magic.
+    run(
+      `npm install --no-audit --no-fund ${tarball} ${consumer.installs.join(' ')} typescript@^5 @types/node@^20`,
+      dir
+    );
+    ok(`${consumer.name}: installed from tarball`);
+
+    for (const spec of consumer.imports) {
+      try {
+        run(`node --input-type=module -e "await import('${spec}'); console.log('ok')"`, dir);
+        ok(`${consumer.name}: runtime import ${spec}`);
+      } catch {
+        fail(`${consumer.name}: runtime import FAILED for ${spec}`);
+      }
+    }
+
+    if (requireEsmFlag === null) {
+      console.warn(
+        `! ${consumer.name}: require() probe SKIPPED — Node ${process.versions.node} predates require() of ES modules`
+      );
+    } else {
+      writeFileSync(join(dir, 'require-probe.cjs'), requireProbe);
+      for (const [spec, exportName] of Object.entries(consumer.requires)) {
+        try {
+          run(`node ${requireEsmFlag}require-probe.cjs ${spec} ${exportName}`, dir);
+          ok(`${consumer.name}: require() ${spec}`);
+        } catch {
+          fail(`${consumer.name}: require() FAILED for ${spec}`);
+        }
+      }
+    }
+
+    // A shipped error class must be recognisable by name from the packed
+    // build: the finder, the guard, the legacy 3.x `type`, and `name` in JSON.
+    if (consumer.name === 'viem+ethers6') {
+      try {
+        run(
+          `node --input-type=module -e "` +
+            `import { ProofApiNotSetError, isMaticjsError } from '@polygonlabs/maticjs';` +
+            `const err = new ProofApiNotSetError('x');` +
+            `if (!ProofApiNotSetError.has(err)) throw new Error('finder');` +
+            `if (!isMaticjsError(err)) throw new Error('guard');` +
+            `if (err.type !== 'proof_api_not_set') throw new Error('legacy type');` +
+            `if (JSON.parse(JSON.stringify(err)).name !== 'ProofApiNotSetError') throw new Error('json name');` +
+            `console.log('ok')"`,
+          dir
+        );
+        ok(`${consumer.name}: error class recognised by name + legacy type`);
+      } catch {
+        fail(`${consumer.name}: error class recognition FAILED`);
+      }
+    }
+
+    writeFileSync(join(dir, 'probe.ts'), consumer.probe);
+    // CommonJS-side twin: a .cts whose imports compile to require(), so
+    // the shipped declarations must also resolve for CJS consumers.
+    const cjsNames = Object.entries(consumer.requires);
+    writeFileSync(
+      join(dir, 'probe-cjs.cts'),
+      cjsNames.map(([spec, name]) => `import { ${name} } from '${spec}';`).join('\n') +
+        `\nconsole.log(${cjsNames.map(([, name]) => name).join(', ')});\n`
+    );
+    writeFileSync(
+      join(dir, 'tsconfig.json'),
+      JSON.stringify(
+        {
+          compilerOptions: {
+            module: 'nodenext',
+            moduleResolution: 'nodenext',
+            target: 'es2023',
+            strict: true,
+            noEmit: true,
+            // Deliberately OFF: a broken shipped .d.ts must FAIL here.
+            skipLibCheck: false
+          },
+          include: ['probe.ts', 'probe-cjs.cts']
+        },
+        null,
+        2
+      )
+    );
+    try {
+      run('npx tsc -p tsconfig.json', dir);
+      ok(`${consumer.name}: ESM + CJS probes typecheck with skipLibCheck:false`);
+    } catch {
+      fail(`${consumer.name}: probe typecheck FAILED (broken shipped declarations?)`);
+    }
+  }
+} finally {
+  rmSync(work, { recursive: true, force: true });
+}
+
+if (failed) {
+  console.error('pack-smoke: FAILED');
+  process.exit(1);
+}
+console.log('pack-smoke: all checks passed');

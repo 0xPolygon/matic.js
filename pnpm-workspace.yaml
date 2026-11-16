@@ -1,8 +1,18 @@
 packages:
   - 'packages/*'
 
+# `@tsconfig/*` presets must be resolvable from the workspace root so
+# tsup's `load-tsconfig` (a transitive dep that runs from
+# `node_modules/.pnpm/...`) can follow `extends: "@tsconfig/node20"` in
+# each package's tsconfig.json. Without this hoist, `pnpm -r run build`
+# fails with `Cannot find module '@tsconfig/node20'` even though the
+# preset is correctly listed in the package's devDependencies.
+publicHoistPattern:
+  - '@tsconfig/*'
+
 blockExoticSubdeps: true
-minimumReleaseAge: 1440
+# Two-week cool-down for a funds-path SDK; internal scopes are excluded so first-party releases install immediately.
+minimumReleaseAge: 20160
 minimumReleaseAgeExclude:
   - '@polygonlabs/*'
   - '@maticnetwork/*'

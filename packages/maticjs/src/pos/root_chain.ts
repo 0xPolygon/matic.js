@@ -1,69 +1,119 @@
-import type { BaseBigNumber } from '..';
-import type { IPOSClientConfig } from '../interfaces';
-import type { TYPE_AMOUNT } from '../types';
-import type { Web3SideChainClient } from '../utils';
+/**
+ * `RootChain` — typed wrapper around the parent-chain `RootChain`
+ * contract. Composes a single `ContractCaller`; no inheritance.
+ *
+ * The methods exposed here are the small subset the bridge actually
+ * uses: the last-child-block reader (used by every `getCheckpointStatus`
+ * gate) and the binary-search slot finder. `POSBridgeHelpers` calls
+ * the same `ContractCaller` directly when building exit payloads, so
+ * this class is *not* the only entry point — but consumers of the
+ * public surface (the `POSClient.rootChain` getter) want a
+ * stable typed handle, hence the dedicated class.
+ */
 
-import { BaseToken, utils } from '../utils';
-import { findCheckpointSlot } from './find_checkpoint_slot';
+import type { BlockTag, Hex, Adapter } from '../adapter.js';
+import type { Logger } from '../logger.js';
 
-export class RootChain extends BaseToken<IPOSClientConfig> {
-  constructor(client_: Web3SideChainClient<IPOSClientConfig>, address: string) {
-    super(
-      {
-        address: address,
-        name: 'RootChain',
-        isParent: true
-      },
-      client_
-    );
-  }
+import { RootChainABI } from '../abi/index.js';
+import { CheckpointReadError, withOperation } from '../errors.js';
+import { ContractCaller } from '../internal/contract-caller.js';
+import { findCheckpointSlot, parseHeaderBlocksResult } from './find_checkpoint_slot.js';
 
-  method(methodName: string, ...args) {
-    return this.getContract().then((contract) => {
-      return contract.method(methodName, ...args);
+export interface RootChainConfig {
+  adapter: Adapter;
+  /** Resolves the deployed `RootChain` proxy address. */
+  getAddress: () => Promise<Hex>;
+  logger: Logger;
+  defaultFrom?: Hex;
+  /** Pinned id of the chain this contract is on; see `ContractCallerConfig.chainId`. */
+  chainId?: number;
+  /**
+   * L1 block tag every checkpoint read pins to. Defaults to `'safe'`:
+   * reading `getLastChildBlock` / `currentHeaderBlock` / `headerBlocks`
+   * at `'latest'` can observe an un-finalised checkpoint that is reorged
+   * out before the exit payload reaches L1. All reads in
+   * {@link findRootBlockFromChild} and {@link getLastChildBlock} share
+   * this tag so the existence check and the header lookup observe a
+   * consistent chain view.
+   */
+  defaultBlock?: BlockTag;
+}
+
+const DEFAULT_ROOT_CHAIN_BLOCK: BlockTag = 'safe';
+
+export class RootChain {
+  /**
+   * @internal — wiring hook for POSClient's construction of the bridge
+   * helpers. ContractCaller is not part of the public API contract and
+   * may change shape in any release; consumers should treat this
+   * member as non-existent.
+   */
+  readonly caller: ContractCaller;
+  readonly defaultBlock: BlockTag;
+
+  constructor(config: RootChainConfig) {
+    this.defaultBlock = config.defaultBlock ?? DEFAULT_ROOT_CHAIN_BLOCK;
+    this.caller = new ContractCaller({
+      adapter: config.adapter,
+      getAddress: config.getAddress,
+      abi: RootChainABI,
+      isParent: true,
+      logger: config.logger,
+      defaultFrom: config.defaultFrom,
+      chainId: config.chainId
     });
   }
 
-  private get defaultReadBlock() {
-    return this.client.config.rootChainDefaultBlock || 'safe';
-  }
-
-  getLastChildBlock() {
-    return this.method('getLastChildBlock').then((method) => {
-      return method.read<string>({}, this.defaultReadBlock);
-    });
-  }
-
-  async findRootBlockFromChild(childBlockNumber: TYPE_AMOUNT): Promise<BaseBigNumber> {
-    // All reads in this function pin to the same L1 block tag as
-    // `getLastChildBlock`, so the existence check (isCheckPointed_) and the
-    // header lookup observe a consistent chain view. Without this,
-    // `getLastChildBlock` read at e.g. `safe` while `currentHeaderBlock` and
-    // `headerBlocks` defaulted to whatever the provider used (effectively
-    // `latest`) — a window where the existence check could pass against an
-    // un-finalised checkpoint that was reorged out before the proof reached
-    // L1.
-    const block = this.defaultReadBlock;
-
-    return findCheckpointSlot({
-      bn: (value) => new utils.BN(value),
-      childBlockNumber: new utils.BN(childBlockNumber.toString()),
-      readCurrentHeaderBlock: async () => {
-        const m = await this.method('currentHeaderBlock');
-        const value = await m.read<string>({}, block);
-        return new utils.BN(value);
-      },
-      readHeaderBlocks: async (headerId) => {
-        const m = await this.method('headerBlocks', headerId.toString());
-        const headerBlock = await m.read<{ start: number | string; end: number | string }>(
-          {},
-          block
-        );
-        return {
-          start: new utils.BN(headerBlock.start),
-          end: new utils.BN(headerBlock.end)
-        };
+  /**
+   * Returns the highest child-chain block number that has been
+   * checkpointed onto the parent chain. The bridge uses this as the
+   * "is the burn tx safe to exit?" gate.
+   */
+  async getLastChildBlock(): Promise<bigint> {
+    return withOperation({
+      error: CheckpointReadError,
+      info: { operation: 'getLastChildBlock', mode: 'read', method: 'getLastChildBlock' },
+      run: async () => {
+        const v = await this.caller.read<bigint | string>('getLastChildBlock', [], {
+          blockTag: this.defaultBlock
+        });
+        return BigInt(v);
       }
+    });
+  }
+
+  /**
+   * Resolve the parent-chain header-block id that contains the given
+   * child-chain block number. Wraps the binary-search helper.
+   *
+   * Both the existence check (`isCheckPointed_`) and the lookups
+   * inside `findCheckpointSlot` should observe the same L1 block tag —
+   * `defaultBlock` from the constructor is forwarded to every read
+   * here so the search and the existence check see a consistent view.
+   */
+  async findRootBlockFromChild(childBlockNumber: bigint): Promise<bigint> {
+    const blockTag = this.defaultBlock;
+    return withOperation({
+      error: CheckpointReadError,
+      info: { operation: 'findRootBlockFromChild', mode: 'read' },
+      run: () =>
+        findCheckpointSlot({
+          childBlockNumber,
+          readCurrentHeaderBlock: async () => {
+            const v = await this.caller.read<bigint | string>('currentHeaderBlock', [], {
+              blockTag
+            });
+            return BigInt(v);
+          },
+          readHeaderBlocks: async (headerId: bigint) => {
+            const headerBlock = await this.caller.read<unknown>(
+              'headerBlocks',
+              [`0x${headerId.toString(16)}`],
+              { blockTag }
+            );
+            return parseHeaderBlocksResult(headerBlock);
+          }
+        })
     });
   }
 }

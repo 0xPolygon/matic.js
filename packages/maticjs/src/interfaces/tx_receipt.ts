@@ -32,7 +32,7 @@ export interface ILog {
 export interface IEventLog {
   event: string;
   address: string;
-  returnValues: any;
+  returnValues: Record<string, unknown>;
   logIndex: number;
   transactionIndex: number;
   transactionHash: string;

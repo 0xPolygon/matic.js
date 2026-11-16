@@ -15,6 +15,14 @@ base_branch=$(grep '"baseBranch"' .changeset/config.json | sed 's/.*"baseBranch"
 # If origin/<base_branch> doesn't exist yet (brand-new repo), nothing to compare against.
 git rev-parse --verify "origin/$base_branch" > /dev/null 2>&1 || exit 0
 
+# Git sets GIT_DIR / GIT_WORK_TREE to the worktree's gitdir when running hooks
+# inside a linked worktree (e.g. one created via `git worktree add`). Those vars
+# break `changeset status` — it invokes its own `git` subprocesses, which then
+# read from the linked gitdir rather than the worktree's actual tree, and report
+# "no changesets found" even when a valid one exists. Unset both so changeset's
+# git calls resolve against the CWD the hook is running in.
+unset GIT_DIR GIT_WORK_TREE
+
 if ! pnpm exec changeset status --since="origin/$base_branch" 2>/dev/null; then
   echo ""
   echo "  No changeset found. Add one before pushing:"

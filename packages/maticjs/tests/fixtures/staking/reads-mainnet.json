@@ -1,0 +1,162 @@
+{
+  "PROVENANCE": "Staking reads on Ethereum mainnet at finalized block 26343957, recorded 2026-11-04 through the built SDK (viem adapter) with blockTag pinned to that block. Validator 1; the ValidatorShare reads target its contract (validatorShareAddress). Every value is chain state at a finalized block and never changes. Re-record with scripts/record-staking-read-fixtures.mjs only after an intentional decoding change.",
+  "network": "mainnet",
+  "rpc": "https://eth.drpc.org",
+  "blockNumber": 26343957,
+  "addresses": {
+    "StakeManager": "0x5e3Ef299fDDf15eAa0432E6e66473ace8c13D908",
+    "MaticToken": "0x7D1AfA7B718fb893dB30A3aBc0Cfc608AaCfeBB0",
+    "PolToken": "0x455e53CBB86018Ac2B8092FdCd39d8444aFFC3F6"
+  },
+  "validatorShareAddress": "0xc1D2e4487FF42A5971a9F4C47914D1Ac0Cb16617",
+  "reads": [
+    {
+      "target": "stakeManager",
+      "method": "getValidator",
+      "params": {
+        "validatorId": "1"
+      },
+      "expected": {
+        "amount": "14498000000000000000000",
+        "reward": "1",
+        "activationEpoch": "1",
+        "deactivationEpoch": "42122",
+        "jailTime": "0",
+        "signer": "0x5973918275C01F50555d44e92c9d9b353CaDAD54",
+        "contractAddress": "0xc1D2e4487FF42A5971a9F4C47914D1Ac0Cb16617",
+        "status": "1",
+        "commissionRate": "0",
+        "lastCommissionUpdate": "0",
+        "delegatorsReward": "1",
+        "delegatedAmount": "329833579965609056038234",
+        "initialRewardPerStake": "2071655764050863795357885"
+      }
+    },
+    {
+      "target": "stakeManager",
+      "method": "getValidatorContract",
+      "params": {
+        "validatorId": "1"
+      },
+      "expected": "0xc1D2e4487FF42A5971a9F4C47914D1Ac0Cb16617"
+    },
+    {
+      "target": "stakeManager",
+      "method": "getDelegatedAmount",
+      "params": {
+        "validatorId": "1"
+      },
+      "expected": "329833579965609056038234"
+    },
+    {
+      "target": "stakeManager",
+      "method": "getMinDeposit",
+      "params": null,
+      "expected": "100000000000000000000000"
+    },
+    {
+      "target": "stakeManager",
+      "method": "getMinHeimdallFee",
+      "params": null,
+      "expected": "1000000000000000000"
+    },
+    {
+      "target": "stakeManager",
+      "method": "getWithdrawalDelay",
+      "params": null,
+      "expected": "80"
+    },
+    {
+      "target": "stakeManager",
+      "method": "getCurrentEpoch",
+      "params": null,
+      "expected": "116011"
+    },
+    {
+      "target": "stakeManager",
+      "method": "getTotalStaked",
+      "params": null,
+      "expected": "3725080397452240461280479543"
+    },
+    {
+      "target": "stakeManager",
+      "method": "isLocked",
+      "params": null,
+      "expected": false
+    },
+    {
+      "target": "validatorShare",
+      "method": "getExchangeRate",
+      "params": null,
+      "expected": "100"
+    },
+    {
+      "target": "validatorShare",
+      "method": "getMinAmount",
+      "params": null,
+      "expected": "1000000000000000000"
+    },
+    {
+      "target": "validatorShare",
+      "method": "getValidatorId",
+      "params": null,
+      "expected": "1"
+    },
+    {
+      "target": "validatorShare",
+      "method": "getUnbondNonce",
+      "params": {
+        "user": "0x0000000000000000000000000000000000000000"
+      },
+      "expected": "0"
+    },
+    {
+      "target": "validatorShare",
+      "method": "getLiquidRewards",
+      "params": {
+        "user": "0x0000000000000000000000000000000000000000"
+      },
+      "expected": "0"
+    },
+    {
+      "target": "validatorShare",
+      "method": "getBalance",
+      "params": {
+        "user": "0x0000000000000000000000000000000000000000"
+      },
+      "expected": "0"
+    },
+    {
+      "target": "pol",
+      "method": "getBalance",
+      "params": {
+        "user": "0x5e3Ef299fDDf15eAa0432E6e66473ace8c13D908"
+      },
+      "expected": "3894644066431194607336255796"
+    },
+    {
+      "target": "pol",
+      "method": "getNonce",
+      "params": {
+        "owner": "0x0000000000000000000000000000000000000000"
+      },
+      "expected": "0"
+    },
+    {
+      "target": "matic",
+      "method": "getBalance",
+      "params": {
+        "user": "0x5e3Ef299fDDf15eAa0432E6e66473ace8c13D908"
+      },
+      "expected": "0"
+    },
+    {
+      "target": "pol",
+      "method": "getAllowanceForStakeManager",
+      "params": {
+        "owner": "0x0000000000000000000000000000000000000000"
+      },
+      "expected": "0"
+    }
+  ]
+}

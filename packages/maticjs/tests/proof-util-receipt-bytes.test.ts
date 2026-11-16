@@ -27,19 +27,18 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { Trie } from '@ethereumjs/trie';
-import rlp from 'rlp';
+import { MerklePatriciaTrie as Trie } from '@ethereumjs/mpt';
+import { RLP } from '@ethereumjs/rlp';
 import { describe, expect, it } from 'vitest';
 
-import type { ITransactionReceipt } from '../src/interfaces';
+import type { ITransactionReceipt } from '../src/interfaces/index.js';
 
-import { ProofUtil } from '../src/utils/proof_util';
+import { bytesToHex } from '../src/utils/bytes.js';
+import { ProofUtil } from '../src/utils/proof_util.js';
 
 const HEX_BLOOM_256 = '0x' + '00'.repeat(256);
 
-const baseReceipt = (
-  overrides: Partial<ITransactionReceipt> = {}
-): ITransactionReceipt => ({
+const baseReceipt = (overrides: Partial<ITransactionReceipt> = {}): ITransactionReceipt => ({
   transactionHash: '0x' + '00'.repeat(32),
   transactionIndex: 0,
   blockHash: '0x' + '00'.repeat(32),
@@ -58,14 +57,13 @@ const baseReceipt = (
 });
 
 /** Decode the encoded receipt body, transparently skipping any EIP-2718 type prefix. */
-function decodeReceiptBody(encoded: Buffer | Uint8Array): unknown[] {
-  const bytes = encoded instanceof Uint8Array ? Buffer.from(encoded) : encoded;
+function decodeReceiptBody(bytes: Uint8Array): unknown[] {
   // Typed receipts: a leading byte < 0xc0 is the EIP-2718 type prefix; the
   // RLP list starts at byte 1. Legacy receipts begin with the RLP list header
   // (0xc0..0xff).
   const first = bytes[0]!;
   const body = first >= 0xc0 ? bytes : bytes.subarray(1);
-  return rlp.decode(body) as unknown as unknown[];
+  return RLP.decode(body) as unknown as unknown[];
 }
 
 describe('ProofUtil.getReceiptBytes — legacy receipts (status field via string trick)', () => {
@@ -84,15 +82,15 @@ describe('ProofUtil.getReceiptBytes — legacy receipts (status field via string
     const bytes = ProofUtil.getReceiptBytes(baseReceipt({ cumulativeGasUsed: 0x21000 }));
     const decoded = decodeReceiptBody(bytes);
     const cumulativeGasUsedBytes = decoded[1] as Uint8Array;
-    expect(Buffer.from(cumulativeGasUsedBytes).toString('hex')).to.equal('021000');
+    expect(bytesToHex(cumulativeGasUsedBytes)).to.equal('021000');
   });
 
   it('produces a valid RLP receipt that round-trips via decode/encode unchanged', () => {
     const receipt = baseReceipt({ cumulativeGasUsed: 0 });
     const bytes = ProofUtil.getReceiptBytes(receipt);
-    const decoded = rlp.decode(bytes);
-    const reEncoded = Buffer.from(rlp.encode(decoded));
-    expect(Buffer.from(bytes).toString('hex')).to.equal(reEncoded.toString('hex'));
+    const decoded = RLP.decode(bytes);
+    const reEncoded = RLP.encode(decoded);
+    expect(bytesToHex(bytes)).to.equal(bytesToHex(reEncoded));
   });
 
   it('still encodes status=false canonically as 0x80 (regression guard for the string trick)', () => {
@@ -100,9 +98,7 @@ describe('ProofUtil.getReceiptBytes — legacy receipts (status field via string
     // becomes an empty buffer → canonical 0x80. Combined with cumulativeGasUsed=0
     // both zero-valued integer fields must encode identically as the empty byte
     // string. A future refactor that changes either field should fail here.
-    const bytes = ProofUtil.getReceiptBytes(
-      baseReceipt({ status: false, cumulativeGasUsed: 0 })
-    );
+    const bytes = ProofUtil.getReceiptBytes(baseReceipt({ status: false, cumulativeGasUsed: 0 }));
     const decoded = decodeReceiptBody(bytes);
     expect((decoded[0] as Uint8Array).length, 'status canonical 0').to.equal(0);
     expect((decoded[1] as Uint8Array).length, 'cumulativeGasUsed canonical 0').to.equal(0);
@@ -119,15 +115,13 @@ describe('ProofUtil.getReceiptBytes — legacy receipts (status field via string
       blockHash: '0x' + '00'.repeat(32),
       blockNumber: 0
     };
-    const bytes = ProofUtil.getReceiptBytes(
-      baseReceipt({ cumulativeGasUsed: 0, logs: [log] })
-    );
+    const bytes = ProofUtil.getReceiptBytes(baseReceipt({ cumulativeGasUsed: 0, logs: [log] }));
     const decoded = decodeReceiptBody(bytes) as [Uint8Array, Uint8Array, Uint8Array, unknown[]];
     expect(decoded[3], 'logs array preserved').to.have.length(1);
     const [encodedLog] = decoded[3] as Array<[Uint8Array, Uint8Array[], Uint8Array]>;
-    expect(Buffer.from(encodedLog![0]).toString('hex'), 'log address').to.equal('11'.repeat(20));
+    expect(bytesToHex(encodedLog![0]), 'log address').to.equal('11'.repeat(20));
     expect(encodedLog![1], 'log topics').to.have.length(2);
-    expect(Buffer.from(encodedLog![2]).toString('hex'), 'log data').to.equal('cc'.repeat(64));
+    expect(bytesToHex(encodedLog![2]), 'log data').to.equal('cc'.repeat(64));
   });
 });
 
@@ -139,9 +133,7 @@ describe('ProofUtil.getReceiptBytes — typed receipts (EIP-2718)', () => {
     // bytes start with `7ff90734 01 80 b9...` (canonical good) versus
     // `7ff90734 01 00 b9...` (current, buggy). We assert here that the new
     // encoding matches the canonical good prefix structurally.
-    const bytes = ProofUtil.getReceiptBytes(
-      baseReceipt({ type: '0x7f', cumulativeGasUsed: 0 })
-    );
+    const bytes = ProofUtil.getReceiptBytes(baseReceipt({ type: '0x7f', cumulativeGasUsed: 0 }));
     expect(bytes[0], 'EIP-2718 type prefix preserved').to.equal(0x7f);
     const decoded = decodeReceiptBody(bytes);
     expect(decoded).to.have.length(4);
@@ -150,9 +142,7 @@ describe('ProofUtil.getReceiptBytes — typed receipts (EIP-2718)', () => {
   });
 
   it('encodes a type=0x2 (EIP-1559) receipt with cumulativeGasUsed=0 canonically', () => {
-    const bytes = ProofUtil.getReceiptBytes(
-      baseReceipt({ type: '0x2', cumulativeGasUsed: 0 })
-    );
+    const bytes = ProofUtil.getReceiptBytes(baseReceipt({ type: '0x2', cumulativeGasUsed: 0 }));
     expect(bytes[0], 'type=0x02 prefix').to.equal(0x02);
     const decoded = decodeReceiptBody(bytes);
     expect((decoded[1] as Uint8Array).length, 'cumulativeGasUsed=0 canonical').to.equal(0);
@@ -170,8 +160,7 @@ describe('ProofUtil.getReceiptBytes — Amoy block 37337056 (real on-chain fixtu
   const fixture = JSON.parse(
     readFileSync(join(__dirname, 'fixtures', 'amoy-block-37337056-receipt.json'), 'utf8')
   );
-  const RECEIPTS_ROOT_HEX =
-    'b25e9efe7b0a26e11f8927e2c85f57e62e195136270225c7d1f4a129bf3f475c';
+  const RECEIPTS_ROOT_HEX = 'b25e9efe7b0a26e11f8927e2c85f57e62e195136270225c7d1f4a129bf3f475c';
 
   // The Amoy RPC returns hex-encoded numeric fields; coerce to the shape
   // ITransactionReceipt expects (cumulativeGasUsed: number, status: boolean).
@@ -183,12 +172,19 @@ describe('ProofUtil.getReceiptBytes — Amoy block 37337056 (real on-chain fixtu
     blockNumber: parseInt(fixture.blockNumber, 16),
     gasUsed: parseInt(fixture.gasUsed, 16),
     type: fixture.type,
-    logs: fixture.logs.map((l: { logIndex: string; transactionIndex: string; blockNumber: string; [k: string]: unknown }) => ({
-      ...l,
-      logIndex: parseInt(l.logIndex, 16),
-      transactionIndex: parseInt(l.transactionIndex, 16),
-      blockNumber: parseInt(l.blockNumber, 16)
-    }))
+    logs: fixture.logs.map(
+      (l: {
+        logIndex: string;
+        transactionIndex: string;
+        blockNumber: string;
+        [k: string]: unknown;
+      }) => ({
+        ...l,
+        logIndex: parseInt(l.logIndex, 16),
+        transactionIndex: parseInt(l.transactionIndex, 16),
+        blockNumber: parseInt(l.blockNumber, 16)
+      })
+    )
   };
 
   it('the captured fixture preserves the production-failure shape (sanity check)', () => {
@@ -208,7 +204,7 @@ describe('ProofUtil.getReceiptBytes — Amoy block 37337056 (real on-chain fixtu
     expect(decoded[3], 'logs array preserved').to.have.length(7);
   });
 
-  it("matches the on-chain receiptsRoot (single-leaf trie keyed by rlp(transactionIndex))", async () => {
+  it('matches the on-chain receiptsRoot (single-leaf trie keyed by rlp(transactionIndex))', async () => {
     // For a 1-tx block, the Patricia trie has one leaf: key = rlp(0) = 0x80,
     // value = the encoded receipt. The trie root must equal block.receiptsRoot
     // captured at fixture-creation time. This is the strongest possible
@@ -216,8 +212,8 @@ describe('ProofUtil.getReceiptBytes — Amoy block 37337056 (real on-chain fixtu
     // receipt produces a different keccak and a root mismatch.
     const bytes = ProofUtil.getReceiptBytes(receipt);
     const trie = new Trie();
-    await trie.put(rlp.encode(receipt.transactionIndex) as Uint8Array, bytes);
-    const rootHex = Buffer.from(trie.root()).toString('hex');
+    await trie.put(RLP.encode(receipt.transactionIndex), bytes);
+    const rootHex = bytesToHex(trie.root());
     expect(rootHex).to.equal(RECEIPTS_ROOT_HEX);
   });
 });
