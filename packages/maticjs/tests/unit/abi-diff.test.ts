@@ -50,7 +50,7 @@ interface AbiDiffModule {
   }) => Promise<Overlap[]>;
   renderMarkdown: (
     result: { diff: Diff; flagged: Flagged[]; overlap: Overlap[] },
-    params: { from: string; to: string }
+    params: { from: string; to: string; changesetLevel?: 'minor' | 'patch' | 'empty' }
   ) => string;
 }
 
@@ -231,11 +231,26 @@ describe('findHandCarriedOverlap', () => {
 });
 
 describe('renderMarkdown', () => {
-  const render = async (used: Set<string>) => {
+  const render = async (used: Set<string>, changesetLevel?: 'minor' | 'patch' | 'empty') => {
     const { diff } = await sample();
     const result = { diff, flagged: flagUsed({ diff, used }), overlap: [] };
-    return renderMarkdown(result, { from: '1.1.1', to: '1.2.0' });
+    return renderMarkdown(result, { from: '1.1.1', to: '1.2.0', changesetLevel });
   };
+
+  it('states the changeset level it is given, and none when absent', async () => {
+    const section = async (level?: 'minor' | 'patch' | 'empty') =>
+      (await render(new Set(), level)).split('## Changeset\n')[1]?.split('\n')[0] ?? '';
+    expect(await section('minor')).to.match(
+      /^`minor` for `@polygonlabs\/maticjs`, because .*lose or change/
+    );
+    expect(await section('patch')).to.match(
+      /^`patch` for `@polygonlabs\/maticjs`, because .*only gain/
+    );
+    expect(await section('empty')).to.match(/^Empty, because no published file changed/);
+    const absent = await section();
+    expect(absent).to.not.match(/`minor`|`patch`|Empty/);
+    expect(absent).to.include('set by the changeset file');
+  });
 
   it('is byte-stable across calls', async () => {
     const used = collectUsedNames({ srcDir, excludeDirs: [] });

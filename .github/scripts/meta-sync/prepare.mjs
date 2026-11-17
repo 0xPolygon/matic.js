@@ -321,18 +321,33 @@ const changesetLines = ({ name, result }) => {
 };
 
 /**
- * Changeset text (rule: never minor or major, a person raises the level).
+ * `minor` when the diff removes or changes any item in a vendored ABI, or
+ * drops a whole contract; `patch` otherwise. Never `major`.
  *
- * Empty when no published file moved: only a devDependency and the lockfile
- * changed, so there is nothing to release. `patch` otherwise, because the
- * published ABI files changed. The first body line is prose, not a heading:
- * the changelog prefixes it with a commit hash.
+ * The ABIs are the package's public `./abi` export, so a removed or changed
+ * item breaks a consumer who used it through that export. The SDK's major
+ * version is reserved for its own API, so the automation stops at minor.
+ * Additions, format-only changes and a new contract are not breaking.
+ */
+export const changesetLevel = ({ diff }) => {
+  if (!diff) return 'patch';
+  const breaking =
+    diff.onlyBefore.length > 0 ||
+    Object.values(diff.contracts).some((r) => r.removed.length > 0 || r.changed.length > 0);
+  return breaking ? 'minor' : 'patch';
+};
+
+/**
+ * Changeset text. Empty when no published file moved: only a devDependency
+ * and the lockfile changed, so there is nothing to release. Otherwise the
+ * level comes from `changesetLevel`. The first body line is prose, not a
+ * heading: the changelog prefixes it with a commit hash.
  */
 export const buildChangeset = ({ target, abiChanged, diff }) => {
   if (!abiChanged) return '---\n---\n';
   const lines = [
     '---',
-    "'@polygonlabs/maticjs': patch",
+    `'@polygonlabs/maticjs': ${changesetLevel({ diff })}`,
     '---',
     '',
     `Update the vendored contract ABIs to \`${META}\` ${target}.`,
@@ -459,7 +474,7 @@ const assertOutDirUsable = ({ out, repoRoot }) => {
   if (existsSync(out) && readdirSync(out).length > 0) throw new Error(`--out ${out} is not empty`);
 };
 
-const computeReport = async ({ repoRoot, snapshotDir, from, to }) => {
+const computeReport = async ({ repoRoot, snapshotDir, from, to, abiChanged }) => {
   // Loaded here, not at module top, so --help and the failure paths before
   // any install do not depend on the package being installed.
   const diffModule = await import(
@@ -481,7 +496,13 @@ const computeReport = async ({ repoRoot, snapshotDir, from, to }) => {
       ? await diffModule.findHandCarriedOverlap({ generatedDir: abiDir, handFile })
       : []
   };
-  return { result, markdown: diffModule.renderMarkdown(result, { from, to }) };
+  // One level for the changeset file and the pull-request body, so the two
+  // cannot disagree.
+  const level = abiChanged ? changesetLevel({ diff }) : 'empty';
+  return {
+    result,
+    markdown: diffModule.renderMarkdown(result, { from, to, changesetLevel: level })
+  };
 };
 
 const gitStatus = ({ repoRoot }) =>
@@ -573,7 +594,8 @@ const main = async () => {
     repoRoot,
     snapshotDir,
     from: installed,
-    to: target
+    to: target,
+    abiChanged
   });
   const addressChanges = changedAddressKeys({
     before: addressesBefore,

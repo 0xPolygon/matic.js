@@ -294,10 +294,28 @@ const itemLine = (item) =>
 const total = (r) => r.added.length + r.removed.length + r.changed.length;
 
 /**
+ * The caller owns the changeset level (the changeset file is written from the
+ * same value), so the body only states it. Absent, as in the standalone CLI,
+ * no level is asserted.
+ */
+const changesetSentence = (level) => {
+  if (level === 'minor') {
+    return '`minor` for `@polygonlabs/maticjs`, because the published ABI files lose or change an item, which breaks anyone using it through the `./abi` export (the major version is reserved for the SDK API). A person may still adjust the level.';
+  }
+  if (level === 'patch') {
+    return '`patch` for `@polygonlabs/maticjs`, because the published ABI files only gain items or change format. A person may still adjust the level.';
+  }
+  if (level === 'empty') {
+    return 'Empty, because no published file changed. A person may still adjust the level.';
+  }
+  return 'The level is set by the changeset file in this pull request. A person may still adjust it.';
+};
+
+/**
  * The pull-request body section. Deterministic: contracts and items sorted
  * by signature, no timestamps, so a rerun on the same input is byte-equal.
  */
-export const renderMarkdown = (result, { from, to }) => {
+export const renderMarkdown = (result, { from, to, changesetLevel }) => {
   const { diff, flagged, overlap } = result;
   const entries = Object.entries(diff.contracts);
   const touched = entries.filter(([, r]) => total(r) > 0 || r.formatOnly > 0);
@@ -365,13 +383,9 @@ export const renderMarkdown = (result, { from, to }) => {
       ''
     );
   }
-  const publishedChange =
-    touched.length > 0 || diff.onlyAfter.length > 0 || diff.onlyBefore.length > 0;
   lines.push(
     '## Changeset',
-    publishedChange
-      ? '`patch` for `@polygonlabs/maticjs`, because the published ABI files changed. A person raises the level if an item above needs it.'
-      : 'Empty, because no published file changed. A person raises the level if an item above needs it.',
+    changesetSentence(changesetLevel),
     '',
     '## Before merging',
     '- Read the flagged items, if any.',

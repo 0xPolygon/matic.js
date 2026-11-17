@@ -86,13 +86,17 @@ The script never merges, approves, marks ready, deletes a branch or comments.
 
 ## The changeset and the warning in the pull request
 
-The changeset is `patch` for `@polygonlabs/maticjs` when anything under
-`src/abi` changed, because the published files changed. It is empty when only
-the devDependency and the lockfile moved. It is never `minor` or `major`.
+The changeset is empty when only the devDependency and the lockfile moved.
+When anything under `src/abi` changed it is `minor` for `@polygonlabs/maticjs`
+if the diff removes or changes an item in a vendored ABI (or drops a whole
+contract), and `patch` if it only adds items or changes format. The ABIs are
+the package's public `./abi` export, so a removed or changed item breaks a
+consumer who used it; the major version is reserved for the SDK's own API, so
+the automation never picks `major`. A person may still adjust the level.
 
 When the pull request body shows "Needs a decision before merge", a removed or
 changed ABI item matches a name the SDK source uses. A person must read the
-listed items, fix the calling code or confirm it is unaffected, and set the
+listed items, fix the calling code or confirm it is unaffected, and confirm the
 changeset level.
 
 ## Running it locally
