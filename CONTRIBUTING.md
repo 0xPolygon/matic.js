@@ -26,3 +26,7 @@ _Note: Keep commit message meaningful for your team members to understand while 
 2. Create a merge/pull request against `master` branch.
 
 _Note: Don't push changes to `master` branch directly. Write proper description of the changes while creating merge/pull request_
+
+## Updating `@polygonlabs/meta`
+
+Do not bump `@polygonlabs/meta` by hand or merge a Dependabot bump of it. The `meta sync` workflow (`.github/workflows/meta-sync.yml`) opens a draft pull request daily when a new release exists, with the regenerated ABIs, a changeset and a summary of what moved. See [`.github/scripts/meta-sync/README.md`](.github/scripts/meta-sync/README.md) for how it works and how to rehearse it.
