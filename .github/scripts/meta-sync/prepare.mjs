@@ -53,13 +53,39 @@ export const ALLOWLIST_TEXT = [
   '.changeset/meta-sync-*.md'
 ];
 
+// The nine proxy and token addresses `live-cdn.live.test.ts` compares with
+// the live index, on both networks. A meta release that moves one of them
+// changes where the SDK sends transactions, so it is worth a person's time
+// even when no ABI item the source uses changed.
+const ADDRESS_NETWORKS = [
+  { network: 'mainnet', file: 'network/mainnet/v1/index.json' },
+  { network: 'amoy', file: 'network/testnet/amoy/index.json' }
+];
+
+const ADDRESS_KEYS = [
+  { key: 'RootChainManagerProxy', path: ['Main', 'POSContracts', 'RootChainManagerProxy'] },
+  { key: 'ERC20PredicateProxy', path: ['Main', 'POSContracts', 'ERC20PredicateProxy'] },
+  { key: 'ERC721PredicateProxy', path: ['Main', 'POSContracts', 'ERC721PredicateProxy'] },
+  { key: 'ERC1155PredicateProxy', path: ['Main', 'POSContracts', 'ERC1155PredicateProxy'] },
+  { key: 'EtherPredicateProxy', path: ['Main', 'POSContracts', 'EtherPredicateProxy'] },
+  { key: 'RootChainProxy', path: ['Main', 'Contracts', 'RootChainProxy'] },
+  { key: 'StakeManagerProxy', path: ['Main', 'Contracts', 'StakeManagerProxy'] },
+  { key: 'Tokens.MaticToken', path: ['Main', 'Contracts', 'Tokens', 'MaticToken'] },
+  { key: 'PolygonEcosystemToken', path: ['Main', 'Contracts', 'PolygonEcosystemToken'] }
+];
+
+const OPEN_WHEN_VALUES = ['relevant', 'any'];
+
 const USAGE =
   'Usage: node .github/scripts/meta-sync/prepare.mjs [--target <version>] [--allow-downgrade] [--out <dir>]';
 
 const HELP = [
   USAGE,
   '',
-  'Reads META_SYNC_TARGET, META_SYNC_DRY_RUN and GITHUB_OUTPUT from the environment.',
+  'Reads META_SYNC_TARGET, META_SYNC_DRY_RUN, META_SYNC_OPEN_WHEN, GITHUB_OUTPUT and',
+  'GITHUB_STEP_SUMMARY from the environment.',
+  `META_SYNC_OPEN_WHEN (open_when) is ${OPEN_WHEN_VALUES.join(' or ')}, default relevant: with relevant, a`,
+  'bump that touches nothing the SDK depends on is summarised but opens no pull request.',
   'Mutates the working tree it runs in; run it in a throwaway worktree.',
   '',
   'Only these paths may change, anything else fails the run:',
@@ -191,6 +217,88 @@ export const decideTarget = ({
   }
   return { action: 'bump', target: latest };
 };
+
+/**
+ * `open_when` decides whether a bump that is not relevant still opens a pull
+ * request. Empty means the default (a scheduled run has no input); anything
+ * else unknown fails the run rather than quietly choosing a behaviour.
+ */
+export const parseOpenWhen = ({ value }) => {
+  const trimmed = (value ?? '').trim();
+  if (trimmed === '') return 'relevant';
+  if (!OPEN_WHEN_VALUES.includes(trimmed)) {
+    throw new Error(`open_when "${trimmed}" is not one of: ${OPEN_WHEN_VALUES.join(', ')}`);
+  }
+  return trimmed;
+};
+
+const readPath = ({ root, path }) => {
+  let node = root;
+  for (const part of path) {
+    if (node === null || typeof node !== 'object') return undefined;
+    node = node[part];
+  }
+  return node;
+};
+
+/**
+ * The nine proxy and token addresses, read by path from the installed
+ * package's network index JSON (the tree the live index is served from), so
+ * nothing from the package is executed to read them. Keys look like
+ * `mainnet.RootChainManagerProxy`; a missing key reads as undefined, which
+ * counts as a change if the other side has it.
+ */
+export const readAddressKeys = ({ metaDir }) => {
+  const values = {};
+  for (const { network, file } of ADDRESS_NETWORKS) {
+    const root = JSON.parse(readFileSync(join(metaDir, file), 'utf8'));
+    for (const { key, path } of ADDRESS_KEYS) {
+      values[`${network}.${key}`] = readPath({ root, path });
+    }
+  }
+  return values;
+};
+
+/** Keys whose value differs between two `readAddressKeys` results. */
+export const changedAddressKeys = ({ before, after }) =>
+  [...new Set([...Object.keys(before), ...Object.keys(after)])].filter(
+    (key) => before[key] !== after[key]
+  );
+
+/**
+ * Whether a bump touches something a person must look at. Any one reason is
+ * enough: the diff removed or changed an item the SDK source uses, a
+ * hand-carried fragment is now published (so it can be folded in), or a
+ * proxy or token address moved. Everything else (added items, format-only
+ * changes, unused removals) is routine and can wait for the next relevant
+ * release.
+ */
+export const computeRelevance = ({ flagged, overlap, addressChanges }) => {
+  const reasons = [];
+  if (flagged.length > 0) {
+    reasons.push(
+      `${flagged.length} removed or changed ABI item(s) are referenced in the SDK source`
+    );
+  }
+  if (overlap.length > 0) {
+    reasons.push(`${overlap.length} hand-carried fragment(s) are now published by meta`);
+  }
+  if (addressChanges.length > 0) {
+    reasons.push(`proxy or token address changed: ${addressChanges.join(', ')}`);
+  }
+  return { relevant: reasons.length > 0, reasons };
+};
+
+/** The pull-request body: the ABI summary plus why a pull request exists. */
+export const buildPrBody = ({ markdown, openWhen, reasons }) => {
+  const why =
+    reasons.length > 0 ? reasons.map((r) => `- ${r}`) : [`- opened because open_when=${openWhen}`];
+  return `${markdown.trimEnd()}\n\n### Why this pull request was opened\n${why.join('\n')}\n`;
+};
+
+/** Job summary when a real bump is deliberately not turned into a pull request. */
+export const buildSkipSummary = ({ markdown, from, to }) =>
+  `${markdown.trimEnd()}\n\nNo pull request was opened for ${META} ${from} -> ${to}: nothing in it is referenced by the SDK source, no hand-carried fragment is now published and no proxy or token address changed. Dispatch with open_when=any to pull it in anyway.\n`;
 
 const MAX_SIGNATURES = 12;
 
@@ -395,6 +503,7 @@ const main = async () => {
   const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
   const requested = (args.target ?? process.env.META_SYNC_TARGET ?? '').trim();
   const dryRun = isTrue(process.env.META_SYNC_DRY_RUN ?? '');
+  const openWhen = parseOpenWhen({ value: process.env.META_SYNC_OPEN_WHEN });
   const out = resolve(args.out ?? join(tmpdir(), 'meta-sync-out'));
   assertOutDirUsable({ out, repoRoot });
 
@@ -428,6 +537,8 @@ const main = async () => {
   }).trim();
   console.log(`Bumping ${META} ${installed} -> ${target} on ${baseSha}`);
 
+  const metaDir = join(repoRoot, PACKAGE_DIR, 'node_modules', META);
+  const addressesBefore = readAddressKeys({ metaDir });
   const snapshotDir = mkdtempSync(join(tmpdir(), 'meta-sync-abi-before-'));
   cpSync(join(repoRoot, ABI_DIR), snapshotDir, { recursive: true });
 
@@ -464,6 +575,15 @@ const main = async () => {
     from: installed,
     to: target
   });
+  const addressChanges = changedAddressKeys({
+    before: addressesBefore,
+    after: readAddressKeys({ metaDir })
+  });
+  const { relevant, reasons } = computeRelevance({
+    flagged: result.flagged,
+    overlap: result.overlap,
+    addressChanges
+  });
   const changesetFile = changesetPath({ target });
   writeFileSync(
     join(repoRoot, changesetFile),
@@ -492,10 +612,21 @@ const main = async () => {
     deleted,
     abiChanged
   });
-  writeFileSync(join(out, 'pr-body.md'), markdown);
+  writeFileSync(join(out, 'pr-body.md'), buildPrBody({ markdown, openWhen, reasons }));
   writeFileSync(join(out, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
   rmSync(snapshotDir, { recursive: true, force: true });
-  setOutputs({ values: { changed: 'true', base_sha: baseSha, target } });
+  setOutputs({
+    values: { changed: 'true', relevant: String(relevant), base_sha: baseSha, target }
+  });
+  console.log(
+    relevant ? `Relevant: ${reasons.join('; ')}` : 'Not relevant: nothing the SDK depends on moved.'
+  );
+  if (!relevant && openWhen === 'relevant') {
+    const summaryFile = process.env.GITHUB_STEP_SUMMARY;
+    const summary = buildSkipSummary({ markdown, from: installed, to: target });
+    if (summaryFile) appendFileSync(summaryFile, summary);
+    else console.log(summary);
+  }
   console.log(`Wrote ${out}: ${changed.length} changed, ${deleted.length} deleted.`);
 };
 

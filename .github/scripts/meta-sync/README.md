@@ -17,7 +17,8 @@ package never holds a credential.
   the pull request body and the changed files. The artifact is uploaded with
   `include-hidden-files: true`; without it the `.changeset` file is silently
   dropped.
-- `open-pr` runs only when `prepare` found a bump (`changed=true`). It
+- `open-pr` runs only when `prepare` found a bump (`changed=true`) that is
+  also relevant, or when `open_when=any` (see below). It
   installs nothing, mints the App token last, and runs `open-pr.cjs`, which
   makes API calls only. A day with no newer meta release ends green without
   touching the App secrets; a day with one needs `META_SYNC_BOT_APP_ID` and
@@ -28,6 +29,34 @@ The commit is made with the GraphQL `createCommitOnBranch` mutation because
 the organisation requires signed commits on every branch: GitHub signs the
 commit as the App, so no key lives in the workflow. The App token (unlike
 the default one) also lets the pull request start the normal checks.
+
+## When a bump opens a pull request
+
+Most meta releases change nothing this SDK depends on, and a pull request for
+each one is review time spent on noise. `prepare.mjs` therefore computes
+`relevant`, true when any of these holds:
+
+- a removed or changed ABI item is referenced in the SDK source (the pull
+  request body's "Items the SDK source refers to");
+- a hand-carried fragment is now published (the body's "Hand-carried
+  fragments now published"), so it can be folded in;
+- one of the nine proxy or token addresses the live address-index test
+  compares (`RootChainManagerProxy`, the four predicate proxies,
+  `RootChainProxy`, `StakeManagerProxy`, `Tokens.MaticToken`,
+  `PolygonEcosystemToken`) differs between the installed and the new meta, on
+  mainnet or Amoy. They are read from the package's network index before and
+  after the install.
+
+`open_when` chooses what happens next. `relevant` (the default, also for
+scheduled runs) opens a pull request only when `relevant` is true; `any`
+opens one for every bump. When a real bump is not relevant the run is green,
+opens nothing, needs no App secret, and writes the ABI summary and the reason
+to the job summary. An opened pull request lists which reasons fired.
+
+The consequence: with the default, a non-relevant meta release is not pulled
+in. The installed meta stays behind, and the live address-index test reports
+the pending bump as a warning until a relevant release lands or someone
+dispatches the workflow with `open_when=any`.
 
 ## Path allowlist
 

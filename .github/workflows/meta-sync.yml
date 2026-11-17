@@ -14,6 +14,14 @@ on:
         required: false
         type: boolean
         default: false
+      open_when:
+        description: 'relevant: open a pull request only when the bump touches something the SDK depends on; any: open one for every bump'
+        required: false
+        type: choice
+        options:
+          - relevant
+          - any
+        default: relevant
 
 permissions: {}
 
@@ -33,6 +41,7 @@ jobs:
       contents: read
     outputs:
       changed: ${{ steps.prepare.outputs.changed }}
+      relevant: ${{ steps.prepare.outputs.relevant }}
       base_sha: ${{ steps.prepare.outputs.base_sha }}
       target: ${{ steps.prepare.outputs.target }}
     steps:
@@ -53,6 +62,7 @@ jobs:
         env:
           META_SYNC_TARGET: ${{ inputs.target_version }}
           META_SYNC_DRY_RUN: ${{ inputs.dry_run }}
+          META_SYNC_OPEN_WHEN: ${{ inputs.open_when }}
         run: node .github/scripts/meta-sync/prepare.mjs --out "$RUNNER_TEMP/meta-sync-out"
 
       - if: steps.prepare.outputs.changed == 'true'
@@ -65,12 +75,13 @@ jobs:
 
   # This job holds the App token, so it installs nothing and runs no package
   # code: it only calls the API, and the artifact it reads is validated
-  # against an allowlist before anything is committed. A day with nothing new
-  # never reaches it, so the App secrets are required only for a real bump.
+  # against an allowlist before anything is committed. A day with nothing new,
+  # or a bump nothing in the SDK depends on, never reaches it, so the App
+  # secrets are required only for a bump worth a pull request.
   open-pr:
     name: open-pr
     needs: prepare
-    if: needs.prepare.outputs.changed == 'true'
+    if: needs.prepare.outputs.changed == 'true' && (inputs.open_when == 'any' || needs.prepare.outputs.relevant == 'true')
     runs-on: ubuntu-latest
     permissions:
       contents: read
