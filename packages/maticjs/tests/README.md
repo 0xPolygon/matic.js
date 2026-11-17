@@ -21,7 +21,11 @@ groups:
 - The exit-payload, staking-read, permit-domain and live-CDN files always
   run. They fall back to public endpoints, because a broken default path
   that no test exercises is how a release ships broken while CI stays
-  green.
+  green. The live-CDN test compares the real index to the installed
+  `@polygonlabs/meta` snapshot. When the index differs and npm already has
+  a newer stable meta, it prints a `::warning title=meta bump pending::`
+  line and passes, because the automated meta bump pull request is what
+  resolves that case. With no newer meta on npm a mismatch still fails.
 
 ## Running unit tests
 
