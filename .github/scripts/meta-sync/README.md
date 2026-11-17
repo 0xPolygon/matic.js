@@ -1,0 +1,90 @@
+# Meta sync
+
+`@polygonlabs/meta` publishes the contract ABIs this SDK vendors into
+`packages/maticjs/src/abi`. A new release changes those files, and
+Dependabot cannot regenerate them, so its bump could never pass the
+codegen drift check. The workflow `.github/workflows/meta-sync.yml` does the
+whole bump instead and opens a draft pull request for a person to review.
+
+## What runs where
+
+The work is split in two jobs so that the code that runs a freshly published
+package never holds a credential.
+
+- `prepare` has `contents: read` and no secret. It runs `prepare.mjs`, which
+  installs the new meta release, regenerates the ABIs, diffs them with
+  `packages/maticjs/scripts/abi-diff.mjs`, and writes an artifact: a manifest,
+  the pull request body and the changed files. The artifact is uploaded with
+  `include-hidden-files: true`; without it the `.changeset` file is silently
+  dropped.
+- `open-pr` runs only when `prepare` found a bump (`changed=true`). It
+  installs nothing, mints the App token last, and runs `open-pr.cjs`, which
+  makes API calls only. A day with no newer meta release ends green without
+  touching the App secrets; a day with one needs `META_SYNC_BOT_APP_ID` and
+  `META_SYNC_BOT_APP_PRIVATE_KEY`, and fails with a message naming them when
+  either is missing.
+
+The commit is made with the GraphQL `createCommitOnBranch` mutation because
+the organisation requires signed commits on every branch: GitHub signs the
+commit as the App, so no key lives in the workflow. The App token (unlike
+the default one) also lets the pull request start the normal checks.
+
+## Path allowlist
+
+Only these paths may change; `prepare.mjs --help` prints the same list and
+both scripts check it independently, so a compromised release can reach the
+pull request only as ABI data, the manifest entry and the lockfile:
+
+- `packages/maticjs/package.json`
+- `pnpm-lock.yaml`
+- `packages/maticjs/src/abi/*.ts`
+- `.changeset/meta-sync-*.md`
+
+## What `open-pr.cjs` does with an existing branch
+
+"Bot-only" means the branch is at most one commit ahead of `master` and every
+commit is authored by the App.
+
+| Branch and pull request                                       | Action                                                                       |
+| ------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| No branch                                                     | Create it at the base commit, commit, open a draft pull request, add labels. |
+| Bot-only, and it already holds exactly this update            | Nothing.                                                                     |
+| Bot-only, anything differs (newer release, or `master` moved) | Move the branch to the new base, commit again, update the title and body.    |
+| Not bot-only (a person pushed to it)                          | Nothing, with a warning naming it.                                           |
+| Pull request closed                                           | Nothing, with a warning. Reopening is a human decision.                      |
+
+The script never merges, approves, marks ready, deletes a branch or comments.
+
+## The changeset and the warning in the pull request
+
+The changeset is `patch` for `@polygonlabs/maticjs` when anything under
+`src/abi` changed, because the published files changed. It is empty when only
+the devDependency and the lockfile moved. It is never `minor` or `major`.
+
+When the pull request body shows "Needs a decision before merge", a removed or
+changed ABI item matches a name the SDK source uses. A person must read the
+listed items, fix the calling code or confirm it is unaffected, and set the
+changeset level.
+
+## Running it locally
+
+`prepare.mjs` changes the tree it runs in, so use a throwaway worktree:
+
+```sh
+git worktree add ../meta-sync-try origin/master --detach
+cd ../meta-sync-try
+pnpm install --frozen-lockfile --ignore-scripts
+node .github/scripts/meta-sync/prepare.mjs --out "$(mktemp -d)"
+```
+
+With no target it bumps to the latest stable release, or reports no change.
+`--target <version>` pins one. Read the result from `git status` and the
+`pr-body.md` in the output directory.
+
+## Dispatching a dry run
+
+Run the workflow from the Actions tab (`workflow_dispatch`) with `dry_run`
+enabled. It uses the branch `automation/meta-sync-dryrun` and a `[dry run]`
+title, and it allows an older `target_version`, so the whole path can be
+rehearsed without touching the real branch. Close the pull request and delete
+the branch afterwards; the script never does.

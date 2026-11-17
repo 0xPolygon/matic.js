@@ -1,11 +1,10 @@
 version: 2
 updates:
   # npm covers the pnpm workspace at the repo root (Dependabot detects
-  # pnpm-lock.yaml automatically). This is also what keeps the
-  # @polygonlabs/meta devDependency current: a meta release arrives as a
-  # Dependabot PR, where the codegen-drift-check gate regenerates the
-  # ABIs and the test suite runs against them — so ABI updates flow in
-  # as reviewed, CI-verified bumps rather than manual chores.
+  # pnpm-lock.yaml automatically). @polygonlabs/meta is ignored here: a bump
+  # of it must also regenerate the vendored ABIs, which Dependabot cannot do,
+  # so its PR could never pass the codegen-drift-check gate. The meta sync
+  # workflow (.github/workflows/meta-sync.yml) opens that bump instead.
   - package-ecosystem: 'npm'
     directory: '/'
     schedule:
@@ -18,11 +17,8 @@ updates:
       npm-dependencies:
         patterns:
           - '*'
-        exclude-patterns:
-          - '@polygonlabs/meta'
-    # @polygonlabs/meta bumps stay ungrouped: a meta release changes the
-    # SDK's generated ABIs, so it deserves its own PR and its own review
-    # rather than being buried in a routine tooling-bump batch.
+    ignore:
+      - dependency-name: '@polygonlabs/meta'
 
   - package-ecosystem: 'github-actions'
     directory: '/'
