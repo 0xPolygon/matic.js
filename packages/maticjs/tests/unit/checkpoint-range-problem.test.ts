@@ -1,9 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import {
-  checkpointRangeProblem,
-  MAX_CHECKPOINT_BLOCKS
-} from '../../src/internal/pos-bridge-helpers.ts';
+import { checkpointRangeProblem, MAX_CHECKPOINT_BLOCKS } from '../../src/internal/exit-proof.ts';
 
 const MAX = BigInt(MAX_CHECKPOINT_BLOCKS);
 
