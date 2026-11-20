@@ -479,11 +479,13 @@ export type NullSpenderAddressInfo = { tokenAddress: Hex };
 export type OnlyAllowedOnMainnetInfo = { chainId: number };
 export type PermitNotSupportedInfo = { token: string; method: string };
 export type UntrustedPredicateInfo = { tokenAddress: string; predicate: string };
+/** Why a checkpoint range cannot be the burn's checkpoint; the first failing check wins. */
+export type CheckpointRangeInvalidReason = 'inverted' | 'not-containing' | 'too-large';
 export type CheckpointRangeInvalidInfo = {
   start: string;
   end: string;
   txBlockNumber: number;
-  reason: 'inverted' | 'not-containing' | 'too-large';
+  reason: CheckpointRangeInvalidReason;
 };
 /** The status the SDK read before refusing to replay; branch on it as on `getDepositStatus`. */
 export type DepositNotReplayableInfo = { transactionHash: string; status: DepositStatus };
