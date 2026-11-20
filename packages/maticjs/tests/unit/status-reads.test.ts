@@ -33,11 +33,14 @@ import {
   TransactionNotFoundError
 } from '../../src/errors.ts';
 import { encodeAbiParameters } from '../../src/internal/abi-encode.ts';
+import { createBridgeChildClient } from '../../src/internal/bridge-child-client.ts';
+import { ExitProofBuilder } from '../../src/internal/exit-proof.ts';
 import { noopLogger } from '../../src/logger.ts';
 import { POSClient } from '../../src/pos-client.ts';
 import { ERC20 } from '../../src/pos/erc20.ts';
 import { ERC721 } from '../../src/pos/erc721.ts';
 import { ERC1155 } from '../../src/pos/erc1155.ts';
+import { RootChain } from '../../src/pos/root_chain.ts';
 import { RootChainManager } from '../../src/pos/root_chain_manager.ts';
 import { StakeManager } from '../../src/staking/stake-manager.ts';
 import { BufferUtil } from '../../src/utils/buffer-utils.ts';
@@ -509,6 +512,14 @@ const STATUS_READS: Record<string, StatusEntry> = {
       run: ({ pos }: Ctx) => bridgeOf(pos).getCheckpointStatus(hashOfCheckpointCase(c))
     }))
   },
+  'ExitProofBuilder.getCheckpointStatus': {
+    reasonType: 'CheckpointNotReachedReason',
+    cases: checkpointEntry.cases.map((c) => ({
+      ...c,
+      run: ({ chain }: Ctx) =>
+        exitProofBuilderOn(chain).getCheckpointStatus(hashOfCheckpointCase(c))
+    }))
+  },
   'POSBridgeHelpers.getDepositStatus': {
     reasonType: 'DepositNotDeliveredReason',
     cases: depositEntry.cases.map((c) => ({
@@ -517,6 +528,20 @@ const STATUS_READS: Record<string, StatusEntry> = {
     }))
   }
 };
+
+/** An `ExitProofBuilder` wired straight onto the scripted chain, with no client around it. */
+function exitProofBuilderOn(chain: ScriptedChain): ExitProofBuilder {
+  return new ExitProofBuilder({
+    rootChainCaller: new RootChain({
+      adapter: chain,
+      getAddress: () => Promise.resolve(ADDR),
+      logger: noopLogger
+    }).caller,
+    childClient: createBridgeChildClient(chain),
+    logger: noopLogger,
+    proofConcurrency: 1
+  });
+}
 
 function hashOfCheckpointCase(c: Case): string {
   if (c.reason === 'pending') return PENDING;

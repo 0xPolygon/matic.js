@@ -12,7 +12,12 @@ import { POSClient, TransactionNotFoundError } from '../../src/index.ts';
  * exit-payload construction (the funds-moving withdrawal path: receipt
  * trie, block proof, RLP encoding, checkpoint lookup) against payloads
  * recorded from the production proof-generation API for REAL mainnet
- * burns of all three token standards.
+ * burns of all three token standards, plus a burn of the native token
+ * (the Plasma withdraw log).
+ *
+ * The same fixtures back the offline golden in
+ * `tests/unit/exit-payload-golden.test.ts`, which replays recorded RPC
+ * responses and so cannot fail on a rate limit.
  *
  * # Why this runs on every `pnpm test`, creds-free
  *
@@ -53,7 +58,8 @@ function loadFixture(name: string): BurnFixture {
 const FIXTURES = [
   ['ERC-20', loadFixture('erc20-burn-1.json')],
   ['ERC-721', loadFixture('erc721-burn-1.json')],
-  ['ERC-1155', loadFixture('erc1155-burn-1.json')]
+  ['ERC-1155', loadFixture('erc1155-burn-1.json')],
+  ['Plasma ERC-20 (native token)', loadFixture('plasma-erc20-burn-1.json')]
 ] as const;
 
 const PARENT_RPC =
