@@ -168,6 +168,45 @@ and running one file.
   `tests/unit/address-service.test.ts` is fine because that file
   deliberately exercises the cache layer in isolation.
 
+## Plasma tests
+
+Plasma writes move funds too, so the suite pins the calldata to what the 3.x
+Plasma plugin produced instead of to what "looks equivalent". Two committed
+fixtures stand behind that, and neither needs credentials or a network:
+
+- **Calldata ground truth** (`tests/fixtures/plasma/calldata-3x.json`, described
+  in [`fixtures/plasma/README.md`](./fixtures/plasma/README.md)) holds the `to`,
+  `data` and `value` the 3.x plugin encoded for each Plasma write it can build
+  (approve, deposit, the child-chain burn, the confirm, and the exit, single and
+  batch), with the decoded arguments and the fixed inputs they were encoded from.
+  `tests/unit/plasma-calldata-ground-truth.test.ts` encodes the same writes
+  with the SDK and compares the bytes. The fixture is the specification: when a test against it fails, find out
+  why the encoding changed, and never re-record it to turn the test green.
+- **Exit payloads** are checked against the Plasma burn fixture and its offline
+  cassette, which are recorded and replayed like the other burns. See
+  [Recording exit-payload fixtures](#recording-exit-payload-fixtures) and
+  [Offline cassettes](#offline-cassettes) rather than repeating them here. The
+  confirm entry of the calldata fixture contains that burn's expected payload
+  byte for byte, so the two fixtures check each other.
+
+`tests/live/plasma-exit-payload.live.test.ts` is the ground truth for the Plasma
+fast confirm. It prepares the confirm calldata for the recorded mainnet Plasma burn
+twice with `PlasmaClient`: once through `confirmWithdrawFast` against the production
+proof-generation API, and once through `confirmWithdraw`, which builds the payload
+locally from RPC on a client with no proof API configured. It asserts the two are
+identical and that the payload equals the recorded one. There is no 3.x fast confirm
+to compare with and the devnet has no proof API, so this is where the API path meets
+a real chain. It is read-only (both calls are `prepare*`; nothing is signed or sent)
+and, like `exit-payload.live.test.ts`, always runs with no credentials, using public
+RPCs overridable with `POS_SDK_TEST_MAINNET_PARENT_RPC` and
+`POS_SDK_TEST_MAINNET_CHILD_RPC`. Because the fast path falls back to local
+construction when the API fails, the test also fails if that fallback was logged, so
+a green run means the API payload was used. A `429` is a reason to re-run once; a byte
+difference is a defect.
+
+The withdrawal flow itself (burn, checkpoint, confirm, process) runs against the
+kurtosis devnet in [`packages/e2e`](../../e2e/README.md), like every other write.
+
 ## Staking tests
 
 Staking writes move funds, so the suite pins the encoding to what the 3.x

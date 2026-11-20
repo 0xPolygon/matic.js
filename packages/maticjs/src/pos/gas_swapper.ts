@@ -11,7 +11,7 @@ import type { Hex, Adapter, PreparedTx, TxResult } from '../adapter.js';
 import type { ContractCallerOptions } from '../internal/contract-caller.js';
 import type { Logger } from '../logger.js';
 
-import { GasSwapperABI } from '../abi/index.js';
+import { GasSwapperABI } from '../abi/GasSwapper.js';
 import { DepositError, withOperation } from '../errors.js';
 import { ContractCaller } from '../internal/contract-caller.js';
 
