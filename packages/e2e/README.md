@@ -54,11 +54,11 @@ Pass the same `KURTOSIS_ENCLAVE` to every harness command you run by hand (`up`,
 
 ### How long a run takes
 
-Expect about 35 minutes from a cold start, most of it quiet:
+Expect about 38 minutes from a cold start, most of it quiet:
 
 - about 4 minutes for `kurtosis run` to boot the two-validator devnet;
 - about 4 minutes for the SDK build, `up` (waiting for L2 block 256 and the first checkpoint) and `seed`;
-- about 27 minutes for the tests. The validator file takes about 12 of them, mostly the liveness watch of at least 60 seconds after each of its eight groups of writes. The delegation file takes about 5, because validator 1 now shares each checkpoint's reward with validator 2, so its delegators' rewards take longer to pass `minAmount`.
+- about 30 minutes for the tests. The Plasma file takes about 3 of them (see below). The validator file takes about 12 of them, mostly the liveness watch of at least 60 seconds after each of its eight groups of writes. The delegation file takes about 5, because validator 1 now shares each checkpoint's reward with validator 2, so its delegators' rewards take longer to pass `minAmount`.
 
 Each bridge and staking cycle waits for state sync or a checkpoint, and takes 90 to 180 seconds with nothing printed in between. Long silences are normal. Every wait has a hard cap and fails with the condition it was waiting for, so a stuck devnet does not hang the run.
 
@@ -82,6 +82,16 @@ From the Uburu hard fork (bor v2.11.0, enabled at block 128 by kurtosis-pos v1.4
 `bridge-erc721.e2e.test.ts` records both sides of this. Its first row deposits one token under the limit the devnet boots with and asserts that L2 commits the record as failed and that the child token never appears. The deposit-and-exit cycle after it raises the limit to 500,000 as the devnet admin, who owns the oracle, and restores it when the cycle ends, pass or fail; kurtosis-pos's own e2e does the same (pos-e2e #132). Every other file runs under the limit the devnet boots with.
 
 The first row also asserts that the SDK's `getDepositStatus` answers `delivery-failed`, with the state id and receiver the e2e decodes itself from the L1 `StateSynced` log. The next rows go through the SDK's `prepareReplayDeposit` and `replayDeposit`: the replay is sent from the depositor's own wallet at the limit the devnet boots with, with no admin key and no oracle raise, and the rows assert the status flips to deposited and the token appears on L2. A last row replays the now-delivered deposit again and asserts the SDK rejects it with `DepositNotReplayableError` without sending a transaction.
+
+### Plasma ERC-20 and the shared exit queue
+
+`plasma-erc20.e2e.test.ts` runs the whole Plasma cycle through the built `@polygonlabs/maticjs/plasma` entry on all three adapters: POL `approve`, `getAllowance` and `deposit`, the wait for state sync, the native-token burn (`startWithdraw`), the status reads `'not-checkpointed'` then `'not-confirmed'`, `confirmWithdraw` with the SDK's local proof, the status after the confirm, `completeWithdraw` called on the POL handle, and the final `{ exited: true }`. It takes about 3 minutes. It needs the Plasma contracts from the devnet's address artifact; the harness reads the live ERC-20 predicate from the Plasma `Registry` with plain viem rather than trusting the artifact's copy.
+
+The devnet has no proof API, so `confirmWithdrawFast` cannot run here; it is covered outside this tier, by the SDK's unit tests. The devnet's exit window is one second, so `'in-exit-window'` lasts about one block: the file accepts it or `'ready-to-process'` right after a confirm.
+
+A native-token burn queues its exit under the legacy MATIC token even though the exit pays POL, which is why `completeWithdraw` is called on the POL handle: it exercises the SDK's POL-to-MATIC queue mapping.
+
+The three rows share that one MATIC exit queue, and one `processExits` pays every exit whose window has ended. Each row therefore asserts its OWN exit reached `{ exited: true }`, and accepts `ExitQueueEmptyError` only when its own status already reads exited. To keep the one-block window from racing each row's status read after its confirm, no row processes the queue until all three have read that status. A last, viem-only suite runs after the rows, with the queue empty: it asserts `completeWithdraw` rejects with `ExitQueueEmptyError` and sends no transaction, and that `prepareConfirmWithdraw` returns exactly the calldata `confirmWithdraw` sends. Every write uses the default gas path, never an explicit `gasLimit`.
 
 ## Running in CI
 
@@ -121,6 +131,7 @@ They are public by construction. Never fund one on a real network. There is one 
 | `bridge-erc721` | `bridge-erc721.e2e.test.ts` |
 | `bridge-erc1155` | `bridge-erc1155.e2e.test.ts` |
 | `bridge-ether` | `bridge-ether.e2e.test.ts` |
+| `plasma-erc20` | `plasma-erc20.e2e.test.ts` |
 | `staking` | `staking-writes.e2e.test.ts` |
 | `staking-delegation` | `staking-delegation.e2e.test.ts` |
 
@@ -134,6 +145,7 @@ The same file also registers six validators of its own, one per adapter for each
 
 - at least 5 ETH on L1 and 5 of the native token on L2 (the admin sends 10);
 - for the staking suites, at least 200 POL (the admin sends 500);
+- for the `plasma-erc20` keys, at least 1 POL (the admin sends 5), which the Plasma deposit pulls;
 - for the `staking` keys, at least 50 MATIC (the admin sends 100), for `delegateMatic`;
 - for validator 1's owner key, at least 10 POL (the admin sends 50), for `restake`;
 - at least 1 DummyERC20 (it mints 2), one DummyERC721 and 10 of DummyERC1155 id 1 on L1, minted by the key itself (the devnet's Dummy tokens let any account mint);
@@ -141,13 +153,13 @@ The same file also registers six validators of its own, one per adapter for each
 
 ## Which SDK build the tests use
 
-The tests import the SDK only through its public entry points (`@polygonlabs/maticjs`, `/viem`, `/ethers-v5`, `/ethers-v6`, `/staking`), and those resolve to the built `dist/`, the files that ship to npm. `src/` is never imported.
+The tests import the SDK only through its public entry points (`@polygonlabs/maticjs`, `/viem`, `/ethers-v5`, `/ethers-v6`, `/staking`, `/plasma`), and those resolve to the built `dist/`, the files that ship to npm. `src/` is never imported.
 
 The built adapters import their web3 library by its bare name. Both `/ethers-v5` and `/ethers-v6` import `ethers`, and a consumer's install decides which major that is. In this workspace the SDK is a symlink to `packages/maticjs`, where `ethers` is v6, so Node alone would hand the ethers v5 adapter ethers 6. `vitest.e2e.config.ts` resolves those imports from this package instead, the way a consumer's install would: `ethers` imported by the ethers v5 adapter becomes this package's `ethers-v5` alias (ethers 5), and every other `viem` or `ethers` import, from the SDK or from the tests, becomes this package's copy. The SDK and the tests therefore share one copy of each library. This needs no second package and no lockfile tricks, and `pnpm install --frozen-lockfile` covers it.
 
 ## What lives here, and what does not
 
-Here: tests that need a real chain. These are bridge deposits and exits for ERC-20, ERC-721, ERC-1155 and ether through all three adapters, staking writes, and transaction-result behaviour on a real node.
+Here: tests that need a real chain. These are bridge deposits and exits for ERC-20, ERC-721, ERC-1155 and ether through all three adapters, the Plasma ERC-20 deposit and exit, staking writes, and transaction-result behaviour on a real node.
 
 Not here:
 
