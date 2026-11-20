@@ -1,5 +1,5 @@
 /**
- * Regenerates `src/abi/<Contract>.ts` from `@polygonlabs/meta` — the
+ * Regenerates `src/abi/<Contract>.ts` and `src/abi/plasma/<Contract>.ts` from `@polygonlabs/meta` — the
  * published single source of truth for Polygon contract ABIs (the npm face
  * of `0xPolygon/static`). `@polygonlabs/meta` is a build-time (dev)
  * dependency only.
@@ -23,9 +23,17 @@
  * are read from `mainnet/v1` too; amoy's StakeManager only adds `drain` and
  * `drainValidatorShares`, which the SDK never calls.
  *
- * Run: `pnpm run codegen`. Do not hand-edit `src/abi/<Contract>.ts`.
+ * The Plasma ABIs are written to `src/abi/plasma/` and exposed at
+ * `@polygonlabs/maticjs/plasma/abi`, never through `./abi`: they are
+ * Plasma-bridge-only, so keeping them out of the `./abi` barrel means a
+ * consumer of the PoS ABIs never loads them, and each carries a `Plasma`
+ * prefix on its binding (`PlasmaDepositManagerABI`) so it cannot be mistaken
+ * for a PoS contract of the same name. `RootChain` stays in `./abi` because
+ * both bridges use it.
+ *
+ * Run: `pnpm run codegen`. Do not hand-edit anything under `src/abi/`.
  */
-import { writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -47,17 +55,38 @@ const ABIS: Record<string, string> = {
   StateReceiver: '@polygonlabs/meta/abi/mainnet/v1/genesis/StateReceiver'
 };
 
+// Plasma-bridge ABIs: file name (also the binding without its `Plasma` prefix
+// and `ABI` suffix) → meta subpath module. Written under `src/abi/plasma/`,
+// each exported as `Plasma${file}ABI`. The file name is not always meta's own
+// name: meta's `ERC20PredicateBurnOnly` is the Plasma `ERC20Predicate`.
+const PLASMA_ABIS: Record<string, string> = {
+  DepositManager: '@polygonlabs/meta/abi/mainnet/v1/plasma/DepositManager',
+  WithdrawManager: '@polygonlabs/meta/abi/mainnet/v1/plasma/WithdrawManager',
+  ExitNFT: '@polygonlabs/meta/abi/mainnet/v1/plasma/ExitNFT',
+  PriorityQueue: '@polygonlabs/meta/abi/mainnet/v1/plasma/PriorityQueue',
+  MRC20: '@polygonlabs/meta/abi/mainnet/v1/plasma/MRC20',
+  ChildERC20: '@polygonlabs/meta/abi/mainnet/v1/plasma/ChildERC20',
+  ERC20Predicate: '@polygonlabs/meta/abi/mainnet/v1/plasma/ERC20PredicateBurnOnly'
+};
+
 const abiDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'src', 'abi');
+const plasmaAbiDir = join(abiDir, 'plasma');
 
 const header = (specifier: string): string =>
   `// GENERATED FROM \`${specifier}\` — DO NOT EDIT.\n` +
   `// Regenerate with \`pnpm run codegen\`. See scripts/generate-abis.ts.\n\n`;
 
+const loadAbi = async (specifier: string): Promise<readonly unknown[]> => {
+  const mod = (await import(specifier)) as { abi: readonly unknown[] };
+  return mod.abi;
+};
+
+mkdirSync(plasmaAbiDir, { recursive: true });
+
 const indexLines: string[] = [];
 
 for (const [name, specifier] of Object.entries(ABIS)) {
-  const mod = (await import(specifier)) as { abi: readonly unknown[] };
-  const body = `${header(specifier)}export const ${name}ABI = ${JSON.stringify(mod.abi, null, 2)} as const;\n`;
+  const body = `${header(specifier)}export const ${name}ABI = ${JSON.stringify(await loadAbi(specifier), null, 2)} as const;\n`;
   writeFileSync(join(abiDir, `${name}.ts`), body);
   indexLines.push(`export { ${name}ABI } from './${name}.js';`);
 }
@@ -70,6 +99,24 @@ writeFileSync(
     `${indexLines.join('\n')}\n`
 );
 
+const plasmaIndexLines: string[] = [];
+
+for (const [file, specifier] of Object.entries(PLASMA_ABIS)) {
+  const binding = `Plasma${file}ABI`;
+  const body = `${header(specifier)}export const ${binding} = ${JSON.stringify(await loadAbi(specifier), null, 2)} as const;\n`;
+  writeFileSync(join(plasmaAbiDir, `${file}.ts`), body);
+  plasmaIndexLines.push(`export { ${binding} } from './${file}.js';`);
+}
+
+writeFileSync(
+  join(plasmaAbiDir, 'index.ts'),
+  `// GENERATED — DO NOT EDIT. Regenerate with \`pnpm run codegen\`.\n` +
+    `// Barrel for the Plasma-bridge contract ABIs sourced from \`@polygonlabs/meta\`\n` +
+    `// at build time and exposed publicly at \`@polygonlabs/maticjs/plasma/abi\`.\n\n` +
+    `${plasmaIndexLines.join('\n')}\n`
+);
+
 console.log(
-  `Generated ${Object.keys(ABIS).length} ABI modules into src/abi/ from @polygonlabs/meta.`
+  `Generated ${Object.keys(ABIS).length} ABI modules into src/abi/ and ` +
+    `${Object.keys(PLASMA_ABIS).length} into src/abi/plasma/ from @polygonlabs/meta.`
 );

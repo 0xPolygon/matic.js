@@ -135,3 +135,42 @@ describe('parseAddressIndex — nested CDN shape (meta snapshot fixtures)', () =
     expect(out).deep.equals(flat);
   });
 });
+
+const PLASMA_FLAT_KEYS = ['DepositManager', 'WithdrawManager', 'PlasmaERC20Predicate', 'ExitNFT'];
+
+describe('parseAddressIndex — the bridge parser reads no Plasma key', () => {
+  it('returns no Plasma key for the nested fixture on both networks', async () => {
+    for (const info of [mainnetInfo, amoyInfo]) {
+      const out = await parseVia(info);
+      for (const key of PLASMA_FLAT_KEYS) expect(out).not.property(key);
+    }
+  });
+
+  it('drops the Plasma keys a flat object carries', async () => {
+    const out = await parseVia({
+      RootChainManager: '0x1111111111111111111111111111111111111111',
+      ERC20Predicate: '0x2222222222222222222222222222222222222222',
+      ERC721Predicate: '0x3333333333333333333333333333333333333333',
+      ERC1155Predicate: '0x4444444444444444444444444444444444444444',
+      EtherPredicate: '0x5555555555555555555555555555555555555555',
+      RootChain: '0x6666666666666666666666666666666666666666',
+      DepositManager: '0x7777777777777777777777777777777777777777',
+      WithdrawManager: '0x8888888888888888888888888888888888888888',
+      PlasmaERC20Predicate: '0x9999999999999999999999999999999999999999',
+      ExitNFT: '0xaAaAaAaaAaAaAaaAaAAAAAAAAaaaAaAaAaaAaaAa'
+    });
+    for (const key of PLASMA_FLAT_KEYS) expect(out).not.property(key);
+    expect(out).property('RootChainManager').equals('0x1111111111111111111111111111111111111111');
+  });
+
+  it('still parses a nested index that lacks the Plasma entries', async () => {
+    const copy = structuredClone(mainnetInfo);
+    const contracts: Record<string, unknown> = copy.Main.Contracts;
+    for (const key of ['DepositManagerProxy', 'WithdrawManagerProxy', 'ERC20Predicate', 'ExitNFT'])
+      delete contracts[key];
+    const out = await parseVia(copy);
+    expect(out)
+      .property('RootChainManager')
+      .equals(mainnetInfo.Main.POSContracts.RootChainManagerProxy);
+  });
+});

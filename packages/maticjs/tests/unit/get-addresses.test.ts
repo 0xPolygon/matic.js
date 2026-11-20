@@ -64,4 +64,23 @@ describe('POSClient.getAddresses', () => {
     expect(resolved).deep.equals(ADDRESSES);
     expect(resolved).property('RootChainManager').equals(ADDRESSES.RootChainManager);
   });
+
+  it('returns exactly the bridge keys of an override that also carries Plasma keys', async () => {
+    const plasma = {
+      DepositManager: '0x7777777777777777777777777777777777777777',
+      WithdrawManager: '0x8888888888888888888888888888888888888888',
+      PlasmaERC20Predicate: '0x9999999999999999999999999999999999999999',
+      ExitNFT: '0xaAaAaAaaAaAaAaaAaAAAAAAAAaaaAaAaAaaAaaAa'
+    } as const;
+    const pos = await POSClient.init({
+      network: 'amoy',
+      parent: stubAdapter(),
+      child: stubAdapter(),
+      addresses: { ...ADDRESSES, ...plasma }
+    });
+
+    const resolved = await pos.getAddresses();
+    expect(resolved).deep.equals(ADDRESSES);
+    for (const key of Object.keys(plasma)) expect(resolved).not.property(key);
+  });
 });

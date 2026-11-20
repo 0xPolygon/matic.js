@@ -57,7 +57,7 @@ import type { BridgeChildClient } from './exit-proof.js';
 import type { ProofApiClient } from './proof-api-client.js';
 
 import { FailedStateSyncHashesABI, ReplayFailedStateSyncABI } from '../abi/failed-state-sync.js';
-import { StateReceiverABI } from '../abi/index.js';
+import { StateReceiverABI } from '../abi/StateReceiver.js';
 import { LogEventSignature } from '../constant.js';
 import {
   DepositNotReplayableError,

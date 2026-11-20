@@ -47,6 +47,36 @@ import type {
   Web3ClientNotInitializedInfo
 } from '../../src/index.ts';
 import type {
+  BridgeEventDecodeFailedInfo as PlasmaBridgeEventDecodeFailedInfo,
+  BurnTxNotCheckpointedInfo as PlasmaBurnTxNotCheckpointedInfo,
+  CheckpointRangeInvalidInfo as PlasmaCheckpointRangeInvalidInfo,
+  ContractNotAvailableOnNetworkInfo as PlasmaContractNotAvailableOnNetworkInfo,
+  Eip1559NotSupportedInfo as PlasmaEip1559NotSupportedInfo,
+  ErrorInfo as PlasmaErrorInfo,
+  ErrorOptions as PlasmaErrorOptions,
+  ExitGasLimitTooLowInfo as PlasmaExitGasLimitTooLowInfo,
+  ExitNotStartedInfo as PlasmaExitNotStartedInfo,
+  ExitQueueEmptyInfo as PlasmaExitQueueEmptyInfo,
+  FeeEstimationFailedInfo as PlasmaFeeEstimationFailedInfo,
+  HttpRequestFailedInfo as PlasmaHttpRequestFailedInfo,
+  IndexOutOfBoundsInfo as PlasmaIndexOutOfBoundsInfo,
+  InvalidHexStringInfo as PlasmaInvalidHexStringInfo,
+  InvalidNumericValueInfo as PlasmaInvalidNumericValueInfo,
+  LegacyErrorType as PlasmaLegacyErrorType,
+  LogNotFoundInReceiptInfo as PlasmaLogNotFoundInReceiptInfo,
+  NativeBurnValueMismatchInfo as PlasmaNativeBurnValueMismatchInfo,
+  ChildBurnValueNotAllowedInfo as PlasmaChildBurnValueNotAllowedInfo,
+  OperationErrorOptions as PlasmaOperationErrorOptions,
+  RequiredInfoErrorOptions as PlasmaRequiredInfoErrorOptions,
+  TransactionHashInfo as PlasmaTransactionHashInfo,
+  TransactionHashRequiredInfo as PlasmaTransactionHashRequiredInfo,
+  TransactionReplacedInfo as PlasmaTransactionReplacedInfo,
+  TransactionRevertedInfo as PlasmaTransactionRevertedInfo,
+  TxOptionNotObjectInfo as PlasmaTxOptionNotObjectInfo,
+  TypeOfResult as PlasmaTypeOfResult,
+  UnsupportedNetworkInfo as PlasmaUnsupportedNetworkInfo
+} from '../../src/plasma/index.ts';
+import type {
   BridgeEventDecodeFailedInfo as StakingBridgeEventDecodeFailedInfo,
   ContractNotAvailableOnNetworkInfo as StakingContractNotAvailableOnNetworkInfo,
   ErrorInfo as StakingErrorInfo,
@@ -143,12 +173,45 @@ type Staking = [
   StakingWeb3ClientNotInitializedInfo
 ];
 
+type Plasma = [
+  PlasmaBridgeEventDecodeFailedInfo,
+  PlasmaBurnTxNotCheckpointedInfo,
+  PlasmaCheckpointRangeInvalidInfo,
+  PlasmaContractNotAvailableOnNetworkInfo,
+  PlasmaEip1559NotSupportedInfo,
+  PlasmaErrorInfo,
+  PlasmaErrorOptions<PlasmaErrorInfo>,
+  PlasmaExitGasLimitTooLowInfo,
+  PlasmaExitNotStartedInfo,
+  PlasmaExitQueueEmptyInfo,
+  PlasmaFeeEstimationFailedInfo,
+  PlasmaHttpRequestFailedInfo,
+  PlasmaIndexOutOfBoundsInfo,
+  PlasmaInvalidHexStringInfo,
+  PlasmaInvalidNumericValueInfo,
+  PlasmaLegacyErrorType,
+  PlasmaLogNotFoundInReceiptInfo,
+  PlasmaNativeBurnValueMismatchInfo,
+  PlasmaChildBurnValueNotAllowedInfo,
+  PlasmaOperationErrorOptions,
+  PlasmaRequiredInfoErrorOptions<PlasmaErrorInfo>,
+  PlasmaTransactionHashInfo,
+  PlasmaTransactionHashRequiredInfo,
+  PlasmaTransactionReplacedInfo,
+  PlasmaTransactionRevertedInfo,
+  PlasmaTxOptionNotObjectInfo,
+  PlasmaTypeOfResult,
+  PlasmaUnsupportedNetworkInfo
+];
+
 describe('error type exports', () => {
-  it('every info and option type is importable from the root and staking entries', () => {
+  it('every info and option type is importable from the root, staking and plasma entries', () => {
     const root: Root['length'] = 37;
     const staking: Staking['length'] = 18;
+    const plasma: Plasma['length'] = 28;
     expect(root).equals(37);
     expect(staking).equals(18);
+    expect(plasma).equals(28);
   });
 
   // A staking write can raise these (chain guard, signer/provider checks,

@@ -9,6 +9,11 @@ import type {
   TransactionReplacedInfo,
   WithdrawNotExitedReason
 } from '../../src/index.ts';
+import type {
+  ExitNotStartedInfo,
+  ExitNotStartedReason,
+  PlasmaWithdrawNotExitedReason
+} from '../../src/plasma/index.ts';
 
 /**
  * The reason unions are public: consumers switch on them. Each is pinned to
@@ -38,6 +43,19 @@ describe('reason types', () => {
     expectTypeOf<ReplacementReason>().toEqualTypeOf<'repriced' | 'cancelled' | 'replaced'>();
     expectTypeOf<TransactionReplacedInfo['reason']>().toEqualTypeOf<ReplacementReason>();
     expectTypeOf<FailedStateSyncRecord>().toEqualTypeOf<'payload' | 'hash'>();
+  });
+
+  it('names the Plasma reasons', () => {
+    expectTypeOf<PlasmaWithdrawNotExitedReason>().toEqualTypeOf<
+      'pending' | 'not-checkpointed' | 'not-confirmed' | 'in-exit-window' | 'ready-to-process'
+    >();
+    expectTypeOf<
+      Extract<PlasmaWithdrawNotExitedReason, CheckpointNotReachedReason>
+    >().toEqualTypeOf<CheckpointNotReachedReason>();
+    expectTypeOf<ExitNotStartedReason>().toEqualTypeOf<
+      'no-exit-started-log' | 'burn-block-mismatch' | 'exitor-mismatch' | 'branch-mask-mismatch'
+    >();
+    expectTypeOf<ExitNotStartedInfo['reason']>().toEqualTypeOf<ExitNotStartedReason>();
   });
 
   it('keeps the type-only assertions from being an empty file at runtime', () => {

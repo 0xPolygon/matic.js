@@ -25,7 +25,7 @@ import type { GasSwapper } from './gas_swapper.js';
 import type { RootChainManager } from './root_chain_manager.js';
 import type { WithdrawStatus } from './withdraw-status.js';
 
-import { ChildERC20ABI } from '../abi/index.js';
+import { ChildERC20ABI } from '../abi/ChildERC20.js';
 import { MAX_AMOUNT, LogEventSignature } from '../constant.js';
 import {
   AllowedOnChildError,
