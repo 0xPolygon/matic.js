@@ -14,8 +14,12 @@
  * cached value continues to be served, and the failure surfaces via the
  * optional `onRefreshError` hook.
  *
- * The cache is keyed by `${baseUrl}/${network}` (not just network) so
- * multi-tenant deployments pointing at different mirrors stay isolated.
+ * The cache lives in an {@link AddressIndexStore}, keyed by
+ * `${baseUrl}/${network}` (not just network) so multi-tenant deployments
+ * pointing at different mirrors stay isolated. A store holds ONE parsed
+ * shape: the bridge clients (`POSClient`, `StakingClient`) share the bridge
+ * store, and the Plasma client owns its own, so a refresh that satisfies one
+ * parser and not the other can never change what the other client serves.
  * Inflight refreshes are de-duplicated: a second caller arriving while a
  * background refresh is still pending shares the in-flight promise
  * rather than firing a second request. Inflight entries are evicted on
@@ -74,20 +78,50 @@ export interface CreateAddressFetcherOptions {
  *  expect, a shorter TTL would multiply CDN traffic without benefit. */
 export const DEFAULT_TTL_MS = 60 * 60 * 1000;
 
-interface CacheEntry {
-  addresses: NetworkAddresses;
+interface CacheEntry<T> {
+  addresses: T;
   fetchedAt: number;
 }
 
 /**
- * Module-level cache shared across every `createAddressFetcher` call in
- * the same process. Keyed by `${baseUrl}/${network}` so two fetchers
- * pointing at the same endpoint share the same cached value (saves
- * redundant fetches on instance churn) but two fetchers pointing at
- * different endpoints stay isolated.
+ * One parsed shape's cache and in-flight map. Module-level stores are shared
+ * across every fetcher in the process that uses them, keyed by
+ * `${baseUrl}/${network}`, so two fetchers pointing at the same endpoint share
+ * the cached value (saves redundant fetches on instance churn) but two
+ * fetchers pointing at different endpoints stay isolated. Internal: never
+ * exported from an entry point.
  */
-const cache = new Map<string, CacheEntry>();
-const inflight = new Map<string, Promise<NetworkAddresses>>();
+export interface AddressIndexStore<T> {
+  readonly cache: Map<string, CacheEntry<T>>;
+  readonly inflight: Map<string, Promise<T>>;
+  clear(): void;
+}
+
+/** Every store created, so the test reset clears all of them. */
+const stores = new Set<{ clear(): void }>();
+
+/**
+ * Create a store and register it with {@link __resetAddressCacheForTesting}.
+ * One per parsed shape: a store must only ever be read with one parser,
+ * because it caches what that parser returned.
+ */
+export function createAddressIndexStore<T>(): AddressIndexStore<T> {
+  const cache = new Map<string, CacheEntry<T>>();
+  const inflight = new Map<string, Promise<T>>();
+  const store: AddressIndexStore<T> = {
+    cache,
+    inflight,
+    clear(): void {
+      cache.clear();
+      inflight.clear();
+    }
+  };
+  stores.add(store);
+  return store;
+}
+
+/** The store `POSClient` and `StakingClient` share. */
+const bridgeStore = createAddressIndexStore<NetworkAddresses>();
 
 function cacheKey(baseUrl: string, network: Network): string {
   return `${baseUrl}/${network}`;
@@ -130,11 +164,14 @@ function indexUrl(baseUrl: string, network: Network): string {
  * the same promise. Evict the inflight entry on both fulfilment and
  * rejection so the next caller can retry on failure.
  */
-function fetchAddresses(
-  key: string,
-  url: string,
-  parse: (raw: unknown) => NetworkAddresses
-): Promise<NetworkAddresses> {
+function fetchAddresses<T>(params: {
+  store: AddressIndexStore<T>;
+  key: string;
+  url: string;
+  parse: (raw: unknown) => T;
+}): Promise<T> {
+  const { store, key, url, parse } = params;
+  const { cache, inflight } = store;
   const existing = inflight.get(key);
   if (existing) return existing;
 
@@ -175,7 +212,9 @@ export function isIndexAddress(value: unknown): value is `0x${string}` {
 /**
  * Every predicate contract the index trusts as an approval spender. The
  * RootChainManager's `typeToPredicate` answer comes from an RPC, so an
- * approval is only sent to an address that is also in this set.
+ * approval is only sent to an address that is also in this set. The
+ * Plasma bridge's predicate is not a PoS approval spender and is never in
+ * this set; the Plasma client reads its own addresses (`plasma/addresses.ts`).
  */
 export function trustedPredicates(addresses: NetworkAddresses): readonly string[] {
   return [
@@ -206,6 +245,57 @@ function optionalAddress(value: unknown): `0x${string}` | undefined {
 
 const asRecord = (value: unknown): Record<string, unknown> =>
   value !== null && typeof value === 'object' ? (value as Record<string, unknown>) : {};
+
+/**
+ * Where the CDN's nested index keeps the three addresses both the bridge
+ * parser and the Plasma parser read. Defined once so the two cannot disagree
+ * about which entry is the live proxy: the `*Proxy` entries are the live
+ * contracts, the implementation twins next to them are inert.
+ */
+export const SHARED_NESTED_INDEX_PATHS = {
+  RootChain: ['Main', 'Contracts', 'RootChainProxy'],
+  MaticToken: ['Main', 'Contracts', 'Tokens', 'MaticToken'],
+  PolToken: ['Main', 'Contracts', 'PolygonEcosystemToken']
+} as const satisfies Record<string, readonly string[]>;
+
+/**
+ * Read the value at `path` of a nested index, or `undefined` where any step
+ * is absent or not an object. The value is untyped remote data: the caller
+ * validates it.
+ */
+export function readIndexPath(params: {
+  index: Record<string, unknown>;
+  path: readonly string[];
+}): unknown {
+  let node: unknown = params.index;
+  for (const step of params.path) {
+    node = asRecord(node)[step];
+  }
+  return node;
+}
+
+/**
+ * Narrow a fetched index to a JSON object or throw. Shared by the bridge and
+ * Plasma parsers so both reject a non-object body the same way.
+ */
+export function asIndexObject(raw: unknown): Record<string, unknown> {
+  if (raw === null || typeof raw !== 'object') {
+    throw new BridgeEventDecodeFailedError(
+      'address index: expected JSON object, got ' + typeof raw,
+      { info: { received: typeof raw } }
+    );
+  }
+  return asRecord(raw);
+}
+
+/**
+ * Whether an index object is the CDN's NESTED layout (it has a `Main` key)
+ * rather than a flat mirror. A format test on remote JSON, not a test of any
+ * typed union, and the only place it is made.
+ */
+export function isNestedIndex(index: Record<string, unknown>): boolean {
+  return 'Main' in index;
+}
 
 /**
  * Parse the CDN's NESTED index shape — the same files
@@ -247,7 +337,10 @@ function parseNestedIndex(obj: Record<string, unknown>): NetworkAddresses {
       pos.EtherPredicateProxy,
       'Main.POSContracts.EtherPredicateProxy'
     ),
-    RootChain: requireAddress(contracts.RootChainProxy, 'Main.Contracts.RootChainProxy')
+    RootChain: requireAddress(
+      readIndexPath({ index: obj, path: SHARED_NESTED_INDEX_PATHS.RootChain }),
+      SHARED_NESTED_INDEX_PATHS.RootChain.join('.')
+    )
   };
   const gasSwapper = optionalAddress(pos.GasSwapper);
   if (gasSwapper !== undefined) out.GasSwapper = gasSwapper;
@@ -259,9 +352,13 @@ function parseNestedIndex(obj: Record<string, unknown>): NetworkAddresses {
   if (mintable721 !== undefined) out.MintableERC721Predicate = mintable721;
   const stakeManager = optionalAddress(contracts.StakeManagerProxy);
   if (stakeManager !== undefined) out.StakeManager = stakeManager;
-  const maticToken = optionalAddress(asRecord(contracts.Tokens).MaticToken);
+  const maticToken = optionalAddress(
+    readIndexPath({ index: obj, path: SHARED_NESTED_INDEX_PATHS.MaticToken })
+  );
   if (maticToken !== undefined) out.MaticToken = maticToken;
-  const polToken = optionalAddress(contracts.PolygonEcosystemToken);
+  const polToken = optionalAddress(
+    readIndexPath({ index: obj, path: SHARED_NESTED_INDEX_PATHS.PolToken })
+  );
   if (polToken !== undefined) out.PolToken = polToken;
   return out;
 }
@@ -310,44 +407,40 @@ function parseFlatIndex(obj: Record<string, unknown>): NetworkAddresses {
  *   {@link parseFlatIndex}).
  */
 function parseAddressIndex(raw: unknown): NetworkAddresses {
-  if (raw === null || typeof raw !== 'object') {
-    throw new BridgeEventDecodeFailedError(
-      'address index: expected JSON object, got ' + typeof raw,
-      { info: { received: typeof raw } }
-    );
-  }
-  const obj = raw as Record<string, unknown>;
-  return 'Main' in obj ? parseNestedIndex(obj) : parseFlatIndex(obj);
+  const obj = asIndexObject(raw);
+  return isNestedIndex(obj) ? parseNestedIndex(obj) : parseFlatIndex(obj);
+}
+
+export interface CreateIndexFetcherOptions<T> {
+  /** The cache this fetcher reads and fills; see {@link AddressIndexStore}. */
+  store: AddressIndexStore<T>;
+  /**
+   * Turns the fetched JSON into the value the store caches. It runs BEFORE
+   * the value is cached, so a refresh whose JSON fails it is never stored:
+   * the previous good value keeps being served and `onRefreshError` fires.
+   */
+  parse: (raw: unknown) => T;
+  network: Network;
+  /** Override the CDN base URL. Defaults to `ADDRESS_INDEX_URL`. */
+  baseUrl?: string;
+  /** Cache TTL in milliseconds. Defaults to `DEFAULT_TTL_MS` (1 hour). */
+  ttlMs?: number;
+  /** Invoked when a *background* refresh fails; see `CreateAddressFetcherOptions`. */
+  onRefreshError?: (err: Error) => void;
 }
 
 /**
- * Build an `AddressFetcher` for the given network. See module
- * docstring for caching semantics.
+ * The stale-while-revalidate fetcher over one store and one parser. Both the
+ * bridge fetcher and the Plasma client's fetcher are thin calls into this, so
+ * the caching and failure behaviour is defined once.
  */
-export function createAddressFetcher(opts: CreateAddressFetcherOptions): AddressFetcher {
-  const { network, initial, onRefreshError } = opts;
+export function createIndexFetcher<T extends object>(
+  opts: CreateIndexFetcherOptions<T>
+): { get(): Promise<T> } {
+  const { store, parse, network, onRefreshError } = opts;
+  const { cache, inflight } = store;
   const baseUrl = opts.baseUrl ?? ADDRESS_INDEX_URL;
   const ttlMs = opts.ttlMs ?? DEFAULT_TTL_MS;
-
-  // initial-override path: never touches the cache or network. The
-  // caller has supplied the addresses and is responsible for their
-  // freshness — but NOT for their shape: the override goes through the
-  // same validation as a fetched index, so a typo'd key or non-address
-  // value fails loudly at init instead of surfacing later as an opaque
-  // revert against address `undefined`. TypeScript types don't protect
-  // the plain-JS consumers this override exists for.
-  if (initial !== undefined) {
-    const validated = parseAddressIndex(initial);
-    const fixed: AddressFetcher = {
-      get(): Promise<NetworkAddresses> {
-        // Fresh copy per call: handing out one shared object would let
-        // one consumer's mutation silently corrupt every other caller's
-        // view of the bridge addresses.
-        return Promise.resolve({ ...validated });
-      }
-    };
-    return fixed;
-  }
 
   const key = cacheKey(baseUrl, network);
   // Resolved per fetch rather than here, so a malformed `addressIndexUrl`
@@ -355,8 +448,8 @@ export function createAddressFetcher(opts: CreateAddressFetcherOptions): Address
   // throwing synchronously out of the factory.
   const url = (): string => indexUrl(baseUrl, network);
 
-  const fetcher: AddressFetcher = {
-    async get(): Promise<NetworkAddresses> {
+  return {
+    async get(): Promise<T> {
       const entry = cache.get(key);
       const now = Date.now();
 
@@ -364,7 +457,7 @@ export function createAddressFetcher(opts: CreateAddressFetcherOptions): Address
       // *do* propagate — the caller gets nothing if the very first
       // request fails.
       if (entry === undefined) {
-        return { ...(await fetchAddresses(key, url(), parseAddressIndex)) };
+        return { ...(await fetchAddresses({ store, key, url: url(), parse })) };
       }
 
       // Fresh cache: serve synchronously, no network. Fresh copy per
@@ -387,7 +480,7 @@ export function createAddressFetcher(opts: CreateAddressFetcherOptions): Address
       // when the CDN is having a bad day. One `.catch` on the shared
       // promise also marks the rejection handled for all callers.
       const alreadyRefreshing = inflight.has(key);
-      const refresh = fetchAddresses(key, url(), parseAddressIndex);
+      const refresh = fetchAddresses({ store, key, url: url(), parse });
       if (!alreadyRefreshing) {
         void refresh.catch((err: unknown) => {
           if (onRefreshError) {
@@ -405,16 +498,51 @@ export function createAddressFetcher(opts: CreateAddressFetcherOptions): Address
       return { ...entry.addresses };
     }
   };
-  return fetcher;
+}
+
+/**
+ * Build an `AddressFetcher` for the given network. See module
+ * docstring for caching semantics.
+ */
+export function createAddressFetcher(opts: CreateAddressFetcherOptions): AddressFetcher {
+  const { network, initial, onRefreshError } = opts;
+
+  // initial-override path: never touches the cache or network. The
+  // caller has supplied the addresses and is responsible for their
+  // freshness — but NOT for their shape: the override goes through the
+  // same validation as a fetched index, so a typo'd key or non-address
+  // value fails loudly at init instead of surfacing later as an opaque
+  // revert against address `undefined`. TypeScript types don't protect
+  // the plain-JS consumers this override exists for.
+  if (initial !== undefined) {
+    const validated = parseAddressIndex(initial);
+    const fixed: AddressFetcher = {
+      get(): Promise<NetworkAddresses> {
+        // Fresh copy per call: handing out one shared object would let
+        // one consumer's mutation silently corrupt every other caller's
+        // view of the bridge addresses.
+        return Promise.resolve({ ...validated });
+      }
+    };
+    return fixed;
+  }
+
+  return createIndexFetcher({
+    store: bridgeStore,
+    parse: parseAddressIndex,
+    network,
+    ...(opts.baseUrl !== undefined ? { baseUrl: opts.baseUrl } : {}),
+    ...(opts.ttlMs !== undefined ? { ttlMs: opts.ttlMs } : {}),
+    ...(onRefreshError !== undefined ? { onRefreshError } : {})
+  });
 }
 
 /**
  * Test-only escape hatch. Production code never calls this — caches
  * are process-lifetime by design. Vitest suites that exercise
  * cache-aware behaviours call this in `beforeEach` so prior test
- * state doesn't leak.
+ * state doesn't leak. Clears every store, the Plasma client's included.
  */
 export function __resetAddressCacheForTesting(): void {
-  cache.clear();
-  inflight.clear();
+  for (const store of stores) store.clear();
 }

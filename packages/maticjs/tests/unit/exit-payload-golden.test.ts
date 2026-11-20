@@ -1,9 +1,14 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { createPublicClient, decodeAbiParameters, http, parseAbiParameters } from 'viem';
 import { describe, expect, it } from 'vitest';
 
+import type { Adapter } from '../../src/adapter.ts';
+
+import { viemAdapter } from '../../src/adapters/viem.ts';
 import { POSClient } from '../../src/index.ts';
+import { PlasmaClient } from '../../src/plasma/plasma-client.ts';
 import { cassetteAdapter, loadCassette } from './cassette-adapter.ts';
 
 /**
@@ -57,4 +62,47 @@ describe('exit payload construction: offline golden', { timeout: 60_000 }, () =>
       expect(payload.toLowerCase()).equals(fixture.expectedPayloadHex.toLowerCase());
     });
   }
+
+  // The Plasma surface builds the same payload through its own client and
+  // hands it to the burn-only predicate as the one `bytes` argument. The real
+  // viem adapter encodes the call; recorded responses answer every read.
+  it('rebuilds the recorded Plasma burn payload through PlasmaClient.prepareConfirmWithdraw', async () => {
+    const file = 'plasma-erc20-burn-1.json';
+    const fixture = loadFixture(file);
+    const cassette = loadCassette(file);
+    const encoder = viemAdapter({
+      public: createPublicClient({ transport: http('http://127.0.0.1:1') })
+    });
+    const replaying = (side: Parameters<typeof cassetteAdapter>[0]): Adapter => {
+      const replay = cassetteAdapter(side);
+      return { ...replay, prepareWrite: (req) => encoder.prepareWrite(req) };
+    };
+    // Only RootChain is read on this path, so the recording's own address is
+    // used for it; the other Plasma addresses are never touched and any
+    // distinct values do.
+    const matic = cassette.addresses.MaticToken ?? '0x5555555555555555555555555555555555555555';
+    const pol = cassette.addresses.PolToken ?? '0x6666666666666666666666666666666666666666';
+    const plasma = await PlasmaClient.init({
+      network: 'mainnet',
+      parent: replaying(cassette.parent),
+      child: replaying(cassette.child),
+      addresses: {
+        RootChain: cassette.addresses.RootChain,
+        DepositManager: '0x1111111111111111111111111111111111111111',
+        WithdrawManager: '0x2222222222222222222222222222222222222222',
+        PlasmaERC20Predicate: '0x3333333333333333333333333333333333333333',
+        ExitNFT: '0x4444444444444444444444444444444444444444',
+        MaticToken: matic,
+        PolToken: pol
+      }
+    });
+
+    const prepared = await plasma.parent.erc20(matic).prepareConfirmWithdraw(fixture.burnTxHash);
+
+    const [payload] = decodeAbiParameters(
+      parseAbiParameters('bytes'),
+      `0x${prepared.data.slice(10)}`
+    );
+    expect(payload.toLowerCase()).equals(fixture.expectedPayloadHex.toLowerCase());
+  });
 });

@@ -12,7 +12,7 @@ import type { Logger } from '../logger.js';
 import type { RootChainManager } from './root_chain_manager.js';
 import type { WithdrawStatus } from './withdraw-status.js';
 
-import { ChildERC1155ABI } from '../abi/index.js';
+import { ChildERC1155ABI } from '../abi/ChildERC1155.js';
 import { LogEventSignature } from '../constant.js';
 import {
   AllowedOnChildError,
