@@ -89,8 +89,9 @@ with "fixture replayed" so the fixture is rotated deliberately.
 ## Recording exit-payload fixtures
 
 `tests/live/exit-payload.live.test.ts` rebuilds the exit payload for real
-mainnet burns of all three token standards and compares it byte for byte
-with `tests/fixtures/exits/*-burn-1.json`. Those fixtures were taken from
+mainnet burns of all three token standards, plus one burn of the native
+token (the Plasma withdraw log), and compares it byte for byte with
+`tests/fixtures/exits/*-burn-1.json`. Those fixtures were taken from
 the production proof-generation API and checked against the SDK's local
 construction when recorded. Checkpoint data never changes, so the fixtures
 do not go stale; a mismatch means the encoding changed.
@@ -104,7 +105,38 @@ node scripts/record-exit-fixture.mjs
 
 The script finds a recent checkpointed burn per standard, fetches its
 payload from the proof API, and refuses to write unless the SDK reproduces
-it exactly. It reads mainnet only and needs no key.
+it exactly. It reads mainnet only and needs no key. The Plasma fixture is
+recorded separately with `node scripts/record-exit-fixture.mjs --plasma`,
+which does the same for a recent burn of the native token and also records
+the burn log's topics (the root token and the burner). `--plasma` needs a
+child-chain RPC that serves `eth_getLogs` over a few thousand blocks; set
+`POS_SDK_TEST_MAINNET_CHILD_RPC` if the default does not.
+
+### Offline cassettes
+
+The live test depends on public RPCs, so a `429` can fail it for reasons
+unrelated to the code. `tests/unit/exit-payload-golden.test.ts` checks the
+same fixtures with no network. For each burn it replays a **cassette**
+(`tests/fixtures/exits/cassettes/*-burn-1.json`): the parent and child RPC
+responses the SDK's local payload construction consumed, plus the resolved
+address index. `tests/unit/cassette-adapter.ts` is an `Adapter` that serves
+them, keyed by method and canonicalised params, and throws on a request
+with no recorded response, so a change that makes the SDK ask for something
+new fails the test instead of reaching a live endpoint.
+
+Cassettes are as immutable as the fixtures. Re-record them only when the
+RPC calls the construction makes change on purpose, and never to turn the
+golden test green:
+
+```bash
+node scripts/record-exit-fixture.mjs --cassette           # all four
+node scripts/record-exit-fixture.mjs --cassette erc20     # one
+```
+
+`--cassette` never rewrites a `*-burn-1.json` fixture, and refuses to write
+a cassette whose payload differs from the fixture's `expectedPayloadHex`.
+Recording the three older burns needs an archive-capable child RPC (the
+default works). Each cassette stays under 1.5 MB.
 
 ## End-to-end tests (kurtosis devnet)
 

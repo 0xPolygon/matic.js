@@ -59,9 +59,9 @@ export type Permit = (typeof Permit)[keyof typeof Permit];
  * - `Erc721BatchTransfer` is the matic-network `WithdrawnBatch` event —
  *   indexer code checks this topic to detect ERC-721 batch withdrawals.
  *
- * The union type `LogEventSignature` is used at every call site that
- * accepts an event-sig parameter, so passing an arbitrary hex string
- * without going through this map fails the type check.
+ * The union type `LogEventSignature` names the values of this map. The
+ * event-signature parameters of the exit helpers are typed `string`, so it
+ * does not stop a call site from passing a hex string that is not in the map.
  */
 export const LogEventSignature = {
   /**
