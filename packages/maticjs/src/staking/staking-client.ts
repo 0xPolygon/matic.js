@@ -13,6 +13,7 @@
 import type { Adapter, Hex } from '../adapter.js';
 import type { Logger } from '../logger.js';
 import type { Network, NetworkAddresses } from '../networks.js';
+import type { StakingAddresses } from './addresses.js';
 
 import {
   AddressLookupError,
@@ -23,24 +24,12 @@ import {
 import { noopLogger } from '../logger.js';
 import { L1_CHAIN_ID } from '../networks.js';
 import { createAddressFetcher, isIndexAddress } from '../services/address-service.js';
+import { classifyStakingAddresses, STAKING_ADDRESS_KEYS } from './addresses.js';
 import { StakeManager } from './stake-manager.js';
 import { StakingToken } from './staking-token.js';
 import { ValidatorShare } from './validator-share.js';
 
-/**
- * The three contracts the staking client calls. This is all a
- * staking-only `addresses` override has to carry: the bridge keys of
- * {@link NetworkAddresses} are never read by staking, so a consumer that
- * does not use the bridge need not invent placeholders for them.
- */
-export interface StakingAddresses {
-  /** Live StakeManager proxy (never the implementation). */
-  StakeManager: Hex;
-  /** Legacy MATIC staking token. */
-  MaticToken: Hex;
-  /** POL staking token. */
-  PolToken: Hex;
-}
+export type { StakingAddresses } from './addresses.js';
 
 /**
  * What the client resolves addresses from: the full bridge index (CDN,
@@ -79,6 +68,11 @@ export interface StakingClientConfig {
    * key is validated as a full index, bridge keys included, exactly as
    * `POSClient` validates it; one without is checked for the three staking
    * keys only.
+   *
+   * Deprecated use: passing a full `NetworkAddresses` index here. The
+   * staking client reads only the three staking addresses, so prefer
+   * `StakingAddresses`; the full-index form is kept for compatibility and
+   * will be removed in the next major version.
    */
   addresses?: NetworkAddresses | StakingAddresses;
   /** Override the CDN base URL (staging mirrors, air-gapped deployments). */
@@ -89,34 +83,28 @@ export interface StakingClientConfig {
   onAddressRefreshError?: (err: Error) => void;
 }
 
-type StakingAddressKey = 'StakeManager' | 'MaticToken' | 'PolToken';
-
-const STAKING_KEYS: readonly StakingAddressKey[] = ['StakeManager', 'MaticToken', 'PolToken'];
-
-const BRIDGE_KEYS: readonly (keyof NetworkAddresses)[] = [
-  'RootChainManager',
-  'ERC20Predicate',
-  'ERC721Predicate',
-  'ERC1155Predicate',
-  'EtherPredicate',
-  'RootChain'
-];
+type StakingAddressKey = (typeof STAKING_ADDRESS_KEYS)[number];
 
 /**
- * A full index is recognised by any required bridge key, so a full index
- * with a typo'd or missing bridge key still fails the bridge parser
- * loudly instead of being quietly treated as staking-only.
+ * Narrow an index to {@link ResolvedStakingAddresses}, or throw the
+ * typed error naming every staking key it lacks. Returns a fresh object
+ * so callers cannot mutate the source's view.
  */
-function isFullIndex(addresses: StakingAddressIndex): addresses is NetworkAddresses {
-  return BRIDGE_KEYS.some((key) => key in addresses);
-}
-
-function missingStakingKeys(addresses: StakingAddressIndex): StakingAddressKey[] {
-  return STAKING_KEYS.filter((key) => addresses[key] === undefined);
-}
-
-function hasStakingKeys(addresses: StakingAddressIndex): addresses is ResolvedStakingAddresses {
-  return missingStakingKeys(addresses).length === 0;
+function withStakingKeys({
+  network,
+  addresses
+}: {
+  network: Network;
+  addresses: StakingAddressIndex;
+}): ResolvedStakingAddresses {
+  const { StakeManager, MaticToken, PolToken } = addresses;
+  if (StakeManager === undefined || MaticToken === undefined || PolToken === undefined) {
+    throw missingError(
+      network,
+      STAKING_ADDRESS_KEYS.filter((key) => addresses[key] === undefined)
+    );
+  }
+  return { ...addresses, StakeManager, MaticToken, PolToken };
 }
 
 function missingError(
@@ -136,14 +124,18 @@ function missingError(
  * full index lacking it. The plain-JS consumers this override serves get
  * no help from the types.
  */
-function stakingOnlySource(network: Network, override: StakingAddresses): StakingAddressSource {
-  const missing = STAKING_KEYS.filter((key) => !isIndexAddress(override[key]));
-  if (missing.length > 0) throw missingError(network, missing);
-  const fixed: StakingAddresses = {
-    StakeManager: override.StakeManager,
-    MaticToken: override.MaticToken,
-    PolToken: override.PolToken
-  };
+function stakingOnlySource(
+  network: Network,
+  override: Readonly<Partial<Record<StakingAddressKey, unknown>>>
+): StakingAddressSource {
+  const { StakeManager, MaticToken, PolToken } = override;
+  if (!isIndexAddress(StakeManager) || !isIndexAddress(MaticToken) || !isIndexAddress(PolToken)) {
+    throw missingError(
+      network,
+      STAKING_ADDRESS_KEYS.filter((key) => !isIndexAddress(override[key]))
+    );
+  }
+  const fixed: StakingAddresses = { StakeManager, MaticToken, PolToken };
   // Fresh copy per call, as the bridge fetcher does: callers must not be
   // able to mutate the client's view.
   return { get: () => Promise.resolve({ ...fixed }) };
@@ -217,7 +209,7 @@ export class StakingClient {
         const logger = config.logger ?? noopLogger;
         const override = config.addresses;
         const fetcher: StakingAddressSource =
-          override !== undefined && !isFullIndex(override)
+          override !== undefined && classifyStakingAddresses(override) === 'staking-only'
             ? stakingOnlySource(config.network, override)
             : createAddressFetcher({
                 network: config.network,
@@ -236,8 +228,7 @@ export class StakingClient {
                   })
               });
 
-        const missing = missingStakingKeys(await fetcher.get());
-        if (missing.length > 0) throw missingError(config.network, missing);
+        withStakingKeys({ network: config.network, addresses: await fetcher.get() });
 
         return new StakingClient({
           fetcher,
@@ -275,11 +266,7 @@ export class StakingClient {
       error: AddressLookupError,
       info: { operation: 'getAddresses', mode: 'read' },
       run: async () => {
-        const addresses = await this.fetcher.get();
-        if (!hasStakingKeys(addresses)) {
-          throw missingError(this.network, missingStakingKeys(addresses));
-        }
-        return addresses;
+        return withStakingKeys({ network: this.network, addresses: await this.fetcher.get() });
       }
     });
   }
