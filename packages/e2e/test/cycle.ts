@@ -1,7 +1,7 @@
 /**
- * Shared plumbing for the bridge cycle tests: building a `POSClient` for an
- * adapter row, waiting for state sync, and retrying an exit until its burn
- * is checkpointed.
+ * Shared plumbing for the bridge cycle tests: building a `POSClient` or a
+ * `PlasmaClient` for an adapter row, waiting for state sync, and retrying an
+ * exit until its burn is checkpointed.
  *
  * The waits are polls with hard caps rather than fixed sleeps, so a fast
  * devnet finishes fast and a stuck one fails with a message naming what it
@@ -13,14 +13,21 @@ import { createPublicClient, createWalletClient, http } from 'viem';
 import { expect } from 'vitest';
 
 import type { Receipt, TxResult } from '@polygonlabs/maticjs';
+import type { PlasmaAddresses, PlasmaWithdrawStatus } from '@polygonlabs/maticjs/plasma';
 
 import { BurnTxNotCheckpointedError, POSClient } from '@polygonlabs/maticjs';
+import { PlasmaClient } from '@polygonlabs/maticjs/plasma';
 
 import type { AdapterRow } from '../src/adapters.ts';
 import type { AdapterName, Suite } from '../src/keys.ts';
 
 import { devnetChains, VIEM_POLLING_INTERVAL_MS } from '../src/adapters.ts';
-import { approvalForAllAbi, dummyErc1155Abi, erc20Abi } from '../src/devnet-abis.ts';
+import {
+  approvalForAllAbi,
+  dummyErc1155Abi,
+  erc20Abi,
+  plasmaRegistryAbi
+} from '../src/devnet-abis.ts';
 import { keyFor } from '../src/keys.ts';
 import { getTestEnv } from '../src/test-env.ts';
 import { pollUntil } from '../src/wait.ts';
@@ -31,6 +38,11 @@ export const POLL_MS = 2_000;
 export const STATE_SYNC_TIMEOUT_MS = 180_000;
 /** Burn confirmed → first exit that builds. Measured at 18-36 s. */
 export const CHECKPOINT_TIMEOUT_MS = 300_000;
+/**
+ * Confirmed exit → ready to process. The devnet's exit window is one second
+ * (`HALF_EXIT_PERIOD` is 1), so this only has to cover a block or two.
+ */
+export const EXIT_WINDOW_TIMEOUT_MS = 120_000;
 /** Whole-cycle cap per test. */
 export const CYCLE_TIMEOUT_MS = 900_000;
 
@@ -48,6 +60,82 @@ export function initPos(row: AdapterRow): Promise<POSClient> {
     parent: row.parent,
     child: row.child
   });
+}
+
+/**
+ * The seven addresses a `PlasmaClient` needs, from the devnet env plus the
+ * live ERC-20 predicate. The predicate is read from `Registry` with plain
+ * viem, not taken from the address JSON: the registry is what the deposit
+ * manager and the withdraw manager consult, so it cannot be stale.
+ */
+async function plasmaAddresses(): Promise<PlasmaAddresses> {
+  const { addresses } = getTestEnv().E2E_ADDRESSES_JSON;
+  const PlasmaERC20Predicate = await readers().l1.readContract({
+    address: addresses.PlasmaRegistry,
+    abi: plasmaRegistryAbi,
+    functionName: 'erc20Predicate'
+  });
+  return {
+    RootChain: addresses.RootChain,
+    DepositManager: addresses.DepositManager,
+    WithdrawManager: addresses.WithdrawManager,
+    PlasmaERC20Predicate,
+    ExitNFT: addresses.ExitNFT,
+    MaticToken: addresses.MaticToken,
+    PolToken: addresses.PolToken
+  };
+}
+
+/**
+ * A `PlasmaClient` for one adapter row, from the built
+ * `@polygonlabs/maticjs/plasma`, pointed at the devnet's Plasma contracts
+ * through the Plasma-only `addresses` override.
+ */
+export async function initPlasma(row: AdapterRow): Promise<PlasmaClient> {
+  const env = getTestEnv();
+  return PlasmaClient.init({
+    network: 'amoy',
+    addresses: await plasmaAddresses(),
+    // The devnet's chain ids are not Amoy's; see `initPos`.
+    chainIds: { parent: env.E2E_L1_CHAIN_ID, child: env.E2E_L2_CHAIN_ID },
+    parent: row.parent,
+    child: row.child
+  });
+}
+
+/**
+ * Wait until a confirmed exit can be processed, or has been: its status reads
+ * `'ready-to-process'`, or `{ exited: true }` because another row's
+ * `processExits` paid it out first (the rows share one exit queue).
+ *
+ * The wait is capped, and a timeout names the status it last saw, so a stuck
+ * exit fails with the reason it was stuck on.
+ */
+export async function waitForExitable({
+  status,
+  label
+}: {
+  status: () => Promise<PlasmaWithdrawStatus>;
+  label: string;
+}): Promise<PlasmaWithdrawStatus> {
+  let last = 'no status read yet';
+  try {
+    return await pollUntil({
+      fn: async () => {
+        const current = await status();
+        last = JSON.stringify(current);
+        return current.exited || current.reason === 'ready-to-process' ? current : undefined;
+      },
+      pollMs: POLL_MS,
+      timeoutMs: EXIT_WINDOW_TIMEOUT_MS,
+      label: `exit window: ${label} to read ready-to-process or exited`
+    });
+  } catch (err) {
+    throw new Error(
+      `${err instanceof Error ? err.message : String(err)} (last status ${last})`,
+      { cause: err }
+    );
+  }
 }
 
 /**
