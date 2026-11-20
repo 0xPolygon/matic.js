@@ -24,7 +24,10 @@ export const SUITES = [
   'bridge-erc1155',
   'bridge-ether',
   'staking',
-  'staking-delegation'
+  'staking-delegation',
+  // Last, so adding it leaves every earlier key's slot index (and the ERC-721
+  // id range derived from it) where it was.
+  'plasma-erc20'
 ] as const;
 
 export const ADAPTERS = ['viem', 'ethers-v5', 'ethers-v6'] as const;

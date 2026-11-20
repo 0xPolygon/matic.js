@@ -9,9 +9,10 @@
  * Three phases, in order:
  *
  * 1. The admin account tops up L1 ETH, L2 native gas, POL for the staking
- *    keys, legacy MATIC for the `staking` keys, and POL for validator 1's
- *    owner key when the devnet provides it. All admin sends share one nonce
- *    stream, so they are signed with consecutive nonces and awaited together.
+ *    and Plasma keys, legacy MATIC for the `staking` keys, and POL for
+ *    validator 1's owner key when the devnet provides it. All admin sends
+ *    share one nonce stream, so they are signed with consecutive nonces and
+ *    awaited together.
  * 2. Each key mints its own Dummy ERC-20 / ERC-721 / ERC-1155 on L1 (the
  *    pos-portal Dummy tokens let any account mint). Keys run in parallel,
  *    each on its own nonce stream.
@@ -51,6 +52,10 @@ const MIN_POL = parseEther('200');
 const POL_TOP_UP = parseEther('500');
 const MIN_MATIC = parseEther('50');
 const MATIC_TOP_UP = parseEther('100');
+// The Plasma cycle deposits POL, which the exit pays back. Each key's balance
+// is the same after every run, so the minimum only has to cover one cycle.
+const MIN_PLASMA_POL = parseEther('1');
+const PLASMA_POL_TOP_UP = parseEther('5');
 const MIN_VALIDATOR_POL = parseEther('10');
 const VALIDATOR_POL_TOP_UP = parseEther('50');
 const MIN_ERC20 = parseEther('1');
@@ -185,6 +190,16 @@ async function fundFromAdmin(chains: Chains, log: (line: string) => void): Promi
         min: MIN_POL,
         amount: POL_TOP_UP,
         label: `${suite}/${adapter}: admin sends 500 POL on L1`
+      });
+    }
+    // The Plasma deposit pulls POL from the key itself.
+    if (suite === 'plasma-erc20') {
+      await topUpToken({
+        token: addresses.PolToken,
+        to: address,
+        min: MIN_PLASMA_POL,
+        amount: PLASMA_POL_TOP_UP,
+        label: `${suite}/${adapter}: admin sends 5 POL on L1`
       });
     }
     // `delegateMatic` runs from the staking keys and spends legacy MATIC.
