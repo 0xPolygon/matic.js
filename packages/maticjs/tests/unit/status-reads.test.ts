@@ -570,17 +570,40 @@ function methodsInSource(pattern: RegExp): Declared[] {
   return found.sort((a, b) => a.name.localeCompare(b.name));
 }
 
-/** The literal members of each exported `*Reason` union, read from the source. */
+/**
+ * The literal members of each exported `*Reason` union, read from the source.
+ * A member that names another `*Reason` alias (`CheckpointNotReachedReason |
+ * 'not-exited'`) is followed to that alias's own literals, so a composed
+ * union yields the same full set as the written-out one. An alias the scan
+ * cannot find throws rather than silently shrinking the set.
+ */
 function reasonUnions(): Map<string, string[]> {
-  const unions = new Map<string, string[]>();
-  for (const file of ['withdraw-status.ts', 'bridge-status.ts']) {
-    const text = readFileSync(join(SRC, 'pos', file), 'utf8');
+  const declared = new Map<string, { literals: string[]; aliases: string[] }>();
+  for (const file of [
+    'internal/checkpoint-status.ts',
+    'pos/withdraw-status.ts',
+    'pos/bridge-status.ts'
+  ]) {
+    const text = readFileSync(join(SRC, file), 'utf8');
     for (const m of text.matchAll(/export type (\w+Reason) =\s*([^;]+);/g)) {
-      const literals = [...(m[2] ?? '').matchAll(/'([^']+)'/g)].map((l) => l[1] ?? '');
-      unions.set(m[1] ?? '', literals);
+      const body = m[2] ?? '';
+      declared.set(m[1] ?? '', {
+        literals: [...body.matchAll(/'([^']+)'/g)].map((l) => l[1] ?? ''),
+        aliases: [...body.matchAll(/\b(\w+Reason)\b/g)].map((a) => a[1] ?? '')
+      });
     }
   }
-  return unions;
+  const resolve = (name: string, seen: readonly string[]): string[] => {
+    const entry = declared.get(name);
+    if (entry === undefined) throw new Error(`reason union ${name} not found in src`);
+    if (seen.includes(name)) throw new Error(`reason union ${name} refers to itself`);
+    const literals = new Set(entry.literals);
+    for (const alias of entry.aliases) {
+      for (const literal of resolve(alias, [...seen, name])) literals.add(literal);
+    }
+    return [...literals];
+  };
+  return new Map([...declared.keys()].map((name) => [name, resolve(name, [])]));
 }
 
 const IS_OR_HAS = /^(?:is|has)[A-Z]\w*$/;
@@ -628,7 +651,7 @@ describe('get*Status methods answer with a reason and do not throw', () => {
     const unions = reasonUnions();
     for (const [name, entry] of Object.entries(STATUS_READS)) {
       const declared = unions.get(entry.reasonType);
-      expect(declared, `${name}: ${entry.reasonType} not found in src/pos`).not.equal(undefined);
+      expect(declared, `${name}: ${entry.reasonType} not found in src`).not.equal(undefined);
       const reached = new Set(entry.cases.map((c) => c.reason).filter((r) => r !== null));
       expect([...reached].sort(), name).deep.equal([...(declared ?? [])].sort());
       expect(

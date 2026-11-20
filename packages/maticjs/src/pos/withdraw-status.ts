@@ -1,10 +1,12 @@
+import type { CheckpointNotReachedReason } from '../internal/checkpoint-status.js';
+
 /**
  * Why a burn has not been exited yet, as data. A caller that polls a
  * withdrawal needs to tell "not mined yet" and "wait for the checkpoint"
  * from "ready to exit",
  * and a thrown error is the wrong carrier for that: neither is a failure.
  */
-export type WithdrawNotExitedReason = 'pending' | 'not-checkpointed' | 'not-exited';
+export type WithdrawNotExitedReason = CheckpointNotReachedReason | 'not-exited';
 
 /**
  * Where a burn stands on the exit path. `exited: true` means the parent

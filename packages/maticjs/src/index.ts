@@ -142,6 +142,7 @@ export type {
   PermitNotSupportedInfo,
   UntrustedPredicateInfo,
   CheckpointRangeInvalidInfo,
+  CheckpointRangeInvalidReason,
   DepositNotReplayableInfo,
   ProofNodeKeyMismatchInfo,
   ReceiptsRootMismatchInfo,
@@ -197,8 +198,10 @@ export type {
   CheckpointNotReachedReason,
   CheckpointStatus,
   DepositNotDeliveredReason,
-  DepositStatus
+  DepositStatus,
+  FailedStateSyncRecord
 } from './pos/bridge-status.js';
+export type { ReplacementReason } from './internal/confirmation.js';
 export type { WithdrawNotExitedReason, WithdrawStatus } from './pos/withdraw-status.js';
 export type { RootChain } from './pos/root_chain.js';
 export type { RootChainManager } from './pos/root_chain_manager.js';

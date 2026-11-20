@@ -48,6 +48,7 @@ import type {
   ReceiptLog,
   TxResult
 } from '../adapter.js';
+import type { CheckpointRangeInvalidReason } from '../errors.js';
 import type {
   IBlockWithTransaction,
   IRootBlockInfo,
@@ -196,11 +197,29 @@ export interface POSBridgeHelpersConfig {
 export const MAX_CHECKPOINT_BLOCKS = 2 ** MAX_CHECKPOINT_DEPTH;
 
 /**
- * Reject a checkpoint range that cannot be a real checkpoint of the burn:
- * inverted, not containing the burn's block, or larger than
- * {@link MAX_CHECKPOINT_BLOCKS}. The range comes from an RPC or the proof
+ * The reason a checkpoint range cannot be a real checkpoint of the burn, or
+ * `undefined` when it can: inverted, not containing the burn's block, or
+ * larger than {@link MAX_CHECKPOINT_BLOCKS}. The range comes from an RPC or the proof
  * API, and sizes the merkle-path allocation, so it is checked before use.
  */
+export function checkpointRangeProblem({
+  start,
+  end,
+  txBlockNumber
+}: {
+  start: bigint;
+  end: bigint;
+  txBlockNumber: number;
+}): CheckpointRangeInvalidReason | undefined {
+  // Precedence matters: a range can be inverted and also miss the burn block,
+  // and callers (and the error's `info`) report the first problem only.
+  if (end < start) return 'inverted';
+  if (BigInt(txBlockNumber) < start || BigInt(txBlockNumber) > end) return 'not-containing';
+  if (end - start + 1n > BigInt(MAX_CHECKPOINT_BLOCKS)) return 'too-large';
+  return undefined;
+}
+
+/** Throw `CheckpointRangeInvalidError` when {@link checkpointRangeProblem} finds a problem. */
 export function assertCheckpointRange({
   start,
   end,
@@ -210,14 +229,7 @@ export function assertCheckpointRange({
   end: bigint;
   txBlockNumber: number;
 }): void {
-  const reason =
-    end < start
-      ? 'inverted'
-      : BigInt(txBlockNumber) < start || BigInt(txBlockNumber) > end
-        ? 'not-containing'
-        : end - start + 1n > BigInt(MAX_CHECKPOINT_BLOCKS)
-          ? 'too-large'
-          : undefined;
+  const reason = checkpointRangeProblem({ start, end, txBlockNumber });
   if (reason !== undefined) {
     throw new CheckpointRangeInvalidError(
       `checkpoint range ${start}-${end} is not a valid checkpoint for block ${txBlockNumber} (${reason})`,
