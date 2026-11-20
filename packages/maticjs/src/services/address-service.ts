@@ -53,8 +53,12 @@ export interface CreateAddressFetcherOptions {
    * If provided, `get()` returns this synchronously and the fetcher
    * never makes a network call. Use for staging, air-gapped, or test
    * deployments where the consumer already has the addresses.
+   *
+   * Typed `unknown` because it is untyped input: plain-JS callers can pass
+   * anything, so it is validated by `parseAddressIndex` when the fetcher is
+   * built, never trusted by its static type.
    */
-  initial?: NetworkAddresses;
+  initial?: unknown;
   /**
    * Invoked when a *background* refresh fails. Background refreshes
    * never propagate errors to the caller because a stale value is
