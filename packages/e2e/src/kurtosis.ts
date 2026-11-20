@@ -69,6 +69,14 @@ const ContractAddressesArtifactSchema = z.object({
   root: z.object({
     RootChainProxy: AddressSchema,
     StakeManagerProxy: AddressSchema,
+    // The Plasma bridge. The ERC-20 predicate is deliberately absent: the
+    // JSON also lists one, but the tests read the live one from `Registry`
+    // (see `plasmaAddresses` in test/cycle.ts), the address a deposit and an
+    // exit actually go through.
+    DepositManagerProxy: AddressSchema,
+    WithdrawManagerProxy: AddressSchema,
+    Registry: AddressSchema,
+    ExitNFT: AddressSchema,
     tokens: z.object({ MaticToken: AddressSchema, PolToken: AddressSchema }),
     posBridge: z.object({
       RootChainManagerProxy: AddressSchema,
@@ -113,7 +121,13 @@ export const DevnetContractsSchema = z.object({
     MintableERC1155Predicate: AddressSchema,
     StakeManager: AddressSchema,
     MaticToken: AddressSchema,
-    PolToken: AddressSchema
+    PolToken: AddressSchema,
+    // Plasma bridge contracts. `PlasmaRegistry` is the registry that names
+    // the live ERC-20 predicate; the predicate itself is read from it.
+    DepositManager: AddressSchema,
+    WithdrawManager: AddressSchema,
+    PlasmaRegistry: AddressSchema,
+    ExitNFT: AddressSchema
   }),
   tokens: z.object({
     root: z.object({
@@ -205,7 +219,11 @@ function toDevnetContracts(artifact: unknown): DevnetContracts {
       MintableERC1155Predicate: root.posBridge.MintableERC1155PredicateProxy,
       StakeManager: root.StakeManagerProxy,
       MaticToken: root.tokens.MaticToken,
-      PolToken: root.tokens.PolToken
+      PolToken: root.tokens.PolToken,
+      DepositManager: root.DepositManagerProxy,
+      WithdrawManager: root.WithdrawManagerProxy,
+      PlasmaRegistry: root.Registry,
+      ExitNFT: root.ExitNFT
     },
     tokens: {
       root: {

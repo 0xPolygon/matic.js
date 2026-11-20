@@ -16,7 +16,7 @@ import type { Logger } from '../logger.js';
 import type { RootChainManager } from './root_chain_manager.js';
 import type { WithdrawStatus } from './withdraw-status.js';
 
-import { ChildERC721ABI } from '../abi/index.js';
+import { ChildERC721ABI } from '../abi/ChildERC721.js';
 import { LogEventSignature } from '../constant.js';
 import {
   AllowedOnChildError,

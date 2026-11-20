@@ -73,7 +73,12 @@ const CONDITION_NAMES = [
   'PermitNotSupportedError',
   'UntrustedPredicateError',
   'CheckpointRangeInvalidError',
-  'DepositNotReplayableError'
+  'DepositNotReplayableError',
+  'ExitNotStartedError',
+  'ExitQueueEmptyError',
+  'ExitGasLimitTooLowError',
+  'NativeBurnValueMismatchError',
+  'ChildBurnValueNotAllowedError'
 ] as const;
 
 const OPERATION_NAMES = [
@@ -479,14 +484,47 @@ export type NullSpenderAddressInfo = { tokenAddress: Hex };
 export type OnlyAllowedOnMainnetInfo = { chainId: number };
 export type PermitNotSupportedInfo = { token: string; method: string };
 export type UntrustedPredicateInfo = { tokenAddress: string; predicate: string };
+/** Why a checkpoint range cannot be the burn's checkpoint; the first failing check wins. */
+export type CheckpointRangeInvalidReason = 'inverted' | 'not-containing' | 'too-large';
 export type CheckpointRangeInvalidInfo = {
   start: string;
   end: string;
   txBlockNumber: number;
-  reason: 'inverted' | 'not-containing' | 'too-large';
+  reason: CheckpointRangeInvalidReason;
 };
 /** The status the SDK read before refusing to replay; branch on it as on `getDepositStatus`. */
 export type DepositNotReplayableInfo = { transactionHash: string; status: DepositStatus };
+// Plasma bridge: the five errors only a Plasma call raises, and their info
+// types. They stay in this file so the name arrays above and
+// `isMaticjsError` keep one source of truth; the `./plasma` entry is where
+// they are exported.
+
+/**
+ * Why `confirmTxHash` is not this burn's confirm: its receipt carries no
+ * exit-start log from the withdraw manager, or the exit it started belongs
+ * to a burn in a different block (`'burn-block-mismatch'`), was started for
+ * a different account than the one that burned (`'exitor-mismatch'`), or
+ * is for a different transaction in the same block
+ * (`'branch-mask-mismatch'`).
+ */
+export type ExitNotStartedReason =
+  | 'no-exit-started-log'
+  | 'burn-block-mismatch'
+  | 'exitor-mismatch'
+  | 'branch-mask-mismatch';
+export type ExitNotStartedInfo = {
+  burnTxHash: string;
+  confirmTxHash: string;
+  reason: ExitNotStartedReason;
+};
+/** The exit queues the SDK found empty, one entry per token the caller named. */
+export type ExitQueueEmptyInfo = { tokens: readonly string[] };
+/** The gas limit the caller passed and the least limit the SDK accepts for `processExits`. */
+export type ExitGasLimitTooLowInfo = { gasLimit: bigint; minimum: bigint };
+/** The burn amount and the different `options.value` the caller passed with it. */
+export type NativeBurnValueMismatchInfo = { amount: bigint; value: bigint };
+/** The non-zero `options.value` the caller passed with a non-native child-token burn. */
+export type ChildBurnValueNotAllowedInfo = { value: bigint };
 
 /** A root-chain-only method was called on a child-chain token. */
 export class AllowedOnRootError extends VError {
@@ -1033,6 +1071,112 @@ export class CheckpointRangeInvalidError extends VError {
   static readonly find = finderFor<CheckpointRangeInvalidError>('CheckpointRangeInvalidError');
   static readonly has = hasFor('CheckpointRangeInvalidError');
   constructor(message: string, options: RequiredInfoErrorOptions<CheckpointRangeInvalidInfo>) {
+    super(message, options);
+    sealMessage({ error: this, constructorOpt: new.target });
+  }
+  override toJSON(): Record<string, unknown> {
+    return safeJSON({ error: this, json: super.toJSON() });
+  }
+}
+
+// Plasma bridge errors (info types above).
+
+/**
+ * The transaction given as a Plasma withdrawal's confirm did not start an
+ * exit for that burn. Pass the transaction `confirmWithdraw` returned for
+ * this burn; if none was sent yet, call `confirmWithdraw` first.
+ */
+export class ExitNotStartedError extends VError {
+  override readonly name = 'ExitNotStartedError' as const;
+  declare readonly info: ExitNotStartedInfo;
+  static readonly find = finderFor<ExitNotStartedError>('ExitNotStartedError');
+  static readonly has = hasFor('ExitNotStartedError');
+  constructor(message: string, options: RequiredInfoErrorOptions<ExitNotStartedInfo>) {
+    super(message, options);
+    sealMessage({ error: this, constructorOpt: new.target });
+  }
+  override toJSON(): Record<string, unknown> {
+    return safeJSON({ error: this, json: super.toJSON() });
+  }
+}
+
+/**
+ * `completeWithdraw` / `processExits` found nothing queued for the tokens
+ * named, so a transaction would spend gas and process nothing. Another
+ * caller may already have processed the exit: read `getWithdrawStatus`
+ * before retrying.
+ */
+export class ExitQueueEmptyError extends VError {
+  override readonly name = 'ExitQueueEmptyError' as const;
+  declare readonly info: ExitQueueEmptyInfo;
+  static readonly find = finderFor<ExitQueueEmptyError>('ExitQueueEmptyError');
+  static readonly has = hasFor('ExitQueueEmptyError');
+  constructor(message: string, options: RequiredInfoErrorOptions<ExitQueueEmptyInfo>) {
+    super(message, options);
+    sealMessage({ error: this, constructorOpt: new.target });
+  }
+  override toJSON(): Record<string, unknown> {
+    return safeJSON({ error: this, json: super.toJSON() });
+  }
+}
+
+/**
+ * The `gasLimit` passed to `processExits` / `completeWithdraw` is below the
+ * least limit the SDK accepts, `info.minimum`, which sits under the smallest
+ * limit that can process an exit. The withdraw manager stops its loop
+ * without reverting when gas runs low, so a transaction with such a limit
+ * would succeed on chain and process nothing. Omit `gasLimit` and let the
+ * SDK size it. A limit at or above `info.minimum` is sent as given and can
+ * still process nothing: read `getWithdrawStatus` to learn whether the exit
+ * completed.
+ */
+export class ExitGasLimitTooLowError extends VError {
+  override readonly name = 'ExitGasLimitTooLowError' as const;
+  declare readonly info: ExitGasLimitTooLowInfo;
+  static readonly find = finderFor<ExitGasLimitTooLowError>('ExitGasLimitTooLowError');
+  static readonly has = hasFor('ExitGasLimitTooLowError');
+  constructor(message: string, options: RequiredInfoErrorOptions<ExitGasLimitTooLowInfo>) {
+    super(message, options);
+    sealMessage({ error: this, constructorOpt: new.target });
+  }
+  override toJSON(): Record<string, unknown> {
+    return safeJSON({ error: this, json: super.toJSON() });
+  }
+}
+
+/**
+ * `startWithdraw` / `prepareStartWithdraw` on a child token other than the
+ * native one was given a non-zero `options.value`. That token's `withdraw` is
+ * payable and keeps any value sent with it, so the SDK refuses the burn before
+ * anything is estimated, sent or prepared. Omit `options.value`.
+ */
+export class ChildBurnValueNotAllowedError extends VError {
+  override readonly name = 'ChildBurnValueNotAllowedError' as const;
+  declare readonly info: ChildBurnValueNotAllowedInfo;
+  static readonly find = finderFor<ChildBurnValueNotAllowedError>('ChildBurnValueNotAllowedError');
+  static readonly has = hasFor('ChildBurnValueNotAllowedError');
+  constructor(message: string, options: RequiredInfoErrorOptions<ChildBurnValueNotAllowedInfo>) {
+    super(message, options);
+    sealMessage({ error: this, constructorOpt: new.target });
+  }
+  override toJSON(): Record<string, unknown> {
+    return safeJSON({ error: this, json: super.toJSON() });
+  }
+}
+
+/**
+ * `startWithdraw` / `prepareStartWithdraw` on the child chain's native token
+ * was given an `options.value` different from `amount`. The contract's burn
+ * requires the value attached to equal the amount, so the transaction would
+ * revert; the SDK refuses it before sending. Omit `options.value` and the
+ * SDK attaches `amount`.
+ */
+export class NativeBurnValueMismatchError extends VError {
+  override readonly name = 'NativeBurnValueMismatchError' as const;
+  declare readonly info: NativeBurnValueMismatchInfo;
+  static readonly find = finderFor<NativeBurnValueMismatchError>('NativeBurnValueMismatchError');
+  static readonly has = hasFor('NativeBurnValueMismatchError');
+  constructor(message: string, options: RequiredInfoErrorOptions<NativeBurnValueMismatchInfo>) {
     super(message, options);
     sealMessage({ error: this, constructorOpt: new.target });
   }

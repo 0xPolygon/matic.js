@@ -46,6 +46,11 @@ const {
   UntrustedPredicateError,
   CheckpointRangeInvalidError,
   DepositNotReplayableError,
+  ExitNotStartedError,
+  ExitQueueEmptyError,
+  ExitGasLimitTooLowError,
+  NativeBurnValueMismatchError,
+  ChildBurnValueNotAllowedError,
   ProofApiNotSetError,
   ProofBuildError,
   ProofNodeKeyMismatchError,
@@ -162,6 +167,17 @@ const FACTORIES: Record<MaticjsErrorName, () => Error> = {
     new DepositNotReplayableError('m', {
       info: { transactionHash: TOKEN, status: { deposited: true } }
     }),
+  ExitNotStartedError: () =>
+    new ExitNotStartedError('m', {
+      info: { burnTxHash: HASH, confirmTxHash: HASH, reason: 'no-exit-started-log' }
+    }),
+  ExitQueueEmptyError: () => new ExitQueueEmptyError('m', { info: { tokens: [TOKEN] } }),
+  ExitGasLimitTooLowError: () =>
+    new ExitGasLimitTooLowError('m', { info: { gasLimit: 1n, minimum: 330_000n } }),
+  NativeBurnValueMismatchError: () =>
+    new NativeBurnValueMismatchError('m', { info: { amount: 2n, value: 1n } }),
+  ChildBurnValueNotAllowedError: () =>
+    new ChildBurnValueNotAllowedError('m', { info: { value: 1n } }),
   InitError: () => new InitError({ info: { operation: 'init', mode: 'init' } }),
   AddressLookupError: () =>
     new AddressLookupError({ info: { operation: 'getAddresses', mode: 'read' } }),
@@ -199,9 +215,9 @@ const rejection = async (run: () => Promise<unknown>): Promise<unknown> => {
 };
 
 describe('error classes', () => {
-  it('there are exactly 52 named classes and MATICJS_ERROR_NAMES lists each once', () => {
-    expect(Object.keys(FACTORIES).length).equals(52);
-    expect(MATICJS_ERROR_NAMES.size).equals(52);
+  it('there are exactly 57 named classes and MATICJS_ERROR_NAMES lists each once', () => {
+    expect(Object.keys(FACTORIES).length).equals(57);
+    expect(MATICJS_ERROR_NAMES.size).equals(57);
     expect([...Object.keys(FACTORIES)].sort()).deep.equals([...NAMES].sort());
   });
 

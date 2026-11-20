@@ -3,10 +3,11 @@
 [![npm version](https://img.shields.io/npm/v/@polygonlabs/maticjs.svg)](https://www.npmjs.com/package/@polygonlabs/maticjs)
 [![License: MIT](https://img.shields.io/npm/l/@polygonlabs/maticjs.svg)](LICENSE)
 
-TypeScript SDK for the Polygon PoS bridge and PoS staking. Deposits,
-withdrawals, and exit proofs against `RootChainManager` — across ERC-20,
-ERC-721, ERC-1155 and native ETH — plus validator and delegator staking
-from `@polygonlabs/maticjs/staking`, driven by whichever EVM client
+TypeScript SDK for the Polygon PoS bridge, the Plasma bridge and PoS
+staking. Deposits, withdrawals, and exit proofs against `RootChainManager` —
+across ERC-20, ERC-721, ERC-1155 and native ETH — plus Plasma ERC-20
+withdrawals from `@polygonlabs/maticjs/plasma` and validator and delegator
+staking from `@polygonlabs/maticjs/staking`, driven by whichever EVM client
 library you already have: `viem`, `ethers v5`, or `ethers v6`.
 
 `@polygonlabs/maticjs` 4.0 is the next major release of maticjs,
@@ -24,6 +25,20 @@ pnpm add @polygonlabs/maticjs ethers    # v5 or v6
 `viem` and `ethers` are optional peer dependencies. Install only the
 one you use; the SDK keeps every cross-library import type-only at the
 module-load boundary so the absent peer never crashes.
+
+### Entry points
+
+One package, several entry points. Import only the ones you use, so your bundle
+carries no code for the bridges and features you do not call:
+
+| Import                                                  | What it is for                                                                |
+| ------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `@polygonlabs/maticjs`                                  | PoS bridge: `POSClient`, errors, status types                                 |
+| `@polygonlabs/maticjs/plasma`                           | Plasma bridge: `PlasmaClient` (ERC-20 withdrawals)                            |
+| `@polygonlabs/maticjs/staking`                          | Validator and delegator staking: `StakingClient`                              |
+| `@polygonlabs/maticjs/viem`, `/ethers-v5`, `/ethers-v6` | The adapter factory for the library you use                                   |
+| `@polygonlabs/maticjs/abi`                              | The PoS and staking ABIs plus `RootChainABI`, for calls the SDK does not wrap |
+| `@polygonlabs/maticjs/plasma/abi`                       | The Plasma bridge's vendored ABIs (`Plasma<Name>ABI`)                         |
 
 ### ESM-only
 
@@ -62,16 +77,23 @@ import { viemAdapter } from '@polygonlabs/maticjs/viem';
 
 const account = privateKeyToAccount(process.env.PRIVATE_KEY as `0x${string}`);
 
-const parentPublic = createPublicClient({ chain: sepolia, transport: http(process.env.PARENT_RPC) });
-const parentWallet = createWalletClient({ account, chain: sepolia, transport: http(process.env.PARENT_RPC) });
+const parentPublic = createPublicClient({
+  chain: sepolia,
+  transport: http(process.env.PARENT_RPC)
+});
+const parentWallet = createWalletClient({
+  account,
+  chain: sepolia,
+  transport: http(process.env.PARENT_RPC)
+});
 
-const childPublic  = createPublicClient({ transport: http(process.env.CHILD_RPC)  });
-const childWallet  = createWalletClient({ account, transport: http(process.env.CHILD_RPC)  });
+const childPublic = createPublicClient({ transport: http(process.env.CHILD_RPC) });
+const childWallet = createWalletClient({ account, transport: http(process.env.CHILD_RPC) });
 
 const pos = await POSClient.init({
   network: 'amoy',
   parent: viemAdapter({ public: parentPublic, wallet: parentWallet }),
-  child:  viemAdapter({ public: childPublic,  wallet: childWallet  })
+  child: viemAdapter({ public: childPublic, wallet: childWallet })
 });
 
 // Read: balance of the bridged ERC-20 on the parent chain.
@@ -136,7 +158,9 @@ encode the bridge call but a different signer should send it. The prepared
 path is pure — no chain-id lookup, no gas estimation, no fee-cap guard. The one
 exception is `prepareReplayDeposit`, which reads the deposit's receipt and the
 state receiver's failed record to build its calldata; it still estimates no gas
-and checks no chain id.
+and checks no chain id. The Plasma exit prepares also read the chain, because
+their calldata depends on chain state: see
+[Plasma bridge](#plasma-bridge).
 
 ### Direct bridge helpers
 
@@ -145,13 +169,13 @@ exit payloads outside the standard token flows (sync block events,
 custom bridge events):
 
 ```ts
-await pos.getCheckpointStatus(burnTxHash);               // checkpointed, or why not
+await pos.getCheckpointStatus(burnTxHash); // checkpointed, or why not
 await pos.buildExitPayload(burnTxHash, eventSig, false); // exit calldata
-await pos.getBlockProof(blockNumber, { start, end });    // Merkle proof
-await pos.getPredicateAddress(token);                    // bridge predicate
-await pos.getWithdrawStatus(burnTxHash, eventSig);       // exited, or why not
-await pos.replayDeposit(depositTxHash);                  // resend a failed delivery, paying its gas
-await pos.prepareReplayDeposit(depositTxHash);           // the same, unsigned
+await pos.getBlockProof(blockNumber, { start, end }); // Merkle proof
+await pos.getPredicateAddress(token); // bridge predicate
+await pos.getWithdrawStatus(burnTxHash, eventSig); // exited, or why not
+await pos.replayDeposit(depositTxHash); // resend a failed delivery, paying its gas
+await pos.prepareReplayDeposit(depositTxHash); // the same, unsigned
 ```
 
 The token classes (`pos.parent.erc20(...).completeWithdraw(...)`) wrap these
@@ -174,7 +198,9 @@ const value = await parentPublic.readContract({
   address: RootChainManager,
   abi: RootChainManagerABI,
   functionName: 'someMethodTheSdkDoesNotWrap',
-  args: [/* ... */]
+  args: [
+    /* ... */
+  ]
 });
 ```
 
@@ -198,6 +224,12 @@ For air-gapped or staging deployments, override either the source URL
 (`addresses: NetworkAddresses`); both are documented on
 `POSClientConfig` in
 [`src/pos-client.ts`](./src/pos-client.ts).
+
+Two entries in the index have names that are easy to confuse, and they are
+different contracts. `RootChain` is the checkpoint contract: it stores the
+checkpoint headers that every exit proof is checked against, for the PoS bridge
+and the Plasma bridge alike. `RootChainManager` is the PoS bridge's own entry
+point for deposits and exits, and the Plasma bridge does not use it.
 
 Forks and devnets whose chain ids differ from the `network` preset must
 declare them: `chainIds: { parent, child }` (positive integers). The SDK
@@ -225,22 +257,24 @@ in the web3 library you actually use:
 import { ethersV5Adapter } from '@polygonlabs/maticjs/ethers-v5';
 import { providers, Wallet } from 'ethers';
 const provider = new providers.StaticJsonRpcProvider(process.env.PARENT_RPC);
-const signer   = new Wallet(process.env.PRIVATE_KEY!, provider);
+const signer = new Wallet(process.env.PRIVATE_KEY!, provider);
 const pos = await POSClient.init({
   network: 'amoy',
   parent: ethersV5Adapter({ provider, signer }),
-  child:  ethersV5Adapter({ provider: childProvider, signer: childSigner })
+  child: ethersV5Adapter({ provider: childProvider, signer: childSigner })
 });
 
 // ethers v6
 import { ethersV6Adapter } from '@polygonlabs/maticjs/ethers-v6';
 import { JsonRpcProvider, Wallet, Network } from 'ethers';
-const provider = new JsonRpcProvider(process.env.PARENT_RPC, Network.from(11155111), { staticNetwork: true });
-const signer   = new Wallet(process.env.PRIVATE_KEY!, provider);
+const provider = new JsonRpcProvider(process.env.PARENT_RPC, Network.from(11155111), {
+  staticNetwork: true
+});
+const signer = new Wallet(process.env.PRIVATE_KEY!, provider);
 const pos = await POSClient.init({
   network: 'amoy',
   parent: ethersV6Adapter({ provider, signer }),
-  child:  ethersV6Adapter({ provider: childProvider, signer: childSigner })
+  child: ethersV6Adapter({ provider: childProvider, signer: childSigner })
 });
 ```
 
@@ -291,12 +325,269 @@ const rewards = await share.getLiquidRewards({ user: delegator });
 To pin addresses instead of fetching the address index, pass
 `addresses: { StakeManager, MaticToken, PolToken }` to `StakingClient.init`.
 Staking needs only those three, not the bridge addresses `POSClient` requires.
+Passing a full bridge address index as `addresses` still works but is deprecated and
+will be removed in the next major version, because the client only ever reads the
+three staking addresses; pass those three instead.
 
 The gas limit of `stakeManager.unstake` carries extra headroom for the epoch race (a checkpoint landing between estimation and inclusion makes the call write storage the estimate did not see); unused gas is refunded, but the wallet must hold native balance for the full limit × fee when sending. Pass `gasLimit` to set it yourself; it is then used exactly as given.
 
 Coming from `@maticnetwork/maticjs-staking`? See the
 [migration guide](./MIGRATION.md#staking-migrating-from-maticnetworkmaticjs-staking)
 for the method mapping and the permit flow.
+
+## Plasma bridge
+
+`@polygonlabs/maticjs/plasma` moves ERC-20 tokens between Ethereum and Polygon
+PoS through the Plasma bridge, the older exit path that still serves native POL
+between the two chains. It has its own `PlasmaClient`, which takes a `parent` and
+a `child` adapter built the way the PoS client's are, so a PoS-only app carries no
+Plasma code, and a Plasma-only app carries none of the PoS bridge's ABIs except
+`RootChain`, which it loads for checkpoint reads. The Plasma contracts' ABIs are
+at `@polygonlabs/maticjs/plasma/abi`, named `PlasmaDepositManagerABI`,
+`PlasmaWithdrawManagerABI` and so on, and `@polygonlabs/maticjs/abi` carries none
+of them; `RootChainABI` stays in `./abi`. The errors only Plasma raises
+(`ExitNotStartedError`, `ExitQueueEmptyError`, `ExitGasLimitTooLowError`,
+`NativeBurnValueMismatchError`, `ChildBurnValueNotAllowedError`) and the event
+topics `PlasmaEventSignature` are imported from `@polygonlabs/maticjs/plasma`, so a
+PoS-only app never loads them; `isMaticjsError` from any entry still recognises
+them. Token handles come
+from `plasma.parent.erc20(address)` and `plasma.child.erc20(address)`, and the call
+shapes (`deposit(amount, userAddress)`, `startWithdraw(amount)`) match the PoS
+bridge's. The two handles are different types, `PlasmaParentERC20` and
+`PlasmaChildERC20`, each listing only the methods that can work on that chain, so
+calling a parent-only method on the child handle is a compile error rather than a
+failed transaction.
+
+A withdrawal has three steps, and the third waits out the exit period:
+
+1. **`startWithdraw`** burns the tokens on the child chain. For the native token
+   the SDK attaches the amount as the transaction value; if you pass
+   `options.value` yourself it must equal the amount, and any other value is
+   refused with `NativeBurnValueMismatchError` before anything is sent, because
+   the token contract reverts on it. For any other child token the SDK refuses a
+   non-zero `options.value` with `ChildBurnValueNotAllowedError` before anything
+   is sent, because that token's burn accepts the value, ignores it and keeps
+   it, so the value would be lost.
+2. **`confirmWithdraw`** (or `confirmWithdrawFast`) runs on the parent chain once a
+   checkpoint covers the burn. It builds the exit payload and queues the exit.
+3. **`completeWithdraw`** runs on the parent chain after the exit's waiting period
+   and pays out every queued exit that is due.
+
+```ts
+import { createPublicClient, createWalletClient, http } from 'viem';
+import { mainnet, polygon } from 'viem/chains';
+import { privateKeyToAccount } from 'viem/accounts';
+import { PlasmaClient } from '@polygonlabs/maticjs/plasma';
+import { viemAdapter } from '@polygonlabs/maticjs/viem';
+
+const account = privateKeyToAccount(process.env.PRIVATE_KEY as `0x${string}`);
+
+const plasma = await PlasmaClient.init({
+  network: 'mainnet',
+  parent: viemAdapter({
+    public: createPublicClient({ chain: mainnet, transport: http(process.env.PARENT_RPC) }),
+    wallet: createWalletClient({ account, chain: mainnet, transport: http(process.env.PARENT_RPC) })
+  }),
+  child: viemAdapter({
+    public: createPublicClient({ chain: polygon, transport: http(process.env.CHILD_RPC) }),
+    wallet: createWalletClient({ account, chain: polygon, transport: http(process.env.CHILD_RPC) })
+  })
+});
+
+const { PolToken } = await plasma.getAddresses();
+const nativeToken = '0x0000000000000000000000000000000000001010'; // POL on the child chain
+const amount = 10n ** 18n;
+
+// 1. Burn on the child chain.
+const burn = await plasma.child.erc20(nativeToken).startWithdraw(amount);
+await burn.confirmed();
+
+// 2. Once a checkpoint covers the burn, queue the exit on the parent chain.
+//    `getWithdrawStatus` reads 'not-checkpointed' until then.
+const pol = plasma.parent.erc20(PolToken);
+const confirm = await pol.confirmWithdraw(burn.hash);
+await confirm.confirmed();
+
+// 3. After the exit's waiting period, pay out the queue. Pass `confirmTxHash`
+//    so the status read can find your exit.
+const status = await pol.getWithdrawStatus({
+  burnTxHash: burn.hash,
+  confirmTxHash: confirm.hash
+});
+if (!status.exited && status.reason === 'ready-to-process') {
+  const exit = await pol.completeWithdraw();
+  await exit.confirmed();
+}
+```
+
+The burn and the exit are separate transactions on separate chains, so keep
+`burn.hash` and `confirm.hash` (a database row or a file is enough): the status
+read needs both. Every write has a `prepareXxx` sibling (`prepareStartWithdraw`,
+`prepareConfirmWithdraw`, `prepareCompleteWithdraw`, and so on) that returns the
+unsigned `{ to, data, value? }` for a smart wallet or a batcher.
+
+Unlike most PoS prepares, the Plasma exit prepares read the chain:
+
+- `prepareConfirmWithdraw` reads the burn, its receipt and the checkpoint to build
+  the exit payload.
+- `prepareCompleteWithdraw` and `prepareProcessExits` read the exit queue, and
+  refuse an empty one with `ExitQueueEmptyError`.
+- `prepareConfirmWithdrawFast` needs `proofGenerationApiUrl` set in
+  `PlasmaClient.init`.
+
+A prepared transaction carries no gas, so for the payout calls
+(`prepareCompleteWithdraw`, `prepareProcessExits`) the sender must set `gasLimit`
+to at least `await token.getCompleteWithdrawGasLimit()` or
+`await plasma.getProcessExitsGasLimit({ tokens })`. A wallet, batcher or bundler
+that sizes the transaction from its own estimate under-provides it, and the
+transaction succeeds without paying anything out. See
+[Before you rely on `completeWithdraw`](#before-you-rely-on-completewithdraw).
+
+### Fast confirm
+
+`confirmWithdrawFast(burnTxHash)` takes the exit payload from a proof-generation
+API instead of building it from RPC. It needs `proofGenerationApiUrl` in
+`PlasmaClient.init`; without it the call rejects with an error caused by
+`ProofApiNotSetError`. If the API is configured and then fails, the SDK logs a
+warning and builds the payload locally, so a proof-API outage makes the fast path
+slow, never stuck.
+
+### Configuration
+
+`PlasmaClient.init` takes the same network, address-index and logging settings as
+`POSClient.init`. The options are documented on the `PlasmaClientConfig` type,
+which you can import from `@polygonlabs/maticjs/plasma`. Two optional fields are
+worth knowing:
+
+- **`chainIds: { parent, child }`**: forks and devnets whose chain ids differ from
+  the `network` preset must declare them, as positive integers. The SDK takes them
+  from your code, like `addresses`, and never from the RPC, so an RPC that reports
+  any other chain is still refused with `UnsupportedNetworkError` before anything
+  is signed.
+- **`rootChainDefaultBlock`**: `'safe'` (default), `'finalized'` or `'latest'`.
+  The parent-chain block tag that checkpoint reads pin to. The default avoids
+  reading a checkpoint that is reorged out before your exit payload reaches the
+  parent chain.
+
+To pin addresses instead of fetching the address index, pass `addresses` as the
+seven Plasma addresses (`PlasmaAddresses`: `RootChain`, `DepositManager`,
+`WithdrawManager`, `PlasmaERC20Predicate`, `ExitNFT`, `MaticToken`, `PolToken`).
+`plasma.getAddresses()` returns that same type. The client reads and validates only
+those entries of the address index, so a PoS bridge index passed as `addresses`, or
+an index that lacks a Plasma contract, rejects `init` with an `InitError` whose
+`cause` is a `ContractNotAvailableOnNetworkError` naming the keys it lacks. If a
+later refresh of the index lacks one, the client keeps the last good addresses and
+calls `onAddressRefreshError`. The Plasma client keeps its own address cache, so a
+process that also runs a `POSClient` or `StakingClient` on the same index makes one
+extra fetch per `addressTTLMs`.
+
+### Where is my withdrawal?
+
+`getWithdrawStatus({ burnTxHash, confirmTxHash? })` answers `{ exited: true }` or
+`{ exited: false, reason }`. It is available on the client and on a parent-chain
+token handle, and it answers with a reason instead of throwing. What each reason
+means, and what to do:
+
+| `reason`             | Meaning                                                   | What to do                                                                                                                   |
+| -------------------- | --------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `'pending'`          | The burn is in no block yet.                              | Wait for it to mine.                                                                                                         |
+| `'not-checkpointed'` | The burn is mined and no checkpoint covers its block yet. | Keep polling.                                                                                                                |
+| `'not-confirmed'`    | Checkpointed, but no confirmed exit is known for it.      | If you have not confirmed, call `confirmWithdraw` (or `confirmWithdrawFast`); if you have, pass its hash as `confirmTxHash`. |
+| `'in-exit-window'`   | The exit is queued and its waiting period has not ended.  | Keep polling.                                                                                                                |
+| `'ready-to-process'` | The waiting period has ended.                             | Call `completeWithdraw`.                                                                                                     |
+
+`{ exited: true }` means the exit was processed: its exit token is gone. It does
+not say the payout succeeded in full, because the contract does not check the
+result of the token's payout step when it processes an exit.
+
+The contracts keep no lookup from a burn to its exit, so when you omit
+`confirmTxHash` a checkpointed burn reads `'not-confirmed'` even if you already
+confirmed it, and even if the exit was already processed. The answer cannot tell
+"never confirmed" from "confirmed, but the confirm hash was not supplied". If you
+lost the confirm hash, do not call `confirmWithdraw` again: a new confirm for an
+exit that already exists reverts. Find the confirm transaction and pass its hash
+as `confirmTxHash`.
+
+The read follows the parent chain's latest state. A chain reorganisation on the
+parent chain in the short window between the exit's processing and the read can
+make the answer briefly stale. A node that is behind the block of the confirm
+transaction answers `'in-exit-window'` from its own view, even when the exit is
+already processed or its waiting period has ended; a later read from a node that
+has caught up answers correctly. A `confirmTxHash` that did not start an exit for this burn rejects
+with `ExitNotStartedError`, and so does a burn whose receipt has no Plasma
+`Withdraw` log (for example a PoS burn passed by mistake) with
+`LogNotFoundInReceiptError`. Both arrive as the `cause` of the `BridgeStatusError`
+the read rejects with, so find them with `ExitNotStartedError.find(err)` and
+`LogNotFoundInReceiptError.find(err)`. Without `confirmTxHash` the burn's log is
+never read.
+
+### Before you rely on `completeWithdraw`
+
+> **Warning: a successful `completeWithdraw` receipt does not prove your exit was
+> processed.**
+>
+> - **The contract can stop without reverting.** `WithdrawManager` pays exits in a
+>   loop that runs only while the transaction has more gas left than its
+>   `ON_FINALIZE_GAS_LIMIT` reserve, and that stops at the first exit that is not
+>   yet due. Either way the transaction succeeds and your exit stays queued. After
+>   the receipt, call `getWithdrawStatus` and look for `{ exited: true }`.
+> - **Default gas.** Without `options.gasLimit`, the SDK sets the limit to the
+>   node's estimate plus `PROCESS_EXITS_GAS_PER_EXIT` (350,000 gas) for every exit
+>   in the queue, capped at `MAX_PROCESS_EXITS_GAS_LIMIT` (16,000,000 gas), which
+>   keeps the transaction under Ethereum's per-transaction gas cap. Both constants
+>   are exported from `@polygonlabs/maticjs/plasma`. A long queue is paid out over
+>   several calls, because each call handles as many exits as its gas allows. A
+>   long queue also drives the default limit up toward that 16,000,000 cap, and
+>   the sending wallet must hold native balance for the full limit × `maxFeePerGas`
+>   up front, even though unused gas is refunded.
+> - **A transaction you send yourself needs the same gas.** `prepareCompleteWithdraw`
+>   and `prepareProcessExits` return no gas, and a wallet's own estimate is the gas
+>   the run used, not the gas the loop needs left at its start, so a transaction
+>   sized by it succeeds and pays out nothing. The sender must set `gasLimit` to at
+>   least `await token.getCompleteWithdrawGasLimit()` (or
+>   `await plasma.getProcessExitsGasLimit({ tokens })`), which return exactly the
+>   limit the SDK's own write sends. Like the write, they estimate as
+>   `options.from` or the adapter's signer, so pass `{ from }` when the adapter has
+>   neither, and they reject with `ExitQueueEmptyError` when nothing is queued.
+> - **Your own `gasLimit`.** A limit you pass is used exactly as given, with one
+>   exception: a limit too low for the contract's loop to start (below its
+>   `ON_FINALIZE_GAS_LIMIT` reserve plus the call's own overhead) would succeed and
+>   process nothing, so the SDK refuses it with `ExitGasLimitTooLowError` before
+>   anything is sent. `info.minimum` on that error is the floor. Read it rather
+>   than hardcoding a number, because it follows the contract. The floor only
+>   rules out limits that can never work: a limit a little above it can still
+>   complete without processing anything, more so when you name several tokens.
+>   Passing the raw `eth_estimateGas` value always does, because the estimate is
+>   the gas the run used, not the gas the loop needs left at its start. Leave
+>   `gasLimit` unset unless you must set it; the SDK's default is the safe value.
+> - **Send `confirmWithdraw` and `confirmWithdrawFast` from the account that
+>   burned.** The predicate starts the exit only for the account the burn's
+>   `Withdraw` log names as `from`, so confirm from that account.
+>   `completeWithdraw` and `processExits` are permissionless: any account may
+>   send them, and each exit pays its owner, whoever sends the transaction.
+> - **One burn per transaction.** The bridge identifies an exit by the burn's
+>   block and its transaction's position in that block, not by the log inside
+>   it, so it accepts one exit per burn transaction. If you batch
+>   `prepareStartWithdraw` calls through a smart wallet or a multicall, give each
+>   burn its own transaction: a second burn in the same transaction leaves the
+>   child chain and can never be confirmed on the parent chain. The SDK's exit
+>   payload always points at the transaction's first `Withdraw` log.
+> - **Burn only from an account that can send on the parent chain.** The confirm
+>   must come from the same address that burned. A contract wallet that exists on
+>   Polygon but not at that address on Ethereum can burn and can never confirm.
+> - **POL exits are queued under the MATIC token.** A native-token burn pays POL
+>   but is queued under the legacy MATIC token, and the SDK handles that:
+>   `completeWithdraw` on a POL handle processes that queue. If you call
+>   `plasma.processExits({ tokens })` yourself, name the MATIC token
+>   (`(await plasma.getAddresses()).MaticToken`) for a POL exit.
+
+`processExits` and `completeWithdraw` reject with `ExitQueueEmptyError`, sending
+nothing, when no exit is queued for the token. Someone else may already have
+processed yours, so read `getWithdrawStatus` before retrying.
+
+Not included: ERC-721 tokens, `depositEther`, `transfer`, and MoreVP and
+challenge exits. Coming from `@maticnetwork/maticjs-plasma`? See the
+[migration guide](./MIGRATION.md#plasma-from-maticnetworkmaticjs-plasma).
 
 ## Errors
 
@@ -393,11 +684,11 @@ Status reads answer with a reason instead of throwing. One method answers
 one question and returns the answer together with why, so you never combine
 two calls that can disagree:
 
-| Question                            | Read                                                                                                                                | Result                                                                 |
-| ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| Has this burn been exited?          | `pos.getWithdrawStatus`, `pos.getWithdrawStatusOnIndex`, and on the tokens `getWithdrawExitStatus` (plus `…OnIndex`, `…OnIndices`, `…Many` where the token has them) | `{ exited: true }` or `{ exited: false, reason: 'pending' \| 'not-checkpointed' \| 'not-exited' }` |
-| Is this burn checkpointed?          | `pos.getCheckpointStatus(burnTx)`                                                                                                   | `{ checkpointed: true }` or `{ checkpointed: false, reason: 'pending' \| 'not-checkpointed' }` |
-| Has this deposit landed on the child chain? | `pos.getDepositStatus(depositTx)`                                                                                           | `{ deposited: true }` or `{ deposited: false, reason: 'pending' \| 'not-synced' }` or `{ deposited: false, reason: 'delivery-failed', stateId, receiver, record, replayable }` → `pos.replayDeposit(depositTx)` |
+| Question                                    | Read                                                                                                                                                                 | Result                                                                                                                                                                                                          |
+| ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Has this burn been exited?                  | `pos.getWithdrawStatus`, `pos.getWithdrawStatusOnIndex`, and on the tokens `getWithdrawExitStatus` (plus `…OnIndex`, `…OnIndices`, `…Many` where the token has them) | `{ exited: true }` or `{ exited: false, reason: 'pending' \| 'not-checkpointed' \| 'not-exited' }`                                                                                                              |
+| Is this burn checkpointed?                  | `pos.getCheckpointStatus(burnTx)`                                                                                                                                    | `{ checkpointed: true }` or `{ checkpointed: false, reason: 'pending' \| 'not-checkpointed' }`                                                                                                                  |
+| Has this deposit landed on the child chain? | `pos.getDepositStatus(depositTx)`                                                                                                                                    | `{ deposited: true }` or `{ deposited: false, reason: 'pending' \| 'not-synced' }` or `{ deposited: false, reason: 'delivery-failed', stateId, receiver, record, replayable }` → `pos.replayDeposit(depositTx)` |
 
 The result types are exported as `WithdrawStatus`, `CheckpointStatus` and
 `DepositStatus`, with their reason unions `WithdrawNotExitedReason`,

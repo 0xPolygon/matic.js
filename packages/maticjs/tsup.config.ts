@@ -46,7 +46,14 @@ export default defineConfig({
     'abi/index': 'src/abi/index.ts',
     // Staking is its own entry so bridge bundles carry no staking ABI and
     // staking bundles none of the bridge's proof machinery (MPT, RLP).
-    'staking/index': 'src/staking/index.ts'
+    'staking/index': 'src/staking/index.ts',
+    // Plasma is its own entry so PoS bridge bundles carry no Plasma ABI and
+    // Plasma bundles none of the PoS bridge's ABIs.
+    'plasma/index': 'src/plasma/index.ts',
+    // The Plasma ABIs are their own entry, not part of `./abi`, so a consumer
+    // of the PoS ABIs never loads them and the Plasma client's closure holds
+    // only the modules it imports.
+    'plasma/abi/index': 'src/abi/plasma/index.ts'
   },
   // viem / ethers are optional peer deps and must never be bundled into
   // the adapter outputs — tsup externalises everything in `dependencies`
@@ -73,7 +80,7 @@ export default defineConfig({
   dts: true,
   clean: true,
   sourcemap: true,
-  // Code splitting ON: with five entry points and `splitting: false`,
+  // Code splitting ON: with several entry points and `splitting: false`,
   // shared modules (errors.ts above all) were duplicated into every
   // entry bundle, so an error class thrown by an adapter chunk was a
   // different class object from the one imported from the main entry. Splitting hoists shared modules into one chunk that every
@@ -82,9 +89,9 @@ export default defineConfig({
   // tsup tree-shakes each emitted file with rollup, treating the other
   // chunks as externals. esbuild emits a bare `import './chunk-X.js'` for
   // every chunk an entry can reach through a re-export, even when it uses
-  // nothing from it — and the public ABI barrel re-exports every ABI, so
-  // the bridge entry would load the staking ABI chunk just to evaluate
-  // it. Our own chunks are side-effect free (package.json
+  // nothing from it — and a public ABI barrel re-exports every ABI it
+  // lists, so an entry reaching one would load the other ABIs' chunks just
+  // to evaluate it. Our own chunks are side-effect free (package.json
   // `sideEffects: false`), so a relative import that binds nothing is
   // dropped. Third-party imports keep rollup's default, conservative
   // handling. `scripts/check-entry-isolation.mjs` fails the pack smoke if

@@ -64,11 +64,13 @@ const ok = (msg) => {
 try {
   // 1. Build + pack.
   run('pnpm run build', pkgDir);
-  // Bridge entry must not load staking ABIs; staking entry must not load
-  // the bridge's MPT/RLP proof deps. Exits non-zero on a leak.
+  // Bridge and `./abi` entries must not load Plasma ABIs; the bridge must not
+  // load staking ABIs; staking entry must not load the bridge's MPT/RLP proof
+  // deps or Plasma ABIs; the Plasma entry must load no staking ABI and no web3
+  // library; `./plasma/abi` must hold every Plasma ABI. Exits non-zero on a leak.
   try {
     run('node scripts/check-entry-isolation.mjs', pkgDir);
-    ok('entry isolation (bridge ↔ staking)');
+    ok('entry isolation (bridge ↔ staking ↔ /plasma)');
   } catch {
     fail('entry isolation FAILED (see scripts/check-entry-isolation.mjs output above)');
   }
@@ -83,17 +85,21 @@ try {
       imports: [
         '@polygonlabs/maticjs',
         '@polygonlabs/maticjs/abi',
+        '@polygonlabs/maticjs/plasma/abi',
         '@polygonlabs/maticjs/viem',
         '@polygonlabs/maticjs/ethers-v6',
-        '@polygonlabs/maticjs/staking'
+        '@polygonlabs/maticjs/staking',
+        '@polygonlabs/maticjs/plasma'
       ],
       // spec → an export that must exist on the require()d namespace.
       requires: {
         '@polygonlabs/maticjs': 'POSClient',
         '@polygonlabs/maticjs/abi': 'RootChainManagerABI',
+        '@polygonlabs/maticjs/plasma/abi': 'PlasmaDepositManagerABI',
         '@polygonlabs/maticjs/viem': 'viemAdapter',
         '@polygonlabs/maticjs/ethers-v6': 'ethersV6Adapter',
-        '@polygonlabs/maticjs/staking': 'StakingClient'
+        '@polygonlabs/maticjs/staking': 'StakingClient',
+        '@polygonlabs/maticjs/plasma': 'PlasmaClient'
       },
       probe: `
 import { POSClient, ProofApiNotSetError, isMaticjsError, rootCause } from '@polygonlabs/maticjs';
@@ -101,17 +107,25 @@ import type { POSClientConfig, TxResult } from '@polygonlabs/maticjs';
 import { viemAdapter } from '@polygonlabs/maticjs/viem';
 import { ethersV6Adapter } from '@polygonlabs/maticjs/ethers-v6';
 import { RootChainManagerABI } from '@polygonlabs/maticjs/abi';
+import { PlasmaDepositManagerABI } from '@polygonlabs/maticjs/plasma/abi';
 import { StakingClient, splitSignature } from '@polygonlabs/maticjs/staking';
 import type { StakingClientConfig } from '@polygonlabs/maticjs/staking';
+import { ExitQueueEmptyError, PlasmaClient, PlasmaEventSignature, sanitiseError as plasmaSanitiseError } from '@polygonlabs/maticjs/plasma';
+import type { PlasmaClientConfig } from '@polygonlabs/maticjs/plasma';
 // Types must be real (not any): assigning a wrong shape must fail.
 // @ts-expect-error — viemAdapter requires a config object, not a number
 const bad = viemAdapter(42);
 const abiIsTyped: typeof RootChainManagerABI extends readonly unknown[] ? true : never = true;
+const plasmaAbiIsTyped: typeof PlasmaDepositManagerABI extends readonly unknown[] ? true : never = true;
 // @ts-expect-error — StakingClient.init requires a config object
 const badStaking = StakingClient.init(42);
-console.log(typeof POSClient, typeof ProofApiNotSetError, typeof isMaticjsError, typeof rootCause, typeof ethersV6Adapter, Boolean(bad), abiIsTyped);
-console.log(typeof splitSignature, Boolean(badStaking));
-export type { POSClientConfig, TxResult, StakingClientConfig };
+// @ts-expect-error — PlasmaClient.init requires a config object
+const badPlasma = PlasmaClient.init(42);
+console.log(typeof POSClient, typeof ProofApiNotSetError, typeof isMaticjsError, typeof rootCause, typeof ethersV6Adapter, Boolean(bad), abiIsTyped, plasmaAbiIsTyped);
+// The Plasma-only error class and event topics are exported from the Plasma entry, with literal types.
+const plasmaTopic: '0xebff2602b3f468259e1e99f613fed6691f3a6526effe6ef3e768ba7ae7a36c4f' = PlasmaEventSignature.Erc20Withdraw;
+console.log(typeof splitSignature, Boolean(badStaking), Boolean(badPlasma), typeof plasmaSanitiseError, typeof ExitQueueEmptyError, plasmaTopic);
+export type { POSClientConfig, TxResult, StakingClientConfig, PlasmaClientConfig };
 `
     },
     {
@@ -120,18 +134,22 @@ export type { POSClientConfig, TxResult, StakingClientConfig };
       imports: [
         '@polygonlabs/maticjs',
         '@polygonlabs/maticjs/ethers-v5',
-        '@polygonlabs/maticjs/staking'
+        '@polygonlabs/maticjs/staking',
+        '@polygonlabs/maticjs/plasma'
       ],
       requires: {
         '@polygonlabs/maticjs': 'POSClient',
         '@polygonlabs/maticjs/ethers-v5': 'ethersV5Adapter',
-        '@polygonlabs/maticjs/staking': 'StakingClient'
+        '@polygonlabs/maticjs/staking': 'StakingClient',
+        '@polygonlabs/maticjs/plasma': 'PlasmaClient'
       },
       probe: `
 import { providers, Wallet } from 'ethers';
 import { ethersV5Adapter } from '@polygonlabs/maticjs/ethers-v5';
 import { StakingClient, splitSignature } from '@polygonlabs/maticjs/staking';
 import type { StakingClientConfig } from '@polygonlabs/maticjs/staking';
+import { PlasmaClient } from '@polygonlabs/maticjs/plasma';
+import type { PlasmaClientConfig } from '@polygonlabs/maticjs/plasma';
 // The shipped d.ts must resolve its 'ethers' import against the
 // CONSUMER'S ethers v5 — if it still references the internal
 // 'ethers-v5' alias, this file fails to typecheck (skipLibCheck off).
@@ -142,8 +160,10 @@ const adapter = ethersV5Adapter({ provider, signer });
 const bad = ethersV5Adapter({ provider: 'nope' });
 // @ts-expect-error — StakingClient.init requires a config object
 const badStaking = StakingClient.init(42);
-console.log(Boolean(adapter), Boolean(bad), typeof splitSignature, Boolean(badStaking));
-export type { StakingClientConfig };
+// @ts-expect-error — PlasmaClient.init requires a config object
+const badPlasma = PlasmaClient.init(42);
+console.log(Boolean(adapter), Boolean(bad), typeof splitSignature, Boolean(badStaking), Boolean(badPlasma));
+export type { StakingClientConfig, PlasmaClientConfig };
 `
     }
   ];
@@ -209,6 +229,29 @@ export type { StakingClientConfig };
         ok(`${consumer.name}: error class recognised by name + legacy type`);
       } catch {
         fail(`${consumer.name}: error class recognition FAILED`);
+      }
+    }
+
+    // The Plasma ABIs live at `./plasma/abi` and nowhere else: each Plasma
+    // name must be an array there, and `./abi` must export none of them, or a
+    // PoS-only consumer's closure would carry them.
+    if (consumer.name === 'viem+ethers6') {
+      try {
+        run(
+          `node --input-type=module -e "` +
+            `import * as plasmaAbi from '@polygonlabs/maticjs/plasma/abi';` +
+            `import * as abi from '@polygonlabs/maticjs/abi';` +
+            `const names = ['PlasmaDepositManagerABI','PlasmaWithdrawManagerABI','PlasmaExitNFTABI','PlasmaPriorityQueueABI','PlasmaMRC20ABI','PlasmaChildERC20ABI','PlasmaERC20PredicateABI'];` +
+            `for (const n of names) {` +
+            `if (!Array.isArray(plasmaAbi[n])) throw new Error(n + ' is not an array at ./plasma/abi');` +
+            `if (n in abi) throw new Error(n + ' leaked into ./abi');` +
+            `}` +
+            `console.log('ok')"`,
+          dir
+        );
+        ok(`${consumer.name}: Plasma ABIs at ./plasma/abi, none in ./abi`);
+      } catch {
+        fail(`${consumer.name}: Plasma ABI namespace check FAILED`);
       }
     }
 

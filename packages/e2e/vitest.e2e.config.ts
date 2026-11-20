@@ -55,6 +55,7 @@ const FILE_ORDER = [
   'bridge-erc721.e2e.test.ts',
   'bridge-erc1155.e2e.test.ts',
   'bridge-ether.e2e.test.ts',
+  'plasma-erc20.e2e.test.ts',
   'staking-writes.e2e.test.ts',
   'staking-delegation.e2e.test.ts',
   'staking-validator.e2e.test.ts'

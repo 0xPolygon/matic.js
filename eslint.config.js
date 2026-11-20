@@ -53,6 +53,44 @@ export default defineConfig([
     }
   },
   {
+    // Ban the ABI barrel everywhere in the SDK source but the barrel's own
+    // directory: a shared module (the PoS client, a service, an adapter) is
+    // reached by several entries, so a barrel import there leaks the same way
+    // as one inside an entry's own tree. The barrel
+    // (`src/abi/index.ts`) re-exports every ABI, so importing one ABI through
+    // it merges the bridge and staking ABI closures into one chunk (and
+    // `src/abi/plasma/index.ts` does the same for the Plasma ABIs).
+    // esbuild tree-shakes the unused arrays from the output, so build, the
+    // isolation gate and unit tests all pass while the source import is wrong;
+    // only a lint rule on the import itself catches it.
+    //
+    // A regex, not a gitignore-style `group`: `**/abi` would also match each
+    // per-module import (`../abi/ChildERC20.js`), which is the form we want.
+    files: ['packages/maticjs/src/**/*.ts'],
+    ignores: ['packages/maticjs/src/abi/**'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              regex: '^(\\.\\.?/)+abi(/index(\\.[jt]s)?)?/?$',
+              message:
+                "Import each ABI from its own module (e.g. '../abi/ChildERC20.js'), never the ABI barrel: the barrel merges the bridge and staking ABI closures, so entries would load ABIs they do not use. scripts/check-entry-isolation.mjs cannot see this because the bundler tree-shakes the unused arrays."
+            },
+            {
+              // Same rule for the Plasma barrel (`src/abi/plasma/index.ts`),
+              // which re-exports every Plasma ABI.
+              regex: '^(\\.\\.?/)+abi/plasma(/index(\\.[jt]s)?)?/?$',
+              message:
+                "Import each Plasma ABI from its own module (e.g. '../abi/plasma/DepositManager.js'), never the Plasma ABI barrel: the barrel merges every Plasma ABI, so an entry would load Plasma ABIs it does not use. scripts/check-entry-isolation.mjs cannot see this because the bundler tree-shakes the unused arrays."
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
     ignores: [
       '**/dist/**',
       // standalone consumer-facing reference scripts, not part of the workspace

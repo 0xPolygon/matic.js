@@ -13,7 +13,7 @@ import type { Hex, Adapter, PreparedTx, TxResult } from '../adapter.js';
 import type { ContractCallerOptions } from '../internal/contract-caller.js';
 import type { Logger } from '../logger.js';
 
-import { RootChainManagerABI } from '../abi/index.js';
+import { RootChainManagerABI } from '../abi/RootChainManager.js';
 import { DepositError, ExitError, BridgeStatusError, withOperation } from '../errors.js';
 import { ContractCaller } from '../internal/contract-caller.js';
 

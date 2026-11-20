@@ -1,7 +1,8 @@
 /**
- * Minimal ABI fragments for the devnet's pos-portal Dummy tokens and the
- * RootChainManager. The harness uses these to seed balances with plain
- * viem calls, so seeding never depends on the SDK under test.
+ * Minimal ABI fragments for the devnet's pos-portal Dummy tokens, the
+ * RootChainManager and the Plasma registry. The harness uses these to seed
+ * balances with plain viem calls, so seeding never depends on the SDK under
+ * test.
  */
 import { parseAbi } from 'viem';
 
@@ -36,6 +37,13 @@ export const approvalForAllAbi = parseAbi([
   'function setApprovalForAll(address operator, bool approved)',
   'function isApprovedForAll(address owner, address operator) view returns (bool)'
 ]);
+
+/**
+ * The registry that names the live Plasma ERC-20 predicate. The tests read
+ * the predicate from here rather than trusting the address JSON, so a
+ * redeployed predicate cannot leave a stale address behind.
+ */
+export const plasmaRegistryAbi = parseAbi(['function erc20Predicate() view returns (address)']);
 
 export const rootChainManagerAbi = parseAbi([
   'function depositFor(address user, address rootToken, bytes depositData)'

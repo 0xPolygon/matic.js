@@ -520,12 +520,16 @@ against the prepared `to`/`data`/`value`. The one exception is
 `prepareReplayDeposit`, which reads the deposit's receipt and the state
 receiver's failed record to build its calldata; it still estimates no gas and
 checks no chain id.
+The Plasma exit prepares (`prepareConfirmWithdraw`, `prepareCompleteWithdraw`,
+`prepareProcessExits`) also read the chain; see the
+[README](./README.md#plasma-bridge).
 
 ## Direct access to bridge helpers (`buildExitPayload`, `getCheckpointStatus`, …)
 
 The 3.x SDK exposed `pos.client.exitUtil` directly, which several services
 relied on for non-token use cases — exit payloads for sync block events,
-custom bridge events, etc. (Plasma is not part of 4.0.) The new SDK exposes those helpers
+custom bridge events, etc. (Plasma exit payloads are built by the Plasma client; see
+[Plasma](#plasma-from-maticnetworkmaticjs-plasma).) The new SDK exposes those helpers
 as flat methods on `POSClient`:
 
 | 3.x                                                            | 4.0                                                                                                                                                                                                                              |
@@ -1204,7 +1208,9 @@ const staking = await StakingClient.init({
 ```
 
 A full `NetworkAddresses` index that also carries the three staking keys
-works as well. An override that contains any bridge key is validated as a
+is still accepted, but passing one is deprecated and will be removed in the next
+major version: the client only reads the three staking addresses, so pass those
+three instead. An override that contains any bridge key is validated as a
 full index, bridge keys included, so a typo in a bridge key still fails
 loudly. `POSClient` still requires every bridge key.
 
@@ -1436,11 +1442,101 @@ thrown error itself; see [Wallet and library errors](#wallet-and-library-errors)
 `splitSignature` stays synchronous and throws `InvalidHexStringError`
 directly, not wrapped in an operation error.
 
+## Plasma (from `@maticnetwork/maticjs-plasma`)
+
+The 3.x Plasma plugin, `@maticnetwork/maticjs-plasma`, extended the 3.x core
+through `use(Web3ClientPlugin)` and has no 4.x peer. The Plasma bridge now ships
+inside this package, from 4.1, behind its own subpath,
+`@polygonlabs/maticjs/plasma`, so PoS consumers carry no Plasma ABIs, and Plasma
+consumers carry none of the PoS bridge's ABIs except `RootChain`, which they load
+for checkpoint reads. The Plasma contracts' ABIs are at
+`@polygonlabs/maticjs/plasma/abi` (`PlasmaDepositManagerABI`,
+`PlasmaWithdrawManagerABI`, `PlasmaExitNFTABI`, `PlasmaPriorityQueueABI`,
+`PlasmaMRC20ABI`, `PlasmaChildERC20ABI`, `PlasmaERC20PredicateABI`), not in
+`@polygonlabs/maticjs/abi`; `RootChainABI` stays in `./abi`. The errors only
+Plasma raises (`ExitNotStartedError`, `ExitQueueEmptyError`,
+`ExitGasLimitTooLowError`, `NativeBurnValueMismatchError`,
+`ChildBurnValueNotAllowedError`) and the event topics `PlasmaEventSignature` are
+exported from `@polygonlabs/maticjs/plasma`, not from the root entry. The client
+setup follows the
+[plugin removal](#plugin-removal-pass-clients-directly-to-posclientinit): you
+pass your viem or ethers clients through an adapter, with no plugin.
+
+```diff
+-import { use } from '@maticnetwork/maticjs';
+-import { Web3ClientPlugin } from '@maticnetwork/maticjs-web3';
+-import { PlasmaClient } from '@maticnetwork/maticjs-plasma';
+-use(Web3ClientPlugin);
+-const plasma = new PlasmaClient();
+-await plasma.init({
+-  network: 'mainnet',
+-  version: 'v1',
+-  parent: { provider: parentWeb3Provider, defaultConfig: { from } },
+-  child:  { provider: childWeb3Provider,  defaultConfig: { from } }
+-});
+
++import { PlasmaClient } from '@polygonlabs/maticjs/plasma';
++import { viemAdapter } from '@polygonlabs/maticjs/viem';
++const plasma = await PlasmaClient.init({
++  network: 'mainnet',
++  parent: viemAdapter({ public: parentPublic, wallet: parentWallet }),
++  child: viemAdapter({ public: childPublic, wallet: childWallet })
++});
+```
+
+### Method mapping
+
+Writes (each also has a `prepareXxx` sibling returning `{ to, data, value? }`,
+which replaces `returnTransaction: true`):
+
+| 3.x                                                    | 4.1                                                                                                                      |
+| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------ |
+| `new PlasmaClient().init(config)`                      | `PlasmaClient.init(config)`                                                                                              |
+| `plasma.erc20(addr, true)`                             | `plasma.parent.erc20(addr)`                                                                                              |
+| `plasma.erc20(addr, false)`                            | `plasma.child.erc20(addr)`                                                                                               |
+| `token.withdrawStart(amount)`                          | `token.startWithdraw(amount)`                                                                                            |
+| `token.withdrawConfirm(burnTx)`                        | `token.confirmWithdraw(burnTx)`                                                                                          |
+| `token.withdrawConfirmFaster(burnTx)`                  | `token.confirmWithdrawFast(burnTx)`                                                                                      |
+| `token.withdrawExit()`                                 | `token.completeWithdraw()`, or `plasma.processExits({ tokens })` for several tokens                                      |
+| `token.approve(amount)` / `token.approveMax()`         | `token.approve(amount)` / `token.approveMax()` (the spender is always the `DepositManager`)                              |
+| `token.deposit(amount, user)`                          | `token.deposit(amount, user)`                                                                                            |
+| `token.getBalance(user)` / `token.getAllowance(user)`  | `token.getBalance(user)` / `token.getAllowance(user)`                                                                    |
+| `{ returnTransaction: true }`                          | `prepareStartWithdraw`, `prepareConfirmWithdraw`, `prepareCompleteWithdraw`, and the other `prepareXxx` siblings         |
+| `setProofApi(url)`                                     | `proofGenerationApiUrl` in `PlasmaClient.init`, as for [fast exits](#fast-exits-proofgenerationapiurl-replaces-setproofapi) |
+| — (no 3.x equivalent)                                  | `plasma.getWithdrawStatus({ burnTxHash, confirmTxHash? })`: where a burn stands, with the reason it is not exited yet    |
+
+Other changes:
+
+- **Amounts are `bigint`**, as everywhere in 4.0 (see [bigint everywhere](#bigint-everywhere)):
+  `startWithdraw(10n ** 18n)`, not `startWithdraw('1000000000000000000')`.
+- **`completeWithdraw` takes no burn hash.** It processes the token's whole exit
+  queue, paying every exit that is due, yours included. A successful receipt does
+  not prove your exit was processed; check `getWithdrawStatus`. See the warning
+  block in the [README](./README.md#before-you-rely-on-completewithdraw).
+- **The gas limit of `processExits` is sized by the SDK** (the node's estimate plus
+  an allowance per queued exit, capped under Ethereum's per-transaction gas cap),
+  and a `gasLimit` too low for the contract's loop to start is refused with
+  `ExitGasLimitTooLowError` before anything is sent.
+- **`PlasmaClient.init` accepts `chainIds` and `rootChainDefaultBlock`**, as
+  `POSClient.init` does (see [Reorg safety](#reorg-safety-rootchaindefaultblock)).
+
+### Not ported
+
+- **ERC-721 tokens** (`erc721`): the Plasma bridge here covers ERC-20 only.
+- **`depositEther`**: in 3.x it could not run (the client called a method the token
+  class does not define), so there is no behaviour to carry over.
+- **`transfer`**: not ported; send tokens with your own client.
+- **The `spenderAddress` option on `approve`**: the spender is always the
+  `DepositManager`, because a Plasma deposit pulls through it.
+- **The `registry`, `depositManager` and `withdrawManager` properties**: read the
+  resolved addresses with `await plasma.getAddresses()` and call the contracts
+  with your own client and the ABIs from `@polygonlabs/maticjs/plasma/abi`.
+
 ## zkEVM
 
 The 3.x line shipped both the PoS bridge and the zkEVM bridge
 surfaces. **`@polygonlabs/maticjs` covers only the PoS side** (the PoS
-bridge and PoS staking). The
+bridge, the Plasma bridge from 4.1, and PoS staking). The
 Polygon zkEVM network has reached end of life, so the `ZkEvmClient`
 surface is not ported — there is no longer a chain for it to talk to.
 Remove `ZkEvmClient` usage along with the retired network.
