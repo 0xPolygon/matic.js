@@ -1,11 +1,18 @@
 import { describe, expectTypeOf, it } from 'vitest';
 
 import type { Hex, PreparedTx, TxResult } from '../../src/adapter.ts';
+import type { NetworkAddresses } from '../../src/networks.ts';
+import type {
+  REQUIRED_BRIDGE_ADDRESS_KEYS,
+  StakingAddresses,
+  STAKING_ADDRESS_KEYS
+} from '../../src/staking/addresses.ts';
 import type {
   ResolvedStakingAddresses,
   StakeForParams,
   StakeManager,
   StakingClient,
+  StakingClientConfig,
   ValidatorShare
 } from '../../src/staking/index.ts';
 
@@ -69,5 +76,29 @@ describe('staking method types', () => {
     expectTypeOf<Resolved['StakeManager']>().toEqualTypeOf<Hex>();
     expectTypeOf<Resolved['MaticToken']>().toEqualTypeOf<Hex>();
     expectTypeOf<Resolved['PolToken']>().toEqualTypeOf<Hex>();
+  });
+
+  it('accepts both override shapes and keeps init a single-config call', () => {
+    expectTypeOf<NetworkAddresses>().toMatchTypeOf<NonNullable<StakingClientConfig['addresses']>>();
+    expectTypeOf<StakingAddresses>().toMatchTypeOf<NonNullable<StakingClientConfig['addresses']>>();
+    expectTypeOf<StakingClientConfig['addresses']>().toEqualTypeOf<
+      NetworkAddresses | StakingAddresses | undefined
+    >();
+    expectTypeOf<Parameters<typeof StakingClient.init>>().toEqualTypeOf<
+      [config: StakingClientConfig]
+    >();
+  });
+
+  it('ResolvedStakingAddresses is the union of both shapes with the staking keys required', () => {
+    expectTypeOf<ResolvedStakingAddresses>().toEqualTypeOf<
+      (NetworkAddresses | StakingAddresses) & StakingAddresses
+    >();
+  });
+
+  it('the key lists match the interfaces they describe', () => {
+    expectTypeOf<(typeof STAKING_ADDRESS_KEYS)[number]>().toEqualTypeOf<keyof StakingAddresses>();
+    expectTypeOf<(typeof REQUIRED_BRIDGE_ADDRESS_KEYS)[number]>().toEqualTypeOf<
+      RequiredKeys<NetworkAddresses>
+    >();
   });
 });

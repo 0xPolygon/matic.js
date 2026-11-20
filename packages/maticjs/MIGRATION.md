@@ -1204,7 +1204,9 @@ const staking = await StakingClient.init({
 ```
 
 A full `NetworkAddresses` index that also carries the three staking keys
-works as well. An override that contains any bridge key is validated as a
+is still accepted, but passing one is deprecated and will be removed in the next
+major version: the client only reads the three staking addresses, so pass those
+three instead. An override that contains any bridge key is validated as a
 full index, bridge keys included, so a typo in a bridge key still fails
 loudly. `POSClient` still requires every bridge key.
 
