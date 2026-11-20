@@ -323,3 +323,55 @@ describe('proof API block-included range', () => {
     expect(result).a('string');
   });
 });
+
+describe('assertCheckpointRange precedence and error shape', () => {
+  const thrown = (args: { start: bigint; end: bigint; txBlockNumber: number }): unknown => {
+    try {
+      assertCheckpointRange(args);
+    } catch (err) {
+      return err;
+    }
+    return undefined;
+  };
+
+  it('answers not-containing, not too-large, when the range is oversized and misses the burn block', () => {
+    const err = thrown({ start: 0n, end: 2n ** 26n, txBlockNumber: 2 ** 27 });
+    expect(CheckpointRangeInvalidError.find(err)?.info.reason).equals('not-containing');
+  });
+
+  it('answers inverted before not-containing and too-large', () => {
+    const err = thrown({ start: 2n ** 27n, end: 0n, txBlockNumber: 5 });
+    expect(CheckpointRangeInvalidError.find(err)?.info.reason).equals('inverted');
+  });
+
+  it.each([
+    [
+      'inverted',
+      { start: 10n, end: 5n, txBlockNumber: 7 },
+      'checkpoint range 10-5 is not a valid checkpoint for block 7 (inverted)'
+    ],
+    [
+      'not-containing',
+      { start: 101n, end: 200n, txBlockNumber: 100 },
+      'checkpoint range 101-200 is not a valid checkpoint for block 100 (not-containing)'
+    ],
+    [
+      'too-large',
+      { start: 0n, end: 2n ** 26n, txBlockNumber: 5 },
+      'checkpoint range 0-67108864 is not a valid checkpoint for block 5 (too-large)'
+    ]
+  ])('formats the exact message for %s', (_reason, args, message) => {
+    const err = thrown(args);
+    expect(CheckpointRangeInvalidError.find(err)).property('message').equals(message);
+  });
+
+  it('carries start and end as decimal strings, txBlockNumber as a number, the reason, and nothing else', () => {
+    const err = thrown({ start: 101n, end: 2n ** 64n, txBlockNumber: 100 });
+    expect(CheckpointRangeInvalidError.find(err)).property('info').deep.equals({
+      start: '101',
+      end: '18446744073709551616',
+      txBlockNumber: 100,
+      reason: 'not-containing'
+    });
+  });
+});
