@@ -15,18 +15,18 @@
   },
   "dependencies": {
     "@polygonlabs/maticjs": "workspace:*",
-    "@polygonlabs/verror": "^1.1.0",
+    "@polygonlabs/verror": "^1.2.0",
     "@t3-oss/env-core": "^0.13.10",
     "ethers": "^6.0.0",
     "ethers-v5": "npm:ethers@^5.8.0",
-    "viem": "^2.0.0",
+    "viem": "^2.57.17",
     "zod": "^4.0.17"
   },
   "devDependencies": {
     "@tsconfig/node-ts": "^23.0.0",
-    "@tsconfig/node24": "^24.0.0",
-    "@types/node": "^25.5.0",
-    "typescript": "^5.9.3",
-    "vitest": "^3.0.0"
+    "@tsconfig/node24": "^24.0.5",
+    "@types/node": "^26.6.6",
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.0"
   }
 }
