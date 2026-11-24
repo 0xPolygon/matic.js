@@ -81,6 +81,11 @@ class FakeAdapter implements Adapter {
   }
 }
 
+/** A `headerBlocks` answer in the ABI's output order: root, start, end, createdAt, proposer. */
+function wellFormedHeaderBlock({ start, end }: { start: bigint; end: bigint }): unknown[] {
+  return ['0x' + '00'.repeat(32), start, end, 0n, '0x0000000000000000000000000000000000000000'];
+}
+
 /** Minimal child-bridge-client fake; only the methods a test path hits. */
 function fakeChildClient(over: Partial<BridgeChildClient> = {}): BridgeChildClient {
   return {
@@ -204,7 +209,7 @@ describe('POSBridgeHelpers.buildExitPayloads — local multi-index enumeration',
     const adapter = new FakeAdapter({
       getLastChildBlock: 1_000_000n,
       currentHeaderBlock: 10000n,
-      headerBlocks: { start: 1n, end: 1000n }
+      headerBlocks: wellFormedHeaderBlock({ start: 1n, end: 1000n })
     });
 
     // Stub the proof-construction boundary (needs an archive node).
@@ -367,7 +372,7 @@ describe('POSBridgeHelpers — fast path falls back to local construction on pro
     const adapter = new FakeAdapter({
       getLastChildBlock: 1_000_000n,
       currentHeaderBlock: 10000n,
-      headerBlocks: { start: 1n, end: 1000n }
+      headerBlocks: wellFormedHeaderBlock({ start: 1n, end: 1000n })
     });
     return new POSBridgeHelpers({
       rootChainManagerCaller: rootCallerOn(adapter),

@@ -35,8 +35,18 @@
 
 import type { Adapter, BlockTag, Hex, PreparedTx, TxResult, WriteRequest } from '../adapter.js';
 import type { Logger } from '../logger.js';
+import type {
+  Abi,
+  ReadArgs,
+  ReadName,
+  ReadResult,
+  WriteArgs,
+  WriteCall,
+  WriteName
+} from './abi-types.js';
 
 import { Eip1559NotSupportedError, TxOptionNotObjectError } from '../errors.js';
+import { decodeAbiResult } from './decode.js';
 
 /**
  * Per-call overrides for read / write / estimateGas.
@@ -82,7 +92,7 @@ export interface InternalWriteSettings {
   gasHeadroom?: bigint;
 }
 
-export interface ContractCallerConfig {
+export interface ContractCallerConfig<TAbi extends Abi = Abi> {
   adapter: Adapter;
   /**
    * Resolves the contract's current address. Consumers of an
@@ -96,7 +106,7 @@ export interface ContractCallerConfig {
    * each library has its own ABI shape. The runtime value flows
    * through unchanged.
    */
-  abi: readonly unknown[];
+  abi: TAbi;
   /**
    * `true` for parent-chain (Ethereum mainnet / Sepolia) contracts;
    * `false` for child-chain (Polygon) contracts. Used by the EIP-1559
@@ -124,6 +134,13 @@ export interface ContractCallerConfig {
 
 const DEFAULT_GAS_MULTIPLIER = 1.15;
 
+/** `typeof` the value, or `'null'` / `'array'`, for the options-rejection message. */
+const receivedKind = (value: unknown): string => {
+  if (value === null) return 'null';
+  if (Array.isArray(value)) return 'array';
+  return typeof value;
+};
+
 /**
  * Plain-JS callers can hand `options` a string, array or `null`, which the
  * property reads below would silently treat as "no overrides" (or crash on
@@ -139,18 +156,92 @@ export const assertOptionsObject = ({
   method: string;
   options: unknown;
 }): void => {
-  if (options === null || typeof options !== 'object' || Array.isArray(options)) {
-    const received = options === null ? 'null' : Array.isArray(options) ? 'array' : typeof options;
-    throw new TxOptionNotObjectError('Transaction options must be a plain object', {
-      info: { method, received }
-    });
-  }
+  if (options !== null && typeof options === 'object' && !Array.isArray(options)) return;
+  throw new TxOptionNotObjectError('Transaction options must be a plain object', {
+    info: { method, received: receivedKind(options) }
+  });
 };
 
-export class ContractCaller {
+const argsOf = (value: unknown): readonly unknown[] => {
+  if (value === undefined) return [];
+  if (Array.isArray(value)) return value;
+  throw new Error('internal invariant: contract call arguments must be an array');
+};
+
+/** What a write-side method acts on, whichever of its two call shapes it was given. */
+interface WriteInvocation {
+  method: string;
+  args: readonly unknown[];
+  options: ContractCallerOptions;
+  internal: InternalWriteSettings;
+}
+
+// The two predicates name what `assertOptionsObject` and the shape check have
+// already established, so the value can be used without a cast.
+const isOptions = (value: unknown): value is ContractCallerOptions =>
+  value !== null && typeof value === 'object' && !Array.isArray(value);
+
+const isInternalSettings = (value: unknown): value is InternalWriteSettings =>
+  value !== null && typeof value === 'object' && !Array.isArray(value);
+
+const isCallDescriptor = (
+  value: unknown
+): value is { readonly method: string; readonly args: readonly unknown[] } =>
+  value !== null &&
+  typeof value === 'object' &&
+  'method' in value &&
+  typeof value.method === 'string' &&
+  'args' in value &&
+  Array.isArray(value.args);
+
+/**
+ * Sort the arguments of a write-side method into one record. The methods
+ * take either `(method, args, options, internal)` or a `{ method, args }`
+ * descriptor followed by `(options, internal)`: the descriptor lets a call
+ * builder that picks between two methods at run time keep each method's
+ * arguments tied to it in the type.
+ */
+const writeInvocationOf = ({
+  operation,
+  params
+}: {
+  operation: string;
+  params: readonly unknown[];
+}): WriteInvocation => {
+  const [first, second, third, fourth] = params;
+  let method: string;
+  let args: readonly unknown[];
+  let options: unknown;
+  let internal: unknown;
+  if (typeof first === 'string') {
+    method = first;
+    args = argsOf(second);
+    options = third;
+    internal = fourth;
+  } else if (isCallDescriptor(first)) {
+    method = first.method;
+    args = first.args;
+    options = second;
+    internal = third;
+  } else {
+    throw new Error(
+      `internal invariant: ${operation} needs a method name or a { method, args } call`
+    );
+  }
+  const given = options === undefined ? {} : options;
+  assertOptionsObject({ method: operation, options: given });
+  return {
+    method,
+    args,
+    options: isOptions(given) ? given : {},
+    internal: isInternalSettings(internal) ? internal : {}
+  };
+};
+
+export class ContractCaller<TAbi extends Abi = Abi> {
   private readonly adapter: Adapter;
   private readonly getAddress: () => Promise<Hex>;
-  private readonly abi: readonly unknown[];
+  private readonly abi: TAbi;
   private readonly isParent: boolean;
   private readonly logger: Logger;
   private readonly defaultFrom: Hex | undefined;
@@ -158,7 +249,7 @@ export class ContractCaller {
   private readonly pinnedChainId: number | undefined;
   private cachedChainId: number | undefined;
 
-  constructor(config: ContractCallerConfig) {
+  constructor(config: ContractCallerConfig<TAbi>) {
     this.adapter = config.adapter;
     this.getAddress = config.getAddress;
     this.abi = config.abi;
@@ -175,28 +266,41 @@ export class ContractCaller {
   }
 
   /**
-   * Eth-call style read. Returns `T` cast from the adapter's `unknown`
-   * — callers must pass the expected return type at the call site.
+   * Eth-call style read. The value the adapter returns is checked against
+   * the ABI's `outputs` and normalised to one SDK value, so the same read
+   * gives the same result on viem, ethers v5 and ethers v6. A value that
+   * does not match the ABI rejects with `BridgeEventDecodeFailedError`.
    */
-  async read<T>(
+  read<N extends ReadName<TAbi>>(
+    method: N,
+    args: ReadArgs<TAbi, N>,
+    options?: ContractCallerOptions
+  ): Promise<ReadResult<TAbi, N>>;
+  /** @deprecated temporary: removed once every call is typed */
+  read<T>(method: string, args?: readonly unknown[], options?: ContractCallerOptions): Promise<T>;
+  // The implementation returns `unknown` and each overload names what the
+  // ABI says that value is: `decodeAbiResult` walks the same ABI the types
+  // are derived from, and a test over every vendored function pins the two
+  // together. That is the one place the type is taken on trust.
+  async read(
     method: string,
     args: readonly unknown[] = [],
     options: ContractCallerOptions = {}
-  ): Promise<T> {
+  ): Promise<unknown> {
     assertOptionsObject({ method: 'read', options });
     const address = await this.getAddress();
     this.logger.debug(
       { contract: address, method, args, blockTag: options.blockTag },
       'contract read'
     );
-    const result = await this.adapter.read({
+    const raw = await this.adapter.read({
       address,
       abi: this.abi,
       functionName: method,
       args,
       ...(options.blockTag !== undefined ? { blockTag: options.blockTag } : {})
     });
-    return result as T;
+    return decodeAbiResult({ abi: this.abi, method, raw });
   }
 
   /**
@@ -205,16 +309,22 @@ export class ContractCaller {
    * value into `options.gasLimit`) get the same headroom that `write`
    * would compute internally.
    */
-  async estimateGas(
+  estimateGas<N extends WriteName<TAbi>>(
+    method: N,
+    args: WriteArgs<TAbi, N>,
+    options?: ContractCallerOptions
+  ): Promise<bigint>;
+  estimateGas(call: WriteCall<TAbi>, options?: ContractCallerOptions): Promise<bigint>;
+  /** @deprecated temporary: removed once every call is typed */
+  estimateGas(
     method: string,
-    args: readonly unknown[] = [],
-    options: ContractCallerOptions = {}
-  ): Promise<bigint> {
-    assertOptionsObject({ method: 'estimateGas', options });
+    args?: readonly unknown[],
+    options?: ContractCallerOptions
+  ): Promise<bigint>;
+  async estimateGas(...params: readonly unknown[]): Promise<bigint> {
+    const { method, args, options } = writeInvocationOf({ operation: 'estimateGas', params });
     const address = await this.getAddress();
-    const req = this.minimalWriteRequest(address, method, args, options);
-    const raw = await this.adapter.estimateGas(req);
-    return BigInt(Math.trunc(Number(raw) * this.gasMultiplier));
+    return this.estimateFor({ address, method, args, options });
   }
 
   /**
@@ -224,13 +334,26 @@ export class ContractCaller {
    * If `options.gasLimit` is omitted, the caller estimates internally
    * and applies the gas multiplier — preserving legacy behaviour.
    */
-  async write(
+  write<N extends WriteName<TAbi>>(
+    method: N,
+    args: WriteArgs<TAbi, N>,
+    options?: ContractCallerOptions,
+    internal?: InternalWriteSettings
+  ): Promise<TxResult>;
+  write(
+    call: WriteCall<TAbi>,
+    options?: ContractCallerOptions,
+    internal?: InternalWriteSettings
+  ): Promise<TxResult>;
+  /** @deprecated temporary: removed once every call is typed */
+  write(
     method: string,
-    args: readonly unknown[] = [],
-    options: ContractCallerOptions = {},
-    internal: InternalWriteSettings = {}
-  ): Promise<TxResult> {
-    assertOptionsObject({ method: 'write', options });
+    args?: readonly unknown[],
+    options?: ContractCallerOptions,
+    internal?: InternalWriteSettings
+  ): Promise<TxResult>;
+  async write(...params: readonly unknown[]): Promise<TxResult> {
+    const { method, args, options, internal } = writeInvocationOf({ operation: 'write', params });
     const address = await this.getAddress();
     // The pinned id is the expectation every adapter checks the signer
     // against; the RPC's own answer is only a fallback for callers that
@@ -247,7 +370,7 @@ export class ContractCaller {
 
     const gasLimit =
       options.gasLimit ??
-      (await this.estimateGas(method, args, options)) + (internal.gasHeadroom ?? 0n);
+      (await this.estimateFor({ address, method, args, options })) + (internal.gasHeadroom ?? 0n);
 
     const req: WriteRequest = {
       address,
@@ -276,12 +399,20 @@ export class ContractCaller {
    * lookup, no gas estimation, no fee-cap guard. The wallet that
    * eventually signs the prepared tx fills those in.
    */
-  async prepareWrite(
+  prepareWrite<N extends WriteName<TAbi>>(
+    method: N,
+    args: WriteArgs<TAbi, N>,
+    options?: ContractCallerOptions
+  ): Promise<PreparedTx>;
+  prepareWrite(call: WriteCall<TAbi>, options?: ContractCallerOptions): Promise<PreparedTx>;
+  /** @deprecated temporary: removed once every call is typed */
+  prepareWrite(
     method: string,
-    args: readonly unknown[] = [],
-    options: ContractCallerOptions = {}
-  ): Promise<PreparedTx> {
-    assertOptionsObject({ method: 'prepareWrite', options });
+    args?: readonly unknown[],
+    options?: ContractCallerOptions
+  ): Promise<PreparedTx>;
+  async prepareWrite(...params: readonly unknown[]): Promise<PreparedTx> {
+    const { method, args, options } = writeInvocationOf({ operation: 'prepareWrite', params });
     const address = await this.getAddress();
     const req: WriteRequest = {
       address,
@@ -293,6 +424,23 @@ export class ContractCaller {
     };
     this.logger.debug({ contract: address, method, args }, 'contract prepareWrite');
     return this.adapter.prepareWrite(req);
+  }
+
+  /** The gas estimate with the multiplier applied, for an address already resolved. */
+  private async estimateFor({
+    address,
+    method,
+    args,
+    options
+  }: {
+    address: Hex;
+    method: string;
+    args: readonly unknown[];
+    options: ContractCallerOptions;
+  }): Promise<bigint> {
+    const req = this.minimalWriteRequest(address, method, args, options);
+    const raw = await this.adapter.estimateGas(req);
+    return BigInt(Math.trunc(Number(raw) * this.gasMultiplier));
   }
 
   /**
