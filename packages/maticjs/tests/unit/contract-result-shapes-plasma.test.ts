@@ -404,14 +404,38 @@ registerTable({
   rows: [
     ['exists: true', 'value not exited (ready-to-process)'],
     ['exists: false', 'value exited'],
-    ['exists: string "false"', 'value not exited (ready-to-process)'], // changes when the read is decoded
-    ['exists: string "true"', 'value not exited (ready-to-process)'], // changes when the read is decoded
-    ['exists: number 0', 'value not exited (ready-to-process)'], // changes when the read is decoded
-    ['exists: number 1', 'value not exited (ready-to-process)'], // changes when the read is decoded
-    ['exists: undefined', 'value not exited (ready-to-process)'], // changes when the read is decoded
-    ['exists: null', 'value not exited (ready-to-process)'], // changes when the read is decoded
-    ['exists: empty object', 'value not exited (ready-to-process)'], // changes when the read is decoded
-    ['exists: empty string', 'value not exited (ready-to-process)'] // changes when the read is decoded
+    [
+      'exists: string "false"',
+      'threw BridgeStatusError > BridgeEventDecodeFailedError {field: "exists.0", valueType: "string"}'
+    ], // changes when the read is decoded
+    [
+      'exists: string "true"',
+      'threw BridgeStatusError > BridgeEventDecodeFailedError {field: "exists.0", valueType: "string"}'
+    ], // changes when the read is decoded
+    [
+      'exists: number 0',
+      'threw BridgeStatusError > BridgeEventDecodeFailedError {field: "exists.0", valueType: "number"}'
+    ], // changes when the read is decoded
+    [
+      'exists: number 1',
+      'threw BridgeStatusError > BridgeEventDecodeFailedError {field: "exists.0", valueType: "number"}'
+    ], // changes when the read is decoded
+    [
+      'exists: undefined',
+      'threw BridgeStatusError > BridgeEventDecodeFailedError {field: "exists.0", valueType: "undefined"}'
+    ], // changes when the read is decoded
+    [
+      'exists: null',
+      'threw BridgeStatusError > BridgeEventDecodeFailedError {field: "exists.0", valueType: "object"}'
+    ], // changes when the read is decoded
+    [
+      'exists: empty object',
+      'threw BridgeStatusError > BridgeEventDecodeFailedError {field: "exists.0", valueType: "object"}'
+    ], // changes when the read is decoded
+    [
+      'exists: empty string',
+      'threw BridgeStatusError > BridgeEventDecodeFailedError {field: "exists.0", valueType: "string"}'
+    ] // changes when the read is decoded
   ]
 });
 

@@ -14,6 +14,7 @@
  * `RootChain`, which checkpoint reads need.
  */
 import type { Adapter, BlockTag, Hex, PreparedTx, TxResult } from '../adapter.js';
+import type { Abi } from '../internal/abi-types.js';
 import type { ContractCallerOptions } from '../internal/contract-caller.js';
 import type { Logger } from '../logger.js';
 import type { Network } from '../networks.js';
@@ -298,13 +299,13 @@ export class PlasmaClient {
     });
     const burnReader = burnReaderOver(exitProof);
 
-    const parentCaller = ({
+    const parentCaller = <TAbi extends Abi>({
       getAddress,
       abi
     }: {
       getAddress: () => Promise<Hex>;
-      abi: readonly unknown[];
-    }): ContractCaller =>
+      abi: TAbi;
+    }): ContractCaller<TAbi> =>
       new ContractCaller({
         adapter: parentAdapter,
         getAddress,
@@ -329,7 +330,8 @@ export class PlasmaClient {
         ...(confirmTxHash !== undefined ? { confirmTxHash } : {}),
         proof: burnReader,
         parentAdapter,
-        addresses: await resolve()
+        addresses: await resolve(),
+        logger
       });
 
     const bridge: PlasmaBridgeServices = {

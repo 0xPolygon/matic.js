@@ -13,6 +13,8 @@
  * Each ABI is imported from its own module, never the ABI barrel, so the
  * entry-isolation gate can keep the Plasma ABIs out of the other entries.
  */
+import type { PlasmaDepositManagerABI } from '../abi/plasma/DepositManager.js';
+import type { PlasmaERC20PredicateABI } from '../abi/plasma/ERC20Predicate.js';
 import type { Adapter, Hex, PreparedTx, TxResult } from '../adapter.js';
 import type { ContractCallerOptions } from '../internal/contract-caller.js';
 import type { ExitProofBuilder } from '../internal/exit-proof.js';
@@ -60,9 +62,9 @@ export interface PlasmaTokenAddresses {
  */
 export interface PlasmaBridgeServices {
   /** `DepositManager` caller on the parent chain. */
-  depositManager: ContractCaller;
+  depositManager: ContractCaller<typeof PlasmaDepositManagerABI>;
   /** Burn-only ERC-20 predicate caller on the parent chain. */
-  predicate: ContractCaller;
+  predicate: ContractCaller<typeof PlasmaERC20PredicateABI>;
   withdrawManager: PlasmaWithdrawManager;
   exitProof: ExitProofBuilder;
   /** Re-read on every call so an address-index refresh reaches the handle. */
@@ -130,9 +132,9 @@ export type PlasmaChildERC20 = Pick<
 export class PlasmaERC20 {
   readonly tokenAddress: Hex;
   readonly isParent: boolean;
-  private readonly caller: ContractCaller;
+  private readonly caller: ContractCaller<typeof PlasmaChildERC20ABI>;
   /** Only on a child token that is the native-token contract. */
-  private readonly nativeCaller: ContractCaller | undefined;
+  private readonly nativeCaller: ContractCaller<typeof PlasmaMRC20ABI> | undefined;
   private readonly bridge: PlasmaBridgeServices;
 
   constructor(config: PlasmaERC20Config) {
@@ -165,10 +167,7 @@ export class PlasmaERC20 {
         tokenAddress: this.tokenAddress,
         method: 'balanceOf'
       },
-      run: async () => {
-        const v = await this.caller.read<bigint | string>('balanceOf', [userAddress], options);
-        return BigInt(v);
-      }
+      run: () => this.caller.read('balanceOf', [userAddress], options)
     });
   }
 
@@ -188,12 +187,7 @@ export class PlasmaERC20 {
       run: async () => {
         this.requireParent('getAllowance');
         const { DepositManager } = await this.bridge.getAddresses();
-        const v = await this.caller.read<bigint | string>(
-          'allowance',
-          [userAddress, DepositManager],
-          options
-        );
-        return BigInt(v);
+        return this.caller.read('allowance', [userAddress, DepositManager], options);
       }
     });
   }
