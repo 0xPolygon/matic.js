@@ -1,0 +1,1351 @@
+{
+  "erc20.getBalance (parent)": [
+    {
+      "side": "parent",
+      "kind": "read",
+      "contract": "PlasmaChildERC20ABI",
+      "address": "0x00000000000000000000000000000000000000c1",
+      "functionName": "balanceOf",
+      "args": [
+        {
+          "type": "string",
+          "value": "0x00000000000000000000000000000000000000a1"
+        }
+      ],
+      "blockTag": null
+    }
+  ],
+  "erc20.getBalance (parent, pinned block)": [
+    {
+      "side": "parent",
+      "kind": "read",
+      "contract": "PlasmaChildERC20ABI",
+      "address": "0x00000000000000000000000000000000000000c1",
+      "functionName": "balanceOf",
+      "args": [
+        {
+          "type": "string",
+          "value": "0x00000000000000000000000000000000000000a1"
+        }
+      ],
+      "blockTag": "safe"
+    }
+  ],
+  "erc20.getBalance (child)": [
+    {
+      "side": "child",
+      "kind": "read",
+      "contract": "PlasmaChildERC20ABI",
+      "address": "0x00000000000000000000000000000000000000d1",
+      "functionName": "balanceOf",
+      "args": [
+        {
+          "type": "string",
+          "value": "0x00000000000000000000000000000000000000a1"
+        }
+      ],
+      "blockTag": null
+    }
+  ],
+  "erc20.getAllowance": [
+    {
+      "side": "parent",
+      "kind": "read",
+      "contract": "PlasmaChildERC20ABI",
+      "address": "0x00000000000000000000000000000000000000c1",
+      "functionName": "allowance",
+      "args": [
+        {
+          "type": "string",
+          "value": "0x00000000000000000000000000000000000000a1"
+        },
+        {
+          "type": "string",
+          "value": "0x2222222222222222222222222222222222222222"
+        }
+      ],
+      "blockTag": null
+    }
+  ],
+  "erc20.approve": [
+    {
+      "side": "parent",
+      "kind": "estimateGas",
+      "contract": "PlasmaChildERC20ABI",
+      "address": "0x00000000000000000000000000000000000000c1",
+      "functionName": "approve",
+      "args": [
+        {
+          "type": "string",
+          "value": "0x2222222222222222222222222222222222222222"
+        },
+        {
+          "type": "bigint",
+          "value": {
+            "$bigint": "5"
+          }
+        }
+      ]
+    },
+    {
+      "side": "parent",
+      "kind": "write",
+      "contract": "PlasmaChildERC20ABI",
+      "address": "0x00000000000000000000000000000000000000c1",
+      "functionName": "approve",
+      "args": [
+        {
+          "type": "string",
+          "value": "0x2222222222222222222222222222222222222222"
+        },
+        {
+          "type": "bigint",
+          "value": {
+            "$bigint": "5"
+          }
+        }
+      ],
+      "gasLimit": {
+        "$bigint": "24149"
+      },
+      "chainId": 1
+    }
+  ],
+  "erc20.approve (every option)": [
+    {
+      "side": "parent",
+      "kind": "write",
+      "contract": "PlasmaChildERC20ABI",
+      "address": "0x00000000000000000000000000000000000000c1",
+      "functionName": "approve",
+      "args": [
+        {
+          "type": "string",
+          "value": "0x2222222222222222222222222222222222222222"
+        },
+        {
+          "type": "bigint",
+          "value": {
+            "$bigint": "5"
+          }
+        }
+      ],
+      "from": "0x00000000000000000000000000000000000000a1",
+      "gasLimit": {
+        "$bigint": "900000"
+      },
+      "maxFeePerGas": {
+        "$bigint": "30"
+      },
+      "maxPriorityFeePerGas": {
+        "$bigint": "2"
+      },
+      "nonce": 4,
+      "chainId": 1
+    }
+  ],
+  "erc20.prepareApprove": [
+    {
+      "side": "parent",
+      "kind": "prepareWrite",
+      "contract": "PlasmaChildERC20ABI",
+      "address": "0x00000000000000000000000000000000000000c1",
+      "functionName": "approve",
+      "args": [
+        {
+          "type": "string",
+          "value": "0x2222222222222222222222222222222222222222"
+        },
+        {
+          "type": "bigint",
+          "value": {
+            "$bigint": "5"
+          }
+        }
+      ]
+    }
+  ],
+  "erc20.approveMax": [
+    {
+      "side": "parent",
+      "kind": "estimateGas",
+      "contract": "PlasmaChildERC20ABI",
+      "address": "0x00000000000000000000000000000000000000c1",
+      "functionName": "approve",
+      "args": [
+        {
+          "type": "string",
+          "value": "0x2222222222222222222222222222222222222222"
+        },
+        {
+          "type": "bigint",
+          "value": {
+            "$bigint": "115792089237316195423570985008687907853269984665640564039457584007913129639935"
+          }
+        }
+      ]
+    },
+    {
+      "side": "parent",
+      "kind": "write",
+      "contract": "PlasmaChildERC20ABI",
+      "address": "0x00000000000000000000000000000000000000c1",
+      "functionName": "approve",
+      "args": [
+        {
+          "type": "string",
+          "value": "0x2222222222222222222222222222222222222222"
+        },
+        {
+          "type": "bigint",
+          "value": {
+            "$bigint": "115792089237316195423570985008687907853269984665640564039457584007913129639935"
+          }
+        }
+      ],
+      "gasLimit": {
+        "$bigint": "24149"
+      },
+      "chainId": 1
+    }
+  ],
+  "erc20.prepareApproveMax": [
+    {
+      "side": "parent",
+      "kind": "prepareWrite",
+      "contract": "PlasmaChildERC20ABI",
+      "address": "0x00000000000000000000000000000000000000c1",
+      "functionName": "approve",
+      "args": [
+        {
+          "type": "string",
+          "value": "0x2222222222222222222222222222222222222222"
+        },
+        {
+          "type": "bigint",
+          "value": {
+            "$bigint": "115792089237316195423570985008687907853269984665640564039457584007913129639935"
+          }
+        }
+      ]
+    }
+  ],
+  "erc20.deposit": [
+    {
+      "side": "parent",
+      "kind": "estimateGas",
+      "contract": "PlasmaDepositManagerABI",
+      "address": "0x2222222222222222222222222222222222222222",
+      "functionName": "depositERC20ForUser",
+      "args": [
+        {
+          "type": "string",
+          "value": "0x00000000000000000000000000000000000000c1"
+        },
+        {
+          "type": "string",
+          "value": "0x00000000000000000000000000000000000000a1"
+        },
+        {
+          "type": "bigint",
+          "value": {
+            "$bigint": "5"
+          }
+        }
+      ]
+    },
+    {
+      "side": "parent",
+      "kind": "write",
+      "contract": "PlasmaDepositManagerABI",
+      "address": "0x2222222222222222222222222222222222222222",
+      "functionName": "depositERC20ForUser",
+      "args": [
+        {
+          "type": "string",
+          "value": "0x00000000000000000000000000000000000000c1"
+        },
+        {
+          "type": "string",
+          "value": "0x00000000000000000000000000000000000000a1"
+        },
+        {
+          "type": "bigint",
+          "value": {
+            "$bigint": "5"
+          }
+        }
+      ],
+      "gasLimit": {
+        "$bigint": "24149"
+      },
+      "chainId": 1
+    }
+  ],
+  "erc20.deposit (every option)": [
+    {
+      "side": "parent",
+      "kind": "write",
+      "contract": "PlasmaDepositManagerABI",
+      "address": "0x2222222222222222222222222222222222222222",
+      "functionName": "depositERC20ForUser",
+      "args": [
+        {
+          "type": "string",
+          "value": "0x00000000000000000000000000000000000000c1"
+        },
+        {
+          "type": "string",
+          "value": "0x00000000000000000000000000000000000000a1"
+        },
+        {
+          "type": "bigint",
+          "value": {
+            "$bigint": "5"
+          }
+        }
+      ],
+      "from": "0x00000000000000000000000000000000000000a1",
+      "gasLimit": {
+        "$bigint": "900000"
+      },
+      "maxFeePerGas": {
+        "$bigint": "30"
+      },
+      "maxPriorityFeePerGas": {
+        "$bigint": "2"
+      },
+      "nonce": 4,
+      "chainId": 1
+    }
+  ],
+  "erc20.prepareDeposit": [
+    {
+      "side": "parent",
+      "kind": "prepareWrite",
+      "contract": "PlasmaDepositManagerABI",
+      "address": "0x2222222222222222222222222222222222222222",
+      "functionName": "depositERC20ForUser",
+      "args": [
+        {
+          "type": "string",
+          "value": "0x00000000000000000000000000000000000000c1"
+        },
+        {
+          "type": "string",
+          "value": "0x00000000000000000000000000000000000000a1"
+        },
+        {
+          "type": "bigint",
+          "value": {
+            "$bigint": "5"
+          }
+        }
+      ]
+    }
+  ],
+  "erc20.startWithdraw (child token)": [
+    {
+      "side": "child",
+      "kind": "estimateGas",
+      "contract": "PlasmaChildERC20ABI",
+      "address": "0x00000000000000000000000000000000000000d1",
+      "functionName": "withdraw",
+      "args": [
+        {
+          "type": "bigint",
+          "value": {
+            "$bigint": "5"
+          }
+        }
+      ]
+    },
+    {
+      "side": "child",
+      "kind": "write",
+      "contract": "PlasmaChildERC20ABI",
+      "address": "0x00000000000000000000000000000000000000d1",
+      "functionName": "withdraw",
+      "args": [
+        {
+          "type": "bigint",
+          "value": {
+            "$bigint": "5"
+          }
+        }
+      ],
+      "gasLimit": {
+        "$bigint": "24149"
+      },
+      "chainId": 137
+    }
+  ],
+  "erc20.prepareStartWithdraw (child token)": [
+    {
+      "side": "child",
+      "kind": "prepareWrite",
+      "contract": "PlasmaChildERC20ABI",
+      "address": "0x00000000000000000000000000000000000000d1",
+      "functionName": "withdraw",
+      "args": [
+        {
+          "type": "bigint",
+          "value": {
+            "$bigint": "5"
+          }
+        }
+      ]
+    }
+  ],
+  "erc20.startWithdraw (native token)": [
+    {
+      "side": "child",
+      "kind": "estimateGas",
+      "contract": "PlasmaMRC20ABI",
+      "address": "0x0000000000000000000000000000000000001010",
+      "functionName": "withdraw",
+      "args": [
+        {
+          "type": "bigint",
+          "value": {
+            "$bigint": "5"
+          }
+        }
+      ],
+      "value": {
+        "$bigint": "5"
+      }
+    },
+    {
+      "side": "child",
+      "kind": "write",
+      "contract": "PlasmaMRC20ABI",
+      "address": "0x0000000000000000000000000000000000001010",
+      "functionName": "withdraw",
+      "args": [
+        {
+          "type": "bigint",
+          "value": {
+            "$bigint": "5"
+          }
+        }
+      ],
+      "value": {
+        "$bigint": "5"
+      },
+      "gasLimit": {
+        "$bigint": "24149"
+      },
+      "chainId": 137
+    }
+  ],
+  "erc20.prepareStartWithdraw (native token)": [
+    {
+      "side": "child",
+      "kind": "prepareWrite",
+      "contract": "PlasmaMRC20ABI",
+      "address": "0x0000000000000000000000000000000000001010",
+      "functionName": "withdraw",
+      "args": [
+        {
+          "type": "bigint",
+          "value": {
+            "$bigint": "5"
+          }
+        }
+      ],
+      "value": {
+        "$bigint": "5"
+      }
+    }
+  ],
+  "erc20.confirmWithdraw": [
+    {
+      "side": "parent",
+      "kind": "read",
+      "contract": "RootChainABI",
+      "address": "0x86E4Dc95c7FBdBf52e33D563BbDB00823894C287",
+      "functionName": "getLastChildBlock",
+      "args": [],
+      "blockTag": "safe"
+    },
+    {
+      "side": "parent",
+      "kind": "read",
+      "contract": "RootChainABI",
+      "address": "0x86E4Dc95c7FBdBf52e33D563BbDB00823894C287",
+      "functionName": "currentHeaderBlock",
+      "args": [],
+      "blockTag": "safe"
+    },
+    {
+      "side": "parent",
+      "kind": "read",
+      "contract": "RootChainABI",
+      "address": "0x86E4Dc95c7FBdBf52e33D563BbDB00823894C287",
+      "functionName": "headerBlocks",
+      "args": [
+        {
+          "type": "string",
+          "value": "0x22e12360"
+        }
+      ],
+      "blockTag": "safe"
+    },
+    {
+      "side": "parent",
+      "kind": "estimateGas",
+      "contract": "PlasmaERC20PredicateABI",
+      "address": "0x5555555555555555555555555555555555555555",
+      "functionName": "startExitWithBurntTokens",
+      "args": [
+        {
+          "type": "string",
+          "value": {
+            "$keccak256": "0x391c384659b9344571b10ab3ec8fc9d7ad2ec83f66a600c621ee5944646ef6ae",
+            "length": 13250
+          }
+        }
+      ]
+    },
+    {
+      "side": "parent",
+      "kind": "write",
+      "contract": "PlasmaERC20PredicateABI",
+      "address": "0x5555555555555555555555555555555555555555",
+      "functionName": "startExitWithBurntTokens",
+      "args": [
+        {
+          "type": "string",
+          "value": {
+            "$keccak256": "0x391c384659b9344571b10ab3ec8fc9d7ad2ec83f66a600c621ee5944646ef6ae",
+            "length": 13250
+          }
+        }
+      ],
+      "gasLimit": {
+        "$bigint": "24149"
+      },
+      "chainId": 1
+    }
+  ],
+  "erc20.prepareConfirmWithdraw": [
+    {
+      "side": "parent",
+      "kind": "read",
+      "contract": "RootChainABI",
+      "address": "0x86E4Dc95c7FBdBf52e33D563BbDB00823894C287",
+      "functionName": "getLastChildBlock",
+      "args": [],
+      "blockTag": "safe"
+    },
+    {
+      "side": "parent",
+      "kind": "read",
+      "contract": "RootChainABI",
+      "address": "0x86E4Dc95c7FBdBf52e33D563BbDB00823894C287",
+      "functionName": "currentHeaderBlock",
+      "args": [],
+      "blockTag": "safe"
+    },
+    {
+      "side": "parent",
+      "kind": "read",
+      "contract": "RootChainABI",
+      "address": "0x86E4Dc95c7FBdBf52e33D563BbDB00823894C287",
+      "functionName": "headerBlocks",
+      "args": [
+        {
+          "type": "string",
+          "value": "0x22e12360"
+        }
+      ],
+      "blockTag": "safe"
+    },
+    {
+      "side": "parent",
+      "kind": "prepareWrite",
+      "contract": "PlasmaERC20PredicateABI",
+      "address": "0x5555555555555555555555555555555555555555",
+      "functionName": "startExitWithBurntTokens",
+      "args": [
+        {
+          "type": "string",
+          "value": {
+            "$keccak256": "0x391c384659b9344571b10ab3ec8fc9d7ad2ec83f66a600c621ee5944646ef6ae",
+            "length": 13250
+          }
+        }
+      ]
+    }
+  ],
+  "erc20.confirmWithdrawFast": [
+    {
+      "side": "parent",
+      "kind": "estimateGas",
+      "contract": "PlasmaERC20PredicateABI",
+      "address": "0x5555555555555555555555555555555555555555",
+      "functionName": "startExitWithBurntTokens",
+      "args": [
+        {
+          "type": "string",
+          "value": "0xefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefef"
+        }
+      ]
+    },
+    {
+      "side": "parent",
+      "kind": "write",
+      "contract": "PlasmaERC20PredicateABI",
+      "address": "0x5555555555555555555555555555555555555555",
+      "functionName": "startExitWithBurntTokens",
+      "args": [
+        {
+          "type": "string",
+          "value": "0xefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefef"
+        }
+      ],
+      "gasLimit": {
+        "$bigint": "24149"
+      },
+      "chainId": 1
+    }
+  ],
+  "erc20.prepareConfirmWithdrawFast": [
+    {
+      "side": "parent",
+      "kind": "prepareWrite",
+      "contract": "PlasmaERC20PredicateABI",
+      "address": "0x5555555555555555555555555555555555555555",
+      "functionName": "startExitWithBurntTokens",
+      "args": [
+        {
+          "type": "string",
+          "value": "0xefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefef"
+        }
+      ]
+    }
+  ],
+  "erc20.completeWithdraw": [
+    {
+      "side": "parent",
+      "kind": "read",
+      "contract": "PlasmaWithdrawManagerABI",
+      "address": "0x3333333333333333333333333333333333333333",
+      "functionName": "exitsQueues",
+      "args": [
+        {
+          "type": "string",
+          "value": "0x00000000000000000000000000000000000000c1"
+        }
+      ],
+      "blockTag": null
+    },
+    {
+      "side": "parent",
+      "kind": "read",
+      "contract": "PlasmaPriorityQueueABI",
+      "address": "0x00000000000000000000000000000000000000e1",
+      "functionName": "currentSize",
+      "args": [],
+      "blockTag": null
+    },
+    {
+      "side": "parent",
+      "kind": "estimateGas",
+      "contract": "PlasmaWithdrawManagerABI",
+      "address": "0x3333333333333333333333333333333333333333",
+      "functionName": "processExits",
+      "args": [
+        {
+          "type": "string",
+          "value": "0x00000000000000000000000000000000000000c1"
+        }
+      ]
+    },
+    {
+      "side": "parent",
+      "kind": "write",
+      "contract": "PlasmaWithdrawManagerABI",
+      "address": "0x3333333333333333333333333333333333333333",
+      "functionName": "processExits",
+      "args": [
+        {
+          "type": "string",
+          "value": "0x00000000000000000000000000000000000000c1"
+        }
+      ],
+      "gasLimit": {
+        "$bigint": "1071000"
+      },
+      "chainId": 1
+    }
+  ],
+  "erc20.completeWithdraw (pol handle processes the matic queue)": [
+    {
+      "side": "parent",
+      "kind": "read",
+      "contract": "PlasmaWithdrawManagerABI",
+      "address": "0x3333333333333333333333333333333333333333",
+      "functionName": "exitsQueues",
+      "args": [
+        {
+          "type": "string",
+          "value": "0x6666666666666666666666666666666666666666"
+        }
+      ],
+      "blockTag": null
+    },
+    {
+      "side": "parent",
+      "kind": "read",
+      "contract": "PlasmaPriorityQueueABI",
+      "address": "0x00000000000000000000000000000000000000e1",
+      "functionName": "currentSize",
+      "args": [],
+      "blockTag": null
+    },
+    {
+      "side": "parent",
+      "kind": "estimateGas",
+      "contract": "PlasmaWithdrawManagerABI",
+      "address": "0x3333333333333333333333333333333333333333",
+      "functionName": "processExits",
+      "args": [
+        {
+          "type": "string",
+          "value": "0x6666666666666666666666666666666666666666"
+        }
+      ]
+    },
+    {
+      "side": "parent",
+      "kind": "write",
+      "contract": "PlasmaWithdrawManagerABI",
+      "address": "0x3333333333333333333333333333333333333333",
+      "functionName": "processExits",
+      "args": [
+        {
+          "type": "string",
+          "value": "0x6666666666666666666666666666666666666666"
+        }
+      ],
+      "gasLimit": {
+        "$bigint": "1071000"
+      },
+      "chainId": 1
+    }
+  ],
+  "erc20.completeWithdraw (explicit gas limit)": [
+    {
+      "side": "parent",
+      "kind": "read",
+      "contract": "PlasmaWithdrawManagerABI",
+      "address": "0x3333333333333333333333333333333333333333",
+      "functionName": "exitsQueues",
+      "args": [
+        {
+          "type": "string",
+          "value": "0x00000000000000000000000000000000000000c1"
+        }
+      ],
+      "blockTag": null
+    },
+    {
+      "side": "parent",
+      "kind": "read",
+      "contract": "PlasmaPriorityQueueABI",
+      "address": "0x00000000000000000000000000000000000000e1",
+      "functionName": "currentSize",
+      "args": [],
+      "blockTag": null
+    },
+    {
+      "side": "parent",
+      "kind": "read",
+      "contract": "PlasmaWithdrawManagerABI",
+      "address": "0x3333333333333333333333333333333333333333",
+      "functionName": "ON_FINALIZE_GAS_LIMIT",
+      "args": [],
+      "blockTag": null
+    },
+    {
+      "side": "parent",
+      "kind": "write",
+      "contract": "PlasmaWithdrawManagerABI",
+      "address": "0x3333333333333333333333333333333333333333",
+      "functionName": "processExits",
+      "args": [
+        {
+          "type": "string",
+          "value": "0x00000000000000000000000000000000000000c1"
+        }
+      ],
+      "gasLimit": {
+        "$bigint": "900000"
+      },
+      "chainId": 1
+    }
+  ],
+  "erc20.prepareCompleteWithdraw": [
+    {
+      "side": "parent",
+      "kind": "read",
+      "contract": "PlasmaWithdrawManagerABI",
+      "address": "0x3333333333333333333333333333333333333333",
+      "functionName": "exitsQueues",
+      "args": [
+        {
+          "type": "string",
+          "value": "0x00000000000000000000000000000000000000c1"
+        }
+      ],
+      "blockTag": null
+    },
+    {
+      "side": "parent",
+      "kind": "read",
+      "contract": "PlasmaPriorityQueueABI",
+      "address": "0x00000000000000000000000000000000000000e1",
+      "functionName": "currentSize",
+      "args": [],
+      "blockTag": null
+    },
+    {
+      "side": "parent",
+      "kind": "prepareWrite",
+      "contract": "PlasmaWithdrawManagerABI",
+      "address": "0x3333333333333333333333333333333333333333",
+      "functionName": "processExits",
+      "args": [
+        {
+          "type": "string",
+          "value": "0x00000000000000000000000000000000000000c1"
+        }
+      ]
+    }
+  ],
+  "erc20.prepareCompleteWithdraw (explicit gas limit)": [
+    {
+      "side": "parent",
+      "kind": "read",
+      "contract": "PlasmaWithdrawManagerABI",
+      "address": "0x3333333333333333333333333333333333333333",
+      "functionName": "exitsQueues",
+      "args": [
+        {
+          "type": "string",
+          "value": "0x00000000000000000000000000000000000000c1"
+        }
+      ],
+      "blockTag": null
+    },
+    {
+      "side": "parent",
+      "kind": "read",
+      "contract": "PlasmaPriorityQueueABI",
+      "address": "0x00000000000000000000000000000000000000e1",
+      "functionName": "currentSize",
+      "args": [],
+      "blockTag": null
+    },
+    {
+      "side": "parent",
+      "kind": "read",
+      "contract": "PlasmaWithdrawManagerABI",
+      "address": "0x3333333333333333333333333333333333333333",
+      "functionName": "ON_FINALIZE_GAS_LIMIT",
+      "args": [],
+      "blockTag": null
+    },
+    {
+      "side": "parent",
+      "kind": "prepareWrite",
+      "contract": "PlasmaWithdrawManagerABI",
+      "address": "0x3333333333333333333333333333333333333333",
+      "functionName": "processExits",
+      "args": [
+        {
+          "type": "string",
+          "value": "0x00000000000000000000000000000000000000c1"
+        }
+      ]
+    }
+  ],
+  "erc20.getCompleteWithdrawGasLimit": [
+    {
+      "side": "parent",
+      "kind": "read",
+      "contract": "PlasmaWithdrawManagerABI",
+      "address": "0x3333333333333333333333333333333333333333",
+      "functionName": "exitsQueues",
+      "args": [
+        {
+          "type": "string",
+          "value": "0x00000000000000000000000000000000000000c1"
+        }
+      ],
+      "blockTag": null
+    },
+    {
+      "side": "parent",
+      "kind": "read",
+      "contract": "PlasmaPriorityQueueABI",
+      "address": "0x00000000000000000000000000000000000000e1",
+      "functionName": "currentSize",
+      "args": [],
+      "blockTag": null
+    },
+    {
+      "side": "parent",
+      "kind": "estimateGas",
+      "contract": "PlasmaWithdrawManagerABI",
+      "address": "0x3333333333333333333333333333333333333333",
+      "functionName": "processExits",
+      "args": [
+        {
+          "type": "string",
+          "value": "0x00000000000000000000000000000000000000c1"
+        }
+      ]
+    }
+  ],
+  "erc20.getWithdrawStatus": [
+    {
+      "side": "parent",
+      "kind": "read",
+      "contract": "RootChainABI",
+      "address": "0x1111111111111111111111111111111111111111",
+      "functionName": "getLastChildBlock",
+      "args": [],
+      "blockTag": "safe"
+    },
+    {
+      "side": "parent",
+      "kind": "read",
+      "contract": "RootChainABI",
+      "address": "0x1111111111111111111111111111111111111111",
+      "functionName": "getLastChildBlock",
+      "args": [],
+      "blockTag": "safe"
+    },
+    {
+      "side": "parent",
+      "kind": "read",
+      "contract": "PlasmaExitNFTABI",
+      "address": "0x4444444444444444444444444444444444444444",
+      "functionName": "exists",
+      "args": [
+        {
+          "type": "bigint",
+          "value": {
+            "$bigint": "340282366920938463463374607432197708252048"
+          }
+        }
+      ],
+      "blockTag": {
+        "$bigint": "584"
+      }
+    }
+  ],
+  "client.getWithdrawStatus": [
+    {
+      "side": "parent",
+      "kind": "read",
+      "contract": "RootChainABI",
+      "address": "0x1111111111111111111111111111111111111111",
+      "functionName": "getLastChildBlock",
+      "args": [],
+      "blockTag": "safe"
+    },
+    {
+      "side": "parent",
+      "kind": "read",
+      "contract": "RootChainABI",
+      "address": "0x1111111111111111111111111111111111111111",
+      "functionName": "getLastChildBlock",
+      "args": [],
+      "blockTag": "safe"
+    },
+    {
+      "side": "parent",
+      "kind": "read",
+      "contract": "PlasmaExitNFTABI",
+      "address": "0x4444444444444444444444444444444444444444",
+      "functionName": "exists",
+      "args": [
+        {
+          "type": "bigint",
+          "value": {
+            "$bigint": "340282366920938463463374607432197708252048"
+          }
+        }
+      ],
+      "blockTag": {
+        "$bigint": "584"
+      }
+    }
+  ],
+  "client.processExits (one token)": [
+    {
+      "side": "parent",
+      "kind": "read",
+      "contract": "PlasmaWithdrawManagerABI",
+      "address": "0x3333333333333333333333333333333333333333",
+      "functionName": "exitsQueues",
+      "args": [
+        {
+          "type": "string",
+          "value": "0x00000000000000000000000000000000000000c1"
+        }
+      ],
+      "blockTag": null
+    },
+    {
+      "side": "parent",
+      "kind": "read",
+      "contract": "PlasmaPriorityQueueABI",
+      "address": "0x00000000000000000000000000000000000000e1",
+      "functionName": "currentSize",
+      "args": [],
+      "blockTag": null
+    },
+    {
+      "side": "parent",
+      "kind": "estimateGas",
+      "contract": "PlasmaWithdrawManagerABI",
+      "address": "0x3333333333333333333333333333333333333333",
+      "functionName": "processExits",
+      "args": [
+        {
+          "type": "string",
+          "value": "0x00000000000000000000000000000000000000c1"
+        }
+      ]
+    },
+    {
+      "side": "parent",
+      "kind": "write",
+      "contract": "PlasmaWithdrawManagerABI",
+      "address": "0x3333333333333333333333333333333333333333",
+      "functionName": "processExits",
+      "args": [
+        {
+          "type": "string",
+          "value": "0x00000000000000000000000000000000000000c1"
+        }
+      ],
+      "gasLimit": {
+        "$bigint": "1071000"
+      },
+      "chainId": 1
+    }
+  ],
+  "client.processExits (several tokens)": [
+    {
+      "side": "parent",
+      "kind": "read",
+      "contract": "PlasmaWithdrawManagerABI",
+      "address": "0x3333333333333333333333333333333333333333",
+      "functionName": "exitsQueues",
+      "args": [
+        {
+          "type": "string",
+          "value": "0x00000000000000000000000000000000000000c1"
+        }
+      ],
+      "blockTag": null
+    },
+    {
+      "side": "parent",
+      "kind": "read",
+      "contract": "PlasmaWithdrawManagerABI",
+      "address": "0x3333333333333333333333333333333333333333",
+      "functionName": "exitsQueues",
+      "args": [
+        {
+          "type": "string",
+          "value": "0x00000000000000000000000000000000000000b2"
+        }
+      ],
+      "blockTag": null
+    },
+    {
+      "side": "parent",
+      "kind": "read",
+      "contract": "PlasmaPriorityQueueABI",
+      "address": "0x00000000000000000000000000000000000000e1",
+      "functionName": "currentSize",
+      "args": [],
+      "blockTag": null
+    },
+    {
+      "side": "parent",
+      "kind": "read",
+      "contract": "PlasmaPriorityQueueABI",
+      "address": "0x00000000000000000000000000000000000000e1",
+      "functionName": "currentSize",
+      "args": [],
+      "blockTag": null
+    },
+    {
+      "side": "parent",
+      "kind": "read",
+      "contract": "PlasmaWithdrawManagerABI",
+      "address": "0x3333333333333333333333333333333333333333",
+      "functionName": "ON_FINALIZE_GAS_LIMIT",
+      "args": [],
+      "blockTag": null
+    },
+    {
+      "side": "parent",
+      "kind": "write",
+      "contract": "PlasmaWithdrawManagerABI",
+      "address": "0x3333333333333333333333333333333333333333",
+      "functionName": "processExitsBatch",
+      "args": [
+        {
+          "type": "array",
+          "value": [
+            {
+              "type": "string",
+              "value": "0x00000000000000000000000000000000000000c1"
+            },
+            {
+              "type": "string",
+              "value": "0x00000000000000000000000000000000000000b2"
+            }
+          ]
+        }
+      ],
+      "from": "0x00000000000000000000000000000000000000a1",
+      "gasLimit": {
+        "$bigint": "900000"
+      },
+      "maxFeePerGas": {
+        "$bigint": "30"
+      },
+      "maxPriorityFeePerGas": {
+        "$bigint": "2"
+      },
+      "nonce": 4,
+      "chainId": 1
+    }
+  ],
+  "client.prepareProcessExits (one token)": [
+    {
+      "side": "parent",
+      "kind": "read",
+      "contract": "PlasmaWithdrawManagerABI",
+      "address": "0x3333333333333333333333333333333333333333",
+      "functionName": "exitsQueues",
+      "args": [
+        {
+          "type": "string",
+          "value": "0x00000000000000000000000000000000000000c1"
+        }
+      ],
+      "blockTag": null
+    },
+    {
+      "side": "parent",
+      "kind": "read",
+      "contract": "PlasmaPriorityQueueABI",
+      "address": "0x00000000000000000000000000000000000000e1",
+      "functionName": "currentSize",
+      "args": [],
+      "blockTag": null
+    },
+    {
+      "side": "parent",
+      "kind": "prepareWrite",
+      "contract": "PlasmaWithdrawManagerABI",
+      "address": "0x3333333333333333333333333333333333333333",
+      "functionName": "processExits",
+      "args": [
+        {
+          "type": "string",
+          "value": "0x00000000000000000000000000000000000000c1"
+        }
+      ]
+    }
+  ],
+  "client.prepareProcessExits (several tokens)": [
+    {
+      "side": "parent",
+      "kind": "read",
+      "contract": "PlasmaWithdrawManagerABI",
+      "address": "0x3333333333333333333333333333333333333333",
+      "functionName": "exitsQueues",
+      "args": [
+        {
+          "type": "string",
+          "value": "0x00000000000000000000000000000000000000c1"
+        }
+      ],
+      "blockTag": null
+    },
+    {
+      "side": "parent",
+      "kind": "read",
+      "contract": "PlasmaWithdrawManagerABI",
+      "address": "0x3333333333333333333333333333333333333333",
+      "functionName": "exitsQueues",
+      "args": [
+        {
+          "type": "string",
+          "value": "0x00000000000000000000000000000000000000b2"
+        }
+      ],
+      "blockTag": null
+    },
+    {
+      "side": "parent",
+      "kind": "read",
+      "contract": "PlasmaPriorityQueueABI",
+      "address": "0x00000000000000000000000000000000000000e1",
+      "functionName": "currentSize",
+      "args": [],
+      "blockTag": null
+    },
+    {
+      "side": "parent",
+      "kind": "read",
+      "contract": "PlasmaPriorityQueueABI",
+      "address": "0x00000000000000000000000000000000000000e1",
+      "functionName": "currentSize",
+      "args": [],
+      "blockTag": null
+    },
+    {
+      "side": "parent",
+      "kind": "prepareWrite",
+      "contract": "PlasmaWithdrawManagerABI",
+      "address": "0x3333333333333333333333333333333333333333",
+      "functionName": "processExitsBatch",
+      "args": [
+        {
+          "type": "array",
+          "value": [
+            {
+              "type": "string",
+              "value": "0x00000000000000000000000000000000000000c1"
+            },
+            {
+              "type": "string",
+              "value": "0x00000000000000000000000000000000000000b2"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "client.getProcessExitsGasLimit": [
+    {
+      "side": "parent",
+      "kind": "read",
+      "contract": "PlasmaWithdrawManagerABI",
+      "address": "0x3333333333333333333333333333333333333333",
+      "functionName": "exitsQueues",
+      "args": [
+        {
+          "type": "string",
+          "value": "0x00000000000000000000000000000000000000c1"
+        }
+      ],
+      "blockTag": null
+    },
+    {
+      "side": "parent",
+      "kind": "read",
+      "contract": "PlasmaPriorityQueueABI",
+      "address": "0x00000000000000000000000000000000000000e1",
+      "functionName": "currentSize",
+      "args": [],
+      "blockTag": null
+    },
+    {
+      "side": "parent",
+      "kind": "estimateGas",
+      "contract": "PlasmaWithdrawManagerABI",
+      "address": "0x3333333333333333333333333333333333333333",
+      "functionName": "processExits",
+      "args": [
+        {
+          "type": "string",
+          "value": "0x00000000000000000000000000000000000000c1"
+        }
+      ]
+    }
+  ],
+  "client.getProcessExitsGasLimit (several tokens)": [
+    {
+      "side": "parent",
+      "kind": "read",
+      "contract": "PlasmaWithdrawManagerABI",
+      "address": "0x3333333333333333333333333333333333333333",
+      "functionName": "exitsQueues",
+      "args": [
+        {
+          "type": "string",
+          "value": "0x00000000000000000000000000000000000000c1"
+        }
+      ],
+      "blockTag": null
+    },
+    {
+      "side": "parent",
+      "kind": "read",
+      "contract": "PlasmaWithdrawManagerABI",
+      "address": "0x3333333333333333333333333333333333333333",
+      "functionName": "exitsQueues",
+      "args": [
+        {
+          "type": "string",
+          "value": "0x00000000000000000000000000000000000000b2"
+        }
+      ],
+      "blockTag": null
+    },
+    {
+      "side": "parent",
+      "kind": "read",
+      "contract": "PlasmaPriorityQueueABI",
+      "address": "0x00000000000000000000000000000000000000e1",
+      "functionName": "currentSize",
+      "args": [],
+      "blockTag": null
+    },
+    {
+      "side": "parent",
+      "kind": "read",
+      "contract": "PlasmaPriorityQueueABI",
+      "address": "0x00000000000000000000000000000000000000e1",
+      "functionName": "currentSize",
+      "args": [],
+      "blockTag": null
+    },
+    {
+      "side": "parent",
+      "kind": "estimateGas",
+      "contract": "PlasmaWithdrawManagerABI",
+      "address": "0x3333333333333333333333333333333333333333",
+      "functionName": "processExitsBatch",
+      "args": [
+        {
+          "type": "array",
+          "value": [
+            {
+              "type": "string",
+              "value": "0x00000000000000000000000000000000000000c1"
+            },
+            {
+              "type": "string",
+              "value": "0x00000000000000000000000000000000000000b2"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
