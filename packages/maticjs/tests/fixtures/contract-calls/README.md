@@ -67,8 +67,8 @@ instead of silently shrinking the comparison.
 
 `contract-result-shapes-*.test.ts` hold the third kind of pin. They have no
 fixture file: each table lists, in the test, what a public read does with every
-shape a contract call can return (well formed or not). A row whose outcome today
-is a native error, a wrong answer, or an SDK error that names the malformed
-value differently from how a validating read will carries the comment
-`// changes when the read is decoded`. Only those rows may be edited when reads
-start validating their results; every other row must stay as it is.
+shape a contract call can return (well formed or not). A shape the ABI
+describes comes back as the SDK value; a shape it does not describe is rejected
+with an SDK error that names the method and field, before any other code sees
+it. The rows are the specification of that check, so a row changes only when the
+check does.

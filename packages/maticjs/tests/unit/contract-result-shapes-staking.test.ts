@@ -16,14 +16,13 @@ import {
 /**
  * What the staking reads do with every shape a contract call can come back in.
  *
- * Each table pins TODAY'S outcome for each shape, well formed or not: the
- * value a public method returns, or the class it throws (and, for the SDK's
- * own errors, the `info` that names the field). The rows are a record of the
- * code as it is, not of what it should do. A row marked
- * `changes when the read is decoded` is one whose outcome today is a native
- * error, a wrong answer, or an SDK error that names the malformed value
- * differently from how a validating read will; only those rows may be edited
- * when reads are validated.
+ * Each table pins the outcome for each shape, well formed or not: the value a
+ * public method returns, or the class it throws (and, for the SDK's own
+ * errors, the `info` that names the field). A shape the ABI describes comes
+ * back as the SDK value; a shape it does not describe is rejected with an SDK
+ * error that names the method and field, before any other code sees it. The
+ * rows are the specification of that check, so a row changes only when the
+ * check does.
  */
 
 const answering = (answers: ReadAnswers) => stakingWorld({ ...STAKING_ANSWERS, ...answers });
@@ -169,47 +168,47 @@ registerTable({
     [
       'undefined',
       'threw StakingReadError > BridgeEventDecodeFailedError {field: "{field}.0", valueType: "undefined"}'
-    ], // changes when the read is decoded
+    ],
     [
       'null',
       'threw StakingReadError > BridgeEventDecodeFailedError {field: "{field}.0", valueType: "object"}'
-    ], // changes when the read is decoded
+    ],
     [
       'empty object',
       'threw StakingReadError > BridgeEventDecodeFailedError {field: "{field}.0", valueType: "object"}'
-    ], // changes when the read is decoded
+    ],
     [
       'non-numeric string',
       'threw StakingReadError > BridgeEventDecodeFailedError {field: "{field}.0", valueType: "string"}'
-    ], // changes when the read is decoded
+    ],
     [
       'empty string',
       'threw StakingReadError > BridgeEventDecodeFailedError {field: "{field}.0", valueType: "string"}'
-    ], // changes when the read is decoded
+    ],
     [
       'true',
       'threw StakingReadError > BridgeEventDecodeFailedError {field: "{field}.0", valueType: "boolean"}'
-    ], // changes when the read is decoded
+    ],
     [
       'fraction',
       'threw StakingReadError > BridgeEventDecodeFailedError {field: "{field}.0", valueType: "number"}'
-    ], // changes when the read is decoded
+    ],
     [
       'negative bigint',
       'threw StakingReadError > BridgeEventDecodeFailedError {field: "{field}.0", valueType: "bigint"}'
-    ], // changes when the read is decoded
+    ],
     [
       'unsafe number',
       'threw StakingReadError > BridgeEventDecodeFailedError {field: "{field}.0", valueType: "number"}'
-    ], // changes when the read is decoded
+    ],
     [
       'NaN',
       'threw StakingReadError > BridgeEventDecodeFailedError {field: "{field}.0", valueType: "number"}'
-    ], // changes when the read is decoded
+    ],
     [
       'one-element array',
       'threw StakingReadError > BridgeEventDecodeFailedError {field: "{field}.0", valueType: "object"}'
-    ] // changes when the read is decoded
+    ]
   ]
 });
 
@@ -230,35 +229,35 @@ registerTable({
     [
       'string "true"',
       'threw StakingReadError > BridgeEventDecodeFailedError {field: "locked.0", valueType: "string"}'
-    ], // changes when the read is decoded
+    ],
     [
       'string "false"',
       'threw StakingReadError > BridgeEventDecodeFailedError {field: "locked.0", valueType: "string"}'
-    ], // changes when the read is decoded
+    ],
     [
       'number 1',
       'threw StakingReadError > BridgeEventDecodeFailedError {field: "locked.0", valueType: "number"}'
-    ], // changes when the read is decoded
+    ],
     [
       'number 0',
       'threw StakingReadError > BridgeEventDecodeFailedError {field: "locked.0", valueType: "number"}'
-    ], // changes when the read is decoded
+    ],
     [
       'undefined',
       'threw StakingReadError > BridgeEventDecodeFailedError {field: "locked.0", valueType: "undefined"}'
-    ], // changes when the read is decoded
+    ],
     [
       'null',
       'threw StakingReadError > BridgeEventDecodeFailedError {field: "locked.0", valueType: "object"}'
-    ], // changes when the read is decoded
+    ],
     [
       'empty object',
       'threw StakingReadError > BridgeEventDecodeFailedError {field: "locked.0", valueType: "object"}'
-    ], // changes when the read is decoded
+    ],
     [
       'empty string',
       'threw StakingReadError > BridgeEventDecodeFailedError {field: "locked.0", valueType: "string"}'
-    ] // changes when the read is decoded
+    ]
   ]
 });
 
@@ -282,39 +281,39 @@ registerTable({
     [
       'undefined',
       'threw StakingReadError > BridgeEventDecodeFailedError {field: "getValidatorContract.0", valueType: "undefined"}'
-    ], // changes when the read is decoded
+    ],
     [
       'null',
       'threw StakingReadError > BridgeEventDecodeFailedError {field: "getValidatorContract.0", valueType: "object"}'
-    ], // changes when the read is decoded
+    ],
     [
       'number',
       'threw StakingReadError > BridgeEventDecodeFailedError {field: "getValidatorContract.0", valueType: "number"}'
-    ], // changes when the read is decoded
+    ],
     [
       'empty object',
       'threw StakingReadError > BridgeEventDecodeFailedError {field: "getValidatorContract.0", valueType: "object"}'
-    ], // changes when the read is decoded
+    ],
     [
       'empty string',
       'threw StakingReadError > BridgeEventDecodeFailedError {field: "getValidatorContract.0", valueType: "string"}'
-    ], // changes when the read is decoded
+    ],
     [
       'non-hex string',
       'threw StakingReadError > BridgeEventDecodeFailedError {field: "getValidatorContract.0", valueType: "string"}'
-    ], // changes when the read is decoded
+    ],
     [
       'short hex',
       'threw StakingReadError > BridgeEventDecodeFailedError {field: "getValidatorContract.0", valueType: "string"}'
-    ], // changes when the read is decoded
+    ],
     [
       'bytes32 hex',
       'threw StakingReadError > BridgeEventDecodeFailedError {field: "getValidatorContract.0", valueType: "string"}'
-    ], // changes when the read is decoded
+    ],
     [
       'bare 0x',
       'threw StakingReadError > BridgeEventDecodeFailedError {field: "getValidatorContract.0", valueType: "string"}'
-    ] // changes when the read is decoded
+    ]
   ]
 });
 
@@ -383,27 +382,27 @@ registerTable({
     [
       'twelve elements',
       'threw StakingReadError > BridgeEventDecodeFailedError {field: "validators", length: 12, minLength: 13}'
-    ], // changes when the read is decoded
+    ],
     [
       'empty array',
       'threw StakingReadError > BridgeEventDecodeFailedError {field: "validators", length: 0, minLength: 13}'
-    ], // changes when the read is decoded
+    ],
     [
       'named object',
       'threw StakingReadError > BridgeEventDecodeFailedError {field: "validators", valueType: "object"}'
-    ], // changes when the read is decoded
+    ],
     [
       'undefined',
       'threw StakingReadError > BridgeEventDecodeFailedError {field: "validators", valueType: "undefined"}'
-    ], // changes when the read is decoded
+    ],
     [
       'null',
       'threw StakingReadError > BridgeEventDecodeFailedError {field: "validators", valueType: "object"}'
-    ], // changes when the read is decoded
+    ],
     [
       'string',
       'threw StakingReadError > BridgeEventDecodeFailedError {field: "validators", valueType: "string"}'
-    ], // changes when the read is decoded
+    ],
     [
       'amount is a BigNumber',
       'value amount 5, status 1, signer 0x00000000000000000000000000000000000000a1'
@@ -415,43 +414,43 @@ registerTable({
     [
       'amount is undefined',
       'threw StakingReadError > BridgeEventDecodeFailedError {field: "validators.amount", valueType: "undefined"}'
-    ], // changes when the read is decoded
+    ],
     [
       'amount is an empty object',
       'threw StakingReadError > BridgeEventDecodeFailedError {field: "validators.amount", valueType: "object"}'
-    ], // changes when the read is decoded
+    ],
     [
       'amount is a non-numeric string',
       'threw StakingReadError > BridgeEventDecodeFailedError {field: "validators.amount", valueType: "string"}'
-    ], // changes when the read is decoded
+    ],
     [
       'amount is an empty string',
       'threw StakingReadError > BridgeEventDecodeFailedError {field: "validators.amount", valueType: "string"}'
-    ], // changes when the read is decoded
+    ],
     [
       'amount is a boolean',
       'threw StakingReadError > BridgeEventDecodeFailedError {field: "validators.amount", valueType: "boolean"}'
-    ], // changes when the read is decoded
+    ],
     [
       'amount is a fraction',
       'threw StakingReadError > BridgeEventDecodeFailedError {field: "validators.amount", valueType: "number"}'
-    ], // changes when the read is decoded
+    ],
     [
       'signer is not hex',
       'threw StakingReadError > BridgeEventDecodeFailedError {field: "validators.signer", valueType: "string"}'
-    ], // changes when the read is decoded
+    ],
     [
       'signer is a bare 0x',
       'threw StakingReadError > BridgeEventDecodeFailedError {field: "validators.signer", valueType: "string"}'
-    ], // changes when the read is decoded
+    ],
     [
       'signer is a number',
       'threw StakingReadError > BridgeEventDecodeFailedError {field: "validators.signer", valueType: "number"}'
-    ], // changes when the read is decoded
+    ],
     [
       'contractAddress is undefined',
       'threw StakingReadError > BridgeEventDecodeFailedError {field: "validators.contractAddress", valueType: "undefined"}'
-    ], // changes when the read is decoded
+    ],
     [
       'status is a bigint',
       'value amount 1, status 1, signer 0x00000000000000000000000000000000000000a1'
@@ -459,15 +458,15 @@ registerTable({
     [
       'status is a boolean',
       'threw StakingReadError > BridgeEventDecodeFailedError {field: "validators.status", valueType: "boolean"}'
-    ], // changes when the read is decoded
+    ],
     [
       'status is undefined',
       'threw StakingReadError > BridgeEventDecodeFailedError {field: "validators.status", valueType: "undefined"}'
-    ], // changes when the read is decoded
+    ],
     [
       'initialRewardPerStake is undefined',
       'threw StakingReadError > BridgeEventDecodeFailedError {field: "validators.initialRewardPerStake", valueType: "undefined"}'
-    ] // changes when the read is decoded
+    ]
   ]
 });
 
@@ -535,55 +534,55 @@ pairTable({
     [
       'array of one',
       'threw StakingReadError > BridgeEventDecodeFailedError {field: "getTotalStake", length: 1, minLength: 2}'
-    ], // changes when the read is decoded
+    ],
     [
       'empty array',
       'threw StakingReadError > BridgeEventDecodeFailedError {field: "getTotalStake", length: 0, minLength: 2}'
-    ], // changes when the read is decoded
+    ],
     [
       'named object',
       'threw StakingReadError > BridgeEventDecodeFailedError {field: "getTotalStake", valueType: "object"}'
-    ], // changes when the read is decoded
+    ],
     [
       'undefined',
       'threw StakingReadError > BridgeEventDecodeFailedError {field: "getTotalStake", valueType: "undefined"}'
-    ], // changes when the read is decoded
+    ],
     [
       'null',
       'threw StakingReadError > BridgeEventDecodeFailedError {field: "getTotalStake", valueType: "object"}'
-    ], // changes when the read is decoded
+    ],
     [
       'string',
       'threw StakingReadError > BridgeEventDecodeFailedError {field: "getTotalStake", valueType: "string"}'
-    ], // changes when the read is decoded
+    ],
     [
       'first is undefined',
       'threw StakingReadError > BridgeEventDecodeFailedError {field: "getTotalStake.0", valueType: "undefined"}'
-    ], // changes when the read is decoded
+    ],
     [
       'first is an empty object',
       'threw StakingReadError > BridgeEventDecodeFailedError {field: "getTotalStake.0", valueType: "object"}'
-    ], // changes when the read is decoded
+    ],
     [
       'first is a non-numeric string',
       'threw StakingReadError > BridgeEventDecodeFailedError {field: "getTotalStake.0", valueType: "string"}'
-    ], // changes when the read is decoded
+    ],
     [
       'first is an empty string',
       'threw StakingReadError > BridgeEventDecodeFailedError {field: "getTotalStake.0", valueType: "string"}'
-    ], // changes when the read is decoded
+    ],
     [
       'first is a boolean',
       'threw StakingReadError > BridgeEventDecodeFailedError {field: "getTotalStake.0", valueType: "boolean"}'
-    ], // changes when the read is decoded
+    ],
     [
       'second is undefined',
       'threw StakingReadError > BridgeEventDecodeFailedError {field: "getTotalStake.1", valueType: "undefined"}'
-    ], // changes when the read is decoded
+    ],
     [
       'second is a fraction',
       'threw StakingReadError > BridgeEventDecodeFailedError {field: "getTotalStake.1", valueType: "number"}'
-    ] // changes when the read is decoded
+    ]
   ]
 });
 
@@ -599,55 +598,55 @@ pairTable({
     [
       'array of one',
       'threw StakingReadError > BridgeEventDecodeFailedError {field: "unbonds", length: 1, minLength: 2}'
-    ], // changes when the read is decoded
+    ],
     [
       'empty array',
       'threw StakingReadError > BridgeEventDecodeFailedError {field: "unbonds", length: 0, minLength: 2}'
-    ], // changes when the read is decoded
+    ],
     [
       'named object',
       'threw StakingReadError > BridgeEventDecodeFailedError {field: "unbonds", valueType: "object"}'
-    ], // changes when the read is decoded
+    ],
     [
       'undefined',
       'threw StakingReadError > BridgeEventDecodeFailedError {field: "unbonds", valueType: "undefined"}'
-    ], // changes when the read is decoded
+    ],
     [
       'null',
       'threw StakingReadError > BridgeEventDecodeFailedError {field: "unbonds", valueType: "object"}'
-    ], // changes when the read is decoded
+    ],
     [
       'string',
       'threw StakingReadError > BridgeEventDecodeFailedError {field: "unbonds", valueType: "string"}'
-    ], // changes when the read is decoded
+    ],
     [
       'first is undefined',
       'threw StakingReadError > BridgeEventDecodeFailedError {field: "unbonds.shares", valueType: "undefined"}'
-    ], // changes when the read is decoded
+    ],
     [
       'first is an empty object',
       'threw StakingReadError > BridgeEventDecodeFailedError {field: "unbonds.shares", valueType: "object"}'
-    ], // changes when the read is decoded
+    ],
     [
       'first is a non-numeric string',
       'threw StakingReadError > BridgeEventDecodeFailedError {field: "unbonds.shares", valueType: "string"}'
-    ], // changes when the read is decoded
+    ],
     [
       'first is an empty string',
       'threw StakingReadError > BridgeEventDecodeFailedError {field: "unbonds.shares", valueType: "string"}'
-    ], // changes when the read is decoded
+    ],
     [
       'first is a boolean',
       'threw StakingReadError > BridgeEventDecodeFailedError {field: "unbonds.shares", valueType: "boolean"}'
-    ], // changes when the read is decoded
+    ],
     [
       'second is undefined',
       'threw StakingReadError > BridgeEventDecodeFailedError {field: "unbonds.withdrawEpoch", valueType: "undefined"}'
-    ], // changes when the read is decoded
+    ],
     [
       'second is a fraction',
       'threw StakingReadError > BridgeEventDecodeFailedError {field: "unbonds.withdrawEpoch", valueType: "number"}'
-    ] // changes when the read is decoded
+    ]
   ]
 });
 
@@ -663,55 +662,55 @@ pairTable({
     [
       'array of one',
       'threw StakingReadError > BridgeEventDecodeFailedError {field: "unbonds_new", length: 1, minLength: 2}'
-    ], // changes when the read is decoded
+    ],
     [
       'empty array',
       'threw StakingReadError > BridgeEventDecodeFailedError {field: "unbonds_new", length: 0, minLength: 2}'
-    ], // changes when the read is decoded
+    ],
     [
       'named object',
       'threw StakingReadError > BridgeEventDecodeFailedError {field: "unbonds_new", valueType: "object"}'
-    ], // changes when the read is decoded
+    ],
     [
       'undefined',
       'threw StakingReadError > BridgeEventDecodeFailedError {field: "unbonds_new", valueType: "undefined"}'
-    ], // changes when the read is decoded
+    ],
     [
       'null',
       'threw StakingReadError > BridgeEventDecodeFailedError {field: "unbonds_new", valueType: "object"}'
-    ], // changes when the read is decoded
+    ],
     [
       'string',
       'threw StakingReadError > BridgeEventDecodeFailedError {field: "unbonds_new", valueType: "string"}'
-    ], // changes when the read is decoded
+    ],
     [
       'first is undefined',
       'threw StakingReadError > BridgeEventDecodeFailedError {field: "unbonds_new.shares", valueType: "undefined"}'
-    ], // changes when the read is decoded
+    ],
     [
       'first is an empty object',
       'threw StakingReadError > BridgeEventDecodeFailedError {field: "unbonds_new.shares", valueType: "object"}'
-    ], // changes when the read is decoded
+    ],
     [
       'first is a non-numeric string',
       'threw StakingReadError > BridgeEventDecodeFailedError {field: "unbonds_new.shares", valueType: "string"}'
-    ], // changes when the read is decoded
+    ],
     [
       'first is an empty string',
       'threw StakingReadError > BridgeEventDecodeFailedError {field: "unbonds_new.shares", valueType: "string"}'
-    ], // changes when the read is decoded
+    ],
     [
       'first is a boolean',
       'threw StakingReadError > BridgeEventDecodeFailedError {field: "unbonds_new.shares", valueType: "boolean"}'
-    ], // changes when the read is decoded
+    ],
     [
       'second is undefined',
       'threw StakingReadError > BridgeEventDecodeFailedError {field: "unbonds_new.withdrawEpoch", valueType: "undefined"}'
-    ], // changes when the read is decoded
+    ],
     [
       'second is a fraction',
       'threw StakingReadError > BridgeEventDecodeFailedError {field: "unbonds_new.withdrawEpoch", valueType: "number"}'
-    ] // changes when the read is decoded
+    ]
   ]
 });
 
@@ -777,35 +776,35 @@ registerTable({
     [
       'domain of five',
       'threw PermitError > BridgeEventDecodeFailedError {field: "eip712Domain", length: 5, minLength: 7}'
-    ], // changes when the read is decoded
+    ],
     [
       'domain of four',
       'threw PermitError > BridgeEventDecodeFailedError {field: "eip712Domain", length: 4, minLength: 7}'
-    ], // changes when the read is decoded
+    ],
     [
       'empty array',
       'threw PermitError > BridgeEventDecodeFailedError {field: "eip712Domain", length: 0, minLength: 7}'
-    ], // changes when the read is decoded
+    ],
     [
       'undefined',
       'threw PermitError > BridgeEventDecodeFailedError {field: "eip712Domain", valueType: "undefined"}'
-    ], // changes when the read is decoded
+    ],
     [
       'null',
       'threw PermitError > BridgeEventDecodeFailedError {field: "eip712Domain", valueType: "object"}'
-    ], // changes when the read is decoded
+    ],
     [
       'named object',
       'threw PermitError > BridgeEventDecodeFailedError {field: "eip712Domain", valueType: "object"}'
-    ], // changes when the read is decoded
+    ],
     [
       'name is a number',
       'threw PermitError > BridgeEventDecodeFailedError {field: "eip712Domain.name", valueType: "number"}'
-    ], // changes when the read is decoded
+    ],
     [
       'version is undefined',
       'threw PermitError > BridgeEventDecodeFailedError {field: "eip712Domain.version", valueType: "undefined"}'
-    ], // changes when the read is decoded
+    ],
     [
       'chainId is a BigNumber',
       'value domain name Polygon Ecosystem Token, version 1, chainId 1, verifyingContract 0x9999999999999999999999999999999999999999'
@@ -817,30 +816,30 @@ registerTable({
     [
       'chainId is undefined',
       'threw PermitError > BridgeEventDecodeFailedError {field: "eip712Domain.chainId", valueType: "undefined"}'
-    ], // changes when the read is decoded
+    ],
     [
       'chainId is non-numeric',
       'threw PermitError > BridgeEventDecodeFailedError {field: "eip712Domain.chainId", valueType: "string"}'
-    ], // changes when the read is decoded
+    ],
     [
       'chainId is a boolean',
       'threw PermitError > BridgeEventDecodeFailedError {field: "eip712Domain.chainId", valueType: "boolean"}'
-    ], // changes when the read is decoded
+    ],
     [
       'chainId is above the safe integer range',
       'threw PermitError > BridgeEventDecodeFailedError {field: "eip712Domain.chainId"}'
-    ], // changes when the read is decoded
+    ],
     [
       'verifyingContract is not hex',
       'threw PermitError > BridgeEventDecodeFailedError {field: "eip712Domain.verifyingContract", valueType: "string"}'
-    ], // changes when the read is decoded
+    ],
     [
       'verifyingContract is undefined',
       'threw PermitError > BridgeEventDecodeFailedError {field: "eip712Domain.verifyingContract", valueType: "undefined"}'
-    ], // changes when the read is decoded
+    ],
     [
       'verifyingContract is a number',
       'threw PermitError > BridgeEventDecodeFailedError {field: "eip712Domain.verifyingContract", valueType: "number"}'
-    ] // changes when the read is decoded
+    ]
   ]
 });

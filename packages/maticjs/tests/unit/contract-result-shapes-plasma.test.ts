@@ -19,14 +19,13 @@ import {
 /**
  * What the Plasma reads do with every shape a contract call can come back in.
  *
- * Each table pins TODAY'S outcome for each shape, well formed or not: the
- * value a public method returns, or the class it throws (and, for the SDK's
- * own errors, the `info` that names the field). The rows are a record of the
- * code as it is, not of what it should do. A row marked
- * `changes when the read is decoded` is one whose outcome today is a native
- * error, a wrong answer, or an SDK error that names the malformed value
- * differently from how a validating read will; only those rows may be edited
- * when reads are validated.
+ * Each table pins the outcome for each shape, well formed or not: the value a
+ * public method returns, or the class it throws (and, for the SDK's own
+ * errors, the `info` that names the field). A shape the ABI describes comes
+ * back as the SDK value; a shape it does not describe is rejected with an SDK
+ * error that names the method and field, before any other code sees it. The
+ * rows are the specification of that check, so a row changes only when the
+ * check does.
  */
 
 const TOKEN: Hex = '0x00000000000000000000000000000000000000c1';
@@ -61,47 +60,47 @@ registerTable({
     [
       'undefined',
       'threw TokenReadError > BridgeEventDecodeFailedError {field: "{field}", valueType: "undefined"}'
-    ], // changes when the read is decoded
+    ],
     [
       'null',
       'threw TokenReadError > BridgeEventDecodeFailedError {field: "{field}", valueType: "object"}'
-    ], // changes when the read is decoded
+    ],
     [
       'empty object',
       'threw TokenReadError > BridgeEventDecodeFailedError {field: "{field}", valueType: "object"}'
-    ], // changes when the read is decoded
+    ],
     [
       'non-numeric string',
       'threw TokenReadError > BridgeEventDecodeFailedError {field: "{field}", valueType: "string"}'
-    ], // changes when the read is decoded
+    ],
     [
       'empty string',
       'threw TokenReadError > BridgeEventDecodeFailedError {field: "{field}", valueType: "string"}'
-    ], // changes when the read is decoded
+    ],
     [
       'true',
       'threw TokenReadError > BridgeEventDecodeFailedError {field: "{field}", valueType: "boolean"}'
-    ], // changes when the read is decoded
+    ],
     [
       'fraction',
       'threw TokenReadError > BridgeEventDecodeFailedError {field: "{field}", valueType: "number"}'
-    ], // changes when the read is decoded
+    ],
     [
       'negative bigint',
       'threw TokenReadError > BridgeEventDecodeFailedError {field: "{field}", valueType: "bigint"}'
-    ], // changes when the read is decoded
+    ],
     [
       'unsafe number',
       'threw TokenReadError > BridgeEventDecodeFailedError {field: "{field}", valueType: "number"}'
-    ], // changes when the read is decoded
+    ],
     [
       'NaN',
       'threw TokenReadError > BridgeEventDecodeFailedError {field: "{field}", valueType: "number"}'
-    ], // changes when the read is decoded
+    ],
     [
       'one-element array',
       'threw TokenReadError > BridgeEventDecodeFailedError {field: "{field}", valueType: "object"}'
-    ] // changes when the read is decoded
+    ]
   ]
 });
 
@@ -138,35 +137,35 @@ registerTable({
     [
       'undefined',
       'threw ExitError > BridgeEventDecodeFailedError {field: "exitsQueues.0", valueType: "undefined"}'
-    ], // changes when the read is decoded
+    ],
     [
       'null',
       'threw ExitError > BridgeEventDecodeFailedError {field: "exitsQueues.0", valueType: "object"}'
-    ], // changes when the read is decoded
+    ],
     [
       'number',
       'threw ExitError > BridgeEventDecodeFailedError {field: "exitsQueues.0", valueType: "number"}'
-    ], // changes when the read is decoded
+    ],
     [
       'empty object',
       'threw ExitError > BridgeEventDecodeFailedError {field: "exitsQueues.0", valueType: "object"}'
-    ], // changes when the read is decoded
+    ],
     [
       'empty string',
       'threw ExitError > BridgeEventDecodeFailedError {field: "exitsQueues.0", valueType: "string"}'
-    ], // changes when the read is decoded
+    ],
     [
       'non-hex string',
       'threw ExitError > BridgeEventDecodeFailedError {field: "exitsQueues.0", valueType: "string"}'
-    ], // changes when the read is decoded
+    ],
     [
       'short hex',
       'threw ExitError > BridgeEventDecodeFailedError {field: "exitsQueues.0", valueType: "string"}'
-    ], // changes when the read is decoded
+    ],
     [
       'bytes32 hex',
       'threw ExitError > BridgeEventDecodeFailedError {field: "exitsQueues.0", valueType: "string"}'
-    ] // changes when the read is decoded
+    ]
   ]
 });
 
@@ -183,47 +182,47 @@ registerTable({
     [
       'undefined',
       'threw ExitError > BridgeEventDecodeFailedError {field: "currentSize.0", valueType: "undefined"}'
-    ], // changes when the read is decoded
+    ],
     [
       'null',
       'threw ExitError > BridgeEventDecodeFailedError {field: "currentSize.0", valueType: "object"}'
-    ], // changes when the read is decoded
+    ],
     [
       'empty object',
       'threw ExitError > BridgeEventDecodeFailedError {field: "currentSize.0", valueType: "object"}'
-    ], // changes when the read is decoded
+    ],
     [
       'non-numeric string',
       'threw ExitError > BridgeEventDecodeFailedError {field: "currentSize.0", valueType: "string"}'
-    ], // changes when the read is decoded
+    ],
     [
       'empty string',
       'threw ExitError > BridgeEventDecodeFailedError {field: "currentSize.0", valueType: "string"}'
-    ], // changes when the read is decoded
+    ],
     [
       'true',
       'threw ExitError > BridgeEventDecodeFailedError {field: "currentSize.0", valueType: "boolean"}'
-    ], // changes when the read is decoded
+    ],
     [
       'fraction',
       'threw ExitError > BridgeEventDecodeFailedError {field: "currentSize.0", valueType: "number"}'
-    ], // changes when the read is decoded
+    ],
     [
       'negative bigint',
       'threw ExitError > BridgeEventDecodeFailedError {field: "currentSize.0", valueType: "bigint"}'
-    ], // changes when the read is decoded
+    ],
     [
       'unsafe number',
       'threw ExitError > BridgeEventDecodeFailedError {field: "currentSize.0", valueType: "number"}'
-    ], // changes when the read is decoded
+    ],
     [
       'NaN',
       'threw ExitError > BridgeEventDecodeFailedError {field: "currentSize.0", valueType: "number"}'
-    ], // changes when the read is decoded
+    ],
     [
       'one-element array',
       'threw ExitError > BridgeEventDecodeFailedError {field: "currentSize.0", valueType: "object"}'
-    ] // changes when the read is decoded
+    ]
   ]
 });
 
@@ -278,47 +277,47 @@ registerTable({
     [
       'undefined',
       'threw ExitError > BridgeEventDecodeFailedError {field: "ON_FINALIZE_GAS_LIMIT.0", valueType: "undefined"}'
-    ], // changes when the read is decoded
+    ],
     [
       'null',
       'threw ExitError > BridgeEventDecodeFailedError {field: "ON_FINALIZE_GAS_LIMIT.0", valueType: "object"}'
-    ], // changes when the read is decoded
+    ],
     [
       'empty object',
       'threw ExitError > BridgeEventDecodeFailedError {field: "ON_FINALIZE_GAS_LIMIT.0", valueType: "object"}'
-    ], // changes when the read is decoded
+    ],
     [
       'non-numeric string',
       'threw ExitError > BridgeEventDecodeFailedError {field: "ON_FINALIZE_GAS_LIMIT.0", valueType: "string"}'
-    ], // changes when the read is decoded
+    ],
     [
       'empty string',
       'threw ExitError > BridgeEventDecodeFailedError {field: "ON_FINALIZE_GAS_LIMIT.0", valueType: "string"}'
-    ], // changes when the read is decoded
+    ],
     [
       'true',
       'threw ExitError > BridgeEventDecodeFailedError {field: "ON_FINALIZE_GAS_LIMIT.0", valueType: "boolean"}'
-    ], // changes when the read is decoded
+    ],
     [
       'fraction',
       'threw ExitError > BridgeEventDecodeFailedError {field: "ON_FINALIZE_GAS_LIMIT.0", valueType: "number"}'
-    ], // changes when the read is decoded
+    ],
     [
       'negative bigint',
       'threw ExitError > BridgeEventDecodeFailedError {field: "ON_FINALIZE_GAS_LIMIT.0", valueType: "bigint"}'
-    ], // changes when the read is decoded
+    ],
     [
       'unsafe number',
       'threw ExitError > BridgeEventDecodeFailedError {field: "ON_FINALIZE_GAS_LIMIT.0", valueType: "number"}'
-    ], // changes when the read is decoded
+    ],
     [
       'NaN',
       'threw ExitError > BridgeEventDecodeFailedError {field: "ON_FINALIZE_GAS_LIMIT.0", valueType: "number"}'
-    ], // changes when the read is decoded
+    ],
     [
       'one-element array',
       'threw ExitError > BridgeEventDecodeFailedError {field: "ON_FINALIZE_GAS_LIMIT.0", valueType: "object"}'
-    ], // changes when the read is decoded
+    ],
     ['a limit the sent gas cannot cover', 'threw ExitError > ExitGasLimitTooLowError'],
     ['viem: the call returned no data', 'value prepared'],
     ['ethers: CALL_EXCEPTION with no revert data', 'value prepared'],
@@ -407,35 +406,35 @@ registerTable({
     [
       'exists: string "false"',
       'threw BridgeStatusError > BridgeEventDecodeFailedError {field: "exists.0", valueType: "string"}'
-    ], // changes when the read is decoded
+    ],
     [
       'exists: string "true"',
       'threw BridgeStatusError > BridgeEventDecodeFailedError {field: "exists.0", valueType: "string"}'
-    ], // changes when the read is decoded
+    ],
     [
       'exists: number 0',
       'threw BridgeStatusError > BridgeEventDecodeFailedError {field: "exists.0", valueType: "number"}'
-    ], // changes when the read is decoded
+    ],
     [
       'exists: number 1',
       'threw BridgeStatusError > BridgeEventDecodeFailedError {field: "exists.0", valueType: "number"}'
-    ], // changes when the read is decoded
+    ],
     [
       'exists: undefined',
       'threw BridgeStatusError > BridgeEventDecodeFailedError {field: "exists.0", valueType: "undefined"}'
-    ], // changes when the read is decoded
+    ],
     [
       'exists: null',
       'threw BridgeStatusError > BridgeEventDecodeFailedError {field: "exists.0", valueType: "object"}'
-    ], // changes when the read is decoded
+    ],
     [
       'exists: empty object',
       'threw BridgeStatusError > BridgeEventDecodeFailedError {field: "exists.0", valueType: "object"}'
-    ], // changes when the read is decoded
+    ],
     [
       'exists: empty string',
       'threw BridgeStatusError > BridgeEventDecodeFailedError {field: "exists.0", valueType: "string"}'
-    ] // changes when the read is decoded
+    ]
   ]
 });
 
@@ -452,46 +451,46 @@ registerTable({
     [
       'undefined',
       'threw BridgeStatusError > BridgeEventDecodeFailedError {field: "getLastChildBlock.0", valueType: "undefined"}'
-    ], // changes when the read is decoded
+    ],
     [
       'null',
       'threw BridgeStatusError > BridgeEventDecodeFailedError {field: "getLastChildBlock.0", valueType: "object"}'
-    ], // changes when the read is decoded
+    ],
     [
       'empty object',
       'threw BridgeStatusError > BridgeEventDecodeFailedError {field: "getLastChildBlock.0", valueType: "object"}'
-    ], // changes when the read is decoded
+    ],
     [
       'non-numeric string',
       'threw BridgeStatusError > BridgeEventDecodeFailedError {field: "getLastChildBlock.0", valueType: "string"}'
-    ], // changes when the read is decoded
+    ],
     [
       'empty string',
       'threw BridgeStatusError > BridgeEventDecodeFailedError {field: "getLastChildBlock.0", valueType: "string"}'
-    ], // changes when the read is decoded
+    ],
     [
       'true',
       'threw BridgeStatusError > BridgeEventDecodeFailedError {field: "getLastChildBlock.0", valueType: "boolean"}'
-    ], // changes when the read is decoded
+    ],
     [
       'fraction',
       'threw BridgeStatusError > BridgeEventDecodeFailedError {field: "getLastChildBlock.0", valueType: "number"}'
-    ], // changes when the read is decoded
+    ],
     [
       'negative bigint',
       'threw BridgeStatusError > BridgeEventDecodeFailedError {field: "getLastChildBlock.0", valueType: "bigint"}'
-    ], // changes when the read is decoded
+    ],
     [
       'unsafe number',
       'threw BridgeStatusError > BridgeEventDecodeFailedError {field: "getLastChildBlock.0", valueType: "number"}'
-    ], // changes when the read is decoded
+    ],
     [
       'NaN',
       'threw BridgeStatusError > BridgeEventDecodeFailedError {field: "getLastChildBlock.0", valueType: "number"}'
-    ], // changes when the read is decoded
+    ],
     [
       'one-element array',
       'threw BridgeStatusError > BridgeEventDecodeFailedError {field: "getLastChildBlock.0", valueType: "object"}'
-    ] // changes when the read is decoded
+    ]
   ]
 });
