@@ -907,8 +907,10 @@
       "functionName": "headerBlocks",
       "args": [
         {
-          "type": "string",
-          "value": "0x22e12360"
+          "type": "bigint",
+          "value": {
+            "$bigint": "585180000"
+          }
         }
       ],
       "blockTag": "safe"
@@ -977,8 +979,10 @@
       "functionName": "headerBlocks",
       "args": [
         {
-          "type": "string",
-          "value": "0x22e12360"
+          "type": "bigint",
+          "value": {
+            "$bigint": "585180000"
+          }
         }
       ],
       "blockTag": "safe"
@@ -1101,8 +1105,10 @@
           "value": "0x00000000000000000000000000000000000000a1"
         },
         {
-          "type": "number",
-          "value": 3
+          "type": "bigint",
+          "value": {
+            "$bigint": "3"
+          }
         }
       ],
       "blockTag": null
@@ -1135,8 +1141,10 @@
           "value": "0x00000000000000000000000000000000000000a1"
         },
         {
-          "type": "number",
-          "value": 0
+          "type": "bigint",
+          "value": {
+            "$bigint": "0"
+          }
         }
       ],
       "blockTag": null
@@ -1153,8 +1161,10 @@
           "value": "0x00000000000000000000000000000000000000a1"
         },
         {
-          "type": "number",
-          "value": 1
+          "type": "bigint",
+          "value": {
+            "$bigint": "1"
+          }
         }
       ],
       "blockTag": null
@@ -1937,8 +1947,10 @@
       "functionName": "headerBlocks",
       "args": [
         {
-          "type": "string",
-          "value": "0x22e12360"
+          "type": "bigint",
+          "value": {
+            "$bigint": "585180000"
+          }
         }
       ],
       "blockTag": "safe"
@@ -2007,8 +2019,10 @@
       "functionName": "headerBlocks",
       "args": [
         {
-          "type": "string",
-          "value": "0x22e12360"
+          "type": "bigint",
+          "value": {
+            "$bigint": "585180000"
+          }
         }
       ],
       "blockTag": "safe"
@@ -2057,8 +2071,10 @@
       "functionName": "headerBlocks",
       "args": [
         {
-          "type": "string",
-          "value": "0x22e12360"
+          "type": "bigint",
+          "value": {
+            "$bigint": "585180000"
+          }
         }
       ],
       "blockTag": "safe"
@@ -2127,8 +2143,10 @@
       "functionName": "headerBlocks",
       "args": [
         {
-          "type": "string",
-          "value": "0x22e12360"
+          "type": "bigint",
+          "value": {
+            "$bigint": "585180000"
+          }
         }
       ],
       "blockTag": "safe"
@@ -3090,8 +3108,10 @@
       "functionName": "headerBlocks",
       "args": [
         {
-          "type": "string",
-          "value": "0x22e12360"
+          "type": "bigint",
+          "value": {
+            "$bigint": "585180000"
+          }
         }
       ],
       "blockTag": "safe"
@@ -3160,8 +3180,10 @@
       "functionName": "headerBlocks",
       "args": [
         {
-          "type": "string",
-          "value": "0x22e12360"
+          "type": "bigint",
+          "value": {
+            "$bigint": "585180000"
+          }
         }
       ],
       "blockTag": "safe"
@@ -3551,8 +3573,10 @@
       "functionName": "headerBlocks",
       "args": [
         {
-          "type": "string",
-          "value": "0x22e12360"
+          "type": "bigint",
+          "value": {
+            "$bigint": "585180000"
+          }
         }
       ],
       "blockTag": "safe"
@@ -3585,8 +3609,10 @@
       "functionName": "headerBlocks",
       "args": [
         {
-          "type": "string",
-          "value": "0x22e12360"
+          "type": "bigint",
+          "value": {
+            "$bigint": "585180000"
+          }
         }
       ],
       "blockTag": "safe"
@@ -3619,8 +3645,10 @@
       "functionName": "headerBlocks",
       "args": [
         {
-          "type": "string",
-          "value": "0x22e12360"
+          "type": "bigint",
+          "value": {
+            "$bigint": "585180000"
+          }
         }
       ],
       "blockTag": "safe"
@@ -4232,8 +4260,10 @@
       "functionName": "headerBlocks",
       "args": [
         {
-          "type": "string",
-          "value": "0x2710"
+          "type": "bigint",
+          "value": {
+            "$bigint": "10000"
+          }
         }
       ],
       "blockTag": "safe"

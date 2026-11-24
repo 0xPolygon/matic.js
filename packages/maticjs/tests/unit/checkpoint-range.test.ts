@@ -4,7 +4,7 @@ import type { Adapter, ReadRequest, Receipt, TxResult, WriteRequest } from '../.
 import type { IBlockWithTransaction, ITransactionReceipt } from '../../src/interfaces/index.ts';
 import type { BridgeChildClient } from '../../src/internal/pos-bridge-helpers.ts';
 
-import { RootChainABI } from '../../src/abi/index.ts';
+import { RootChainABI, RootChainManagerABI } from '../../src/abi/index.ts';
 import { LogEventSignature } from '../../src/constant.ts';
 import { CheckpointRangeInvalidError, MerkleTreeDepthExceededError } from '../../src/errors.ts';
 import { ContractCaller } from '../../src/internal/contract-caller.ts';
@@ -204,16 +204,17 @@ const helpers = ({
 }): POSBridgeHelpers => {
   const adapter = new RootAdapter(headerBlocks);
   lastAdapter = adapter;
-  const caller = new ContractCaller({
-    adapter,
-    getAddress: () => Promise.resolve('0x1111111111111111111111111111111111111111'),
-    abi: RootChainABI,
-    isParent: true,
-    logger: noopLogger
-  });
+  const callerFor = <TAbi extends readonly unknown[]>(abi: TAbi): ContractCaller<TAbi> =>
+    new ContractCaller({
+      adapter,
+      getAddress: () => Promise.resolve('0x1111111111111111111111111111111111111111'),
+      abi,
+      isParent: true,
+      logger: noopLogger
+    });
   return new POSBridgeHelpers({
-    rootChainManagerCaller: caller,
-    rootChainCaller: caller,
+    rootChainManagerCaller: callerFor(RootChainManagerABI),
+    rootChainCaller: callerFor(RootChainABI),
     childClient: childClient(),
     childAdapter: adapter,
     parentAdapter: adapter,

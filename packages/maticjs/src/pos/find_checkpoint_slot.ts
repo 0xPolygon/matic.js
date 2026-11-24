@@ -25,34 +25,22 @@
  */
 
 import { BridgeEventDecodeFailedError, BurnTxNotCheckpointedError } from '../errors.js';
+import { decodeInteger } from '../internal/decode.js';
 
 /**
- * Normalise a `headerBlocks(headerId)` contract-read result to
+ * Normalise a `headerBlocks(headerId)` value that is not yet decoded to
  * `{ start, end }`.
  *
- * The RootChain `headerBlocks` getter has five outputs
- * (`root, start, end, createdAt, proposer`) and the three adapter
- * libraries decode multi-output functions differently: viem returns a
- * plain POSITIONAL array with no named properties, while ethers v5/v6
- * return a `Result` — an array subclass that also carries named
- * properties (v5's `BigNumber` values coerce through `BigInt()` via
- * `toString`). Positional access is the one shape all three share, so
- * indices 1/2 are authoritative; a plain named-property object is
- * accepted as a fallback. Reading `.start`/`.end` directly is NOT safe
- * — on viem those are `undefined` and `BigInt(undefined)` throws.
+ * `ContractCaller.read` already returns the decoded tuple, so the checkpoint
+ * reads take indices 1 and 2 of it directly. This stays for a raw value from
+ * elsewhere: a positional array (viem, and the ethers `Result`, which is an
+ * array subclass) is read by index, the one shape all three libraries share;
+ * a plain `{ start, end }` object is accepted as a fallback. Each field is an
+ * unsigned integer in the `headerBlocks` ABI, so it is decoded as one.
  */
 export function parseHeaderBlocksResult(result: unknown): { start: bigint; end: bigint } {
-  const coerce = (v: unknown, field: string): bigint => {
-    if (typeof v === 'bigint') return v;
-    if (typeof v === 'string' || typeof v === 'number') return BigInt(v);
-    // ethers v5 BigNumber (and anything else stringifying to a decimal
-    // or 0x-hex quantity) coerces through its string form.
-    if (typeof v === 'object' && v !== null) return BigInt(String(v));
-    throw new BridgeEventDecodeFailedError(
-      `headerBlocks result field '${field}' is not a numeric value`,
-      { info: { field, valueType: typeof v } }
-    );
-  };
+  const uint256 = (value: unknown, field: string): bigint =>
+    decodeInteger({ type: 'uint256', value, field });
   if (Array.isArray(result)) {
     // Outputs: [root, start, end, createdAt, proposer]
     if (result.length < 3) {
@@ -61,11 +49,10 @@ export function parseHeaderBlocksResult(result: unknown): { start: bigint; end: 
         { info: { length: result.length } }
       );
     }
-    return { start: coerce(result[1], 'start'), end: coerce(result[2], 'end') };
+    return { start: uint256(result[1], 'start'), end: uint256(result[2], 'end') };
   }
   if (typeof result === 'object' && result !== null && 'start' in result && 'end' in result) {
-    const r = result as { start: unknown; end: unknown };
-    return { start: coerce(r.start, 'start'), end: coerce(r.end, 'end') };
+    return { start: uint256(result.start, 'start'), end: uint256(result.end, 'end') };
   }
   throw new BridgeEventDecodeFailedError(
     'headerBlocks result is neither a positional array nor a { start, end } object',

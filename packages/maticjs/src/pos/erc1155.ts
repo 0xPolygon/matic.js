@@ -70,7 +70,7 @@ export interface ERC1155Config {
 const EMPTY_BYTES = '0x' as const;
 
 export class ERC1155 {
-  private readonly caller: ContractCaller;
+  readonly #caller: ContractCaller<typeof ChildERC1155ABI>;
   readonly tokenAddress: Hex;
   readonly isParent: boolean;
   private readonly bridge: POSBridgeHelpers;
@@ -88,7 +88,7 @@ export class ERC1155 {
     this.rootChainManager = config.rootChainManager;
     this.encodeParameters = config.encodeParameters;
     this.mintablePredicateAddress = config.mintablePredicateAddress;
-    this.caller = new ContractCaller({
+    this.#caller = new ContractCaller({
       adapter: config.adapter,
       getAddress: () => Promise.resolve(config.tokenAddress),
       abi: ChildERC1155ABI,
@@ -113,14 +113,7 @@ export class ERC1155 {
         tokenAddress: this.tokenAddress,
         method: 'balanceOf'
       },
-      run: async () => {
-        const v = await this.caller.read<bigint | string>(
-          'balanceOf',
-          [userAddress, tokenId],
-          options
-        );
-        return BigInt(v);
-      }
+      run: () => this.#caller.read('balanceOf', [userAddress, tokenId], options)
     });
   }
 
@@ -137,7 +130,7 @@ export class ERC1155 {
       run: async () => {
         this.requireParent('isApprovedAll');
         const predicate = await this.bridge.getPredicateAddress(this.tokenAddress);
-        return this.caller.read<boolean>('isApprovedForAll', [userAddress, predicate], options);
+        return this.#caller.read('isApprovedForAll', [userAddress, predicate], options);
       }
     });
   }
@@ -230,7 +223,7 @@ export class ERC1155 {
     options: ContractCallerOptions
   ): Promise<TxResult> {
     return predicatePromise.then((predicate) =>
-      this.caller.write('setApprovalForAll', [predicate, true], options)
+      this.#caller.write('setApprovalForAll', [predicate, true], options)
     );
   }
 
@@ -239,7 +232,7 @@ export class ERC1155 {
     options: ContractCallerOptions
   ): Promise<PreparedTx> {
     return predicatePromise.then((predicate) =>
-      this.caller.prepareWrite('setApprovalForAll', [predicate, true], options)
+      this.#caller.prepareWrite('setApprovalForAll', [predicate, true], options)
     );
   }
 
@@ -350,7 +343,7 @@ export class ERC1155 {
       },
       run: () => {
         this.requireChild('startWithdraw');
-        return this.caller.write('withdrawSingle', [tokenId, amount], options);
+        return this.#caller.write('withdrawSingle', [tokenId, amount], options);
       }
     });
   }
@@ -371,7 +364,7 @@ export class ERC1155 {
       },
       run: () => {
         this.requireChild('startWithdraw');
-        return this.caller.prepareWrite('withdrawSingle', [tokenId, amount], options);
+        return this.#caller.prepareWrite('withdrawSingle', [tokenId, amount], options);
       }
     });
   }
@@ -392,7 +385,7 @@ export class ERC1155 {
       },
       run: () => {
         this.requireChild('startWithdrawMany');
-        return this.caller.write('withdrawBatch', [tokenIds, amounts], options);
+        return this.#caller.write('withdrawBatch', [tokenIds, amounts], options);
       }
     });
   }
@@ -413,7 +406,7 @@ export class ERC1155 {
       },
       run: () => {
         this.requireChild('startWithdrawMany');
-        return this.caller.prepareWrite('withdrawBatch', [tokenIds, amounts], options);
+        return this.#caller.prepareWrite('withdrawBatch', [tokenIds, amounts], options);
       }
     });
   }
@@ -668,7 +661,7 @@ export class ERC1155 {
         method: 'safeTransferFrom'
       },
       run: () =>
-        this.caller.write(
+        this.#caller.write(
           'safeTransferFrom',
           [param.from, param.to, param.tokenId, param.amount, param.data ?? EMPTY_BYTES],
           options
@@ -690,7 +683,7 @@ export class ERC1155 {
         method: 'safeTransferFrom'
       },
       run: () =>
-        this.caller.prepareWrite(
+        this.#caller.prepareWrite(
           'safeTransferFrom',
           [param.from, param.to, param.tokenId, param.amount, param.data ?? EMPTY_BYTES],
           options

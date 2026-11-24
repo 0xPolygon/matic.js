@@ -43,6 +43,8 @@ import type { CheckpointStatus, DepositStatus } from './pos/bridge-status.js';
 import type { WithdrawStatus } from './pos/withdraw-status.js';
 import type { AddressFetcher } from './services/address-service.js';
 
+import { RootChainABI } from './abi/RootChain.js';
+import { RootChainManagerABI } from './abi/RootChainManager.js';
 import {
   AddressLookupError,
   ContractNotAvailableOnNetworkError,
@@ -56,6 +58,7 @@ import {
 } from './errors.js';
 import { encodeAbiParameters } from './internal/abi-encode.js';
 import { createBridgeChildClient } from './internal/bridge-child-client.js';
+import { ContractCaller } from './internal/contract-caller.js';
 import { POSBridgeHelpers } from './internal/pos-bridge-helpers.js';
 import { ProofApiClient } from './internal/proof-api-client.js';
 import { noopLogger } from './logger.js';
@@ -205,6 +208,7 @@ export class POSClient {
   private readonly fetcher: AddressFetcher;
   private readonly logger: Logger;
   private readonly bridge: POSBridgeHelpers;
+  private readonly rootChainManagerCaller: ContractCaller<typeof RootChainManagerABI>;
   private readonly proofGenerationApiUrl: string | undefined;
 
   private constructor(args: {
@@ -216,6 +220,7 @@ export class POSClient {
     fetcher: AddressFetcher;
     logger: Logger;
     bridge: POSBridgeHelpers;
+    rootChainManagerCaller: ContractCaller<typeof RootChainManagerABI>;
     proofGenerationApiUrl: string | undefined;
   }) {
     this.rootChainManager = args.rootChainManager;
@@ -226,6 +231,7 @@ export class POSClient {
     this.fetcher = args.fetcher;
     this.logger = args.logger;
     this.bridge = args.bridge;
+    this.rootChainManagerCaller = args.rootChainManagerCaller;
     this.proofGenerationApiUrl = args.proofGenerationApiUrl;
   }
 
@@ -346,18 +352,30 @@ export class POSClient {
     const l1ChainId = declared?.parent ?? L1_CHAIN_ID[config.network];
     const l2ChainId = declared?.child ?? L2_CHAIN_ID[config.network];
 
-    const rootChainManager = new RootChainManager({
+    // Each caller is built once. The handle, the bridge helpers and (for the
+    // ETH deposit) this client all use the same object, so they resolve the
+    // contract's address through the one fetcher and share its cache.
+    const rootChainManagerCaller = new ContractCaller({
       adapter: parentAdapter,
-      chainId: l1ChainId,
       getAddress: () => fetcher.get().then((a) => a.RootChainManager),
-      logger
+      abi: RootChainManagerABI,
+      isParent: true,
+      logger,
+      chainId: l1ChainId
+    });
+    const rootChainCaller = new ContractCaller({
+      adapter: parentAdapter,
+      getAddress: () => fetcher.get().then((a) => a.RootChain),
+      abi: RootChainABI,
+      isParent: true,
+      logger,
+      chainId: l1ChainId
     });
 
+    const rootChainManager = new RootChainManager({ caller: rootChainManagerCaller });
+
     const rootChain = new RootChain({
-      adapter: parentAdapter,
-      chainId: l1ChainId,
-      getAddress: () => fetcher.get().then((a) => a.RootChain),
-      logger,
+      caller: rootChainCaller,
       ...(config.rootChainDefaultBlock !== undefined
         ? { defaultBlock: config.rootChainDefaultBlock }
         : {})
@@ -397,8 +415,8 @@ export class POSClient {
     const childBridgeClient = createBridgeChildClient(childAdapter);
 
     const bridge = new POSBridgeHelpers({
-      rootChainManagerCaller: rootChainManager.caller,
-      rootChainCaller: rootChain.caller,
+      rootChainManagerCaller,
+      rootChainCaller,
       childClient: childBridgeClient,
       childAdapter,
       parentAdapter,
@@ -503,6 +521,7 @@ export class POSClient {
       fetcher,
       logger,
       bridge,
+      rootChainManagerCaller,
       proofGenerationApiUrl: config.proofGenerationApiUrl
     });
   }
@@ -750,7 +769,7 @@ export class POSClient {
       error: DepositError,
       info: { operation: 'depositEther', mode: 'write', method: 'depositEtherFor' },
       run: () =>
-        this.rootChainManager.caller.write('depositEtherFor', [userAddress], {
+        this.rootChainManagerCaller.write('depositEtherFor', [userAddress], {
           ...options,
           value: amount
         })
@@ -767,7 +786,7 @@ export class POSClient {
       error: DepositError,
       info: { operation: 'prepareDepositEther', mode: 'prepare', method: 'depositEtherFor' },
       run: () =>
-        this.rootChainManager.caller.prepareWrite('depositEtherFor', [userAddress], {
+        this.rootChainManagerCaller.prepareWrite('depositEtherFor', [userAddress], {
           ...options,
           value: amount
         })

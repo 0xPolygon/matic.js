@@ -39,6 +39,8 @@
 
 import { RLP } from '@ethereumjs/rlp';
 
+import type { RootChainABI } from '../abi/RootChain.js';
+import type { RootChainManagerABI } from '../abi/RootChainManager.js';
 import type {
   Adapter,
   BlockTag,
@@ -52,6 +54,7 @@ import type { ITransactionReceipt } from '../interfaces/index.js';
 import type { Logger } from '../logger.js';
 import type { CheckpointStatus, DepositStatus } from '../pos/bridge-status.js';
 import type { WithdrawStatus } from '../pos/withdraw-status.js';
+import type { WriteCall } from './abi-types.js';
 import type { ContractCallerOptions } from './contract-caller.js';
 import type { BridgeChildClient } from './exit-proof.js';
 import type { ProofApiClient } from './proof-api-client.js';
@@ -83,18 +86,28 @@ import { ExitProofBuilder, getAllLogIndices, getLogIndex, ZERO_TOPIC } from './e
 export { assertCheckpointRange, MAX_CHECKPOINT_BLOCKS } from './exit-proof.js';
 export type { BridgeChildClient } from './exit-proof.js';
 
+// The child `StateReceiver` is read and replayed through one caller, over the
+// generated ABI plus the two hand-carried fragments. The caller's types are
+// derived from this one value, so they follow the spread if it changes.
+const STATE_RECEIVER_ABI = [
+  ...StateReceiverABI,
+  ...FailedStateSyncHashesABI,
+  ...ReplayFailedStateSyncABI
+] as const;
+type StateReceiverAbi = typeof STATE_RECEIVER_ABI;
+
 export interface POSBridgeHelpersConfig {
   /**
    * The on-chain `RootChainManager` contract on the parent chain.
    * Used for predicate lookups (`tokenToType` / `typeToPredicate`)
    * and exit-status reads (`processedExits`).
    */
-  rootChainManagerCaller: ContractCaller;
+  rootChainManagerCaller: ContractCaller<typeof RootChainManagerABI>;
   /**
    * The on-chain `RootChain` contract on the parent chain. Used for
    * `findRootBlockFromChild` during exit-payload construction.
    */
-  rootChainCaller: ContractCaller;
+  rootChainCaller: ContractCaller<typeof RootChainABI>;
   /** Matic (child) chain client for receipt / block / proof reads. */
   childClient: BridgeChildClient;
   /**
@@ -145,11 +158,11 @@ export interface POSBridgeHelpersConfig {
 }
 
 export class POSBridgeHelpers {
-  private readonly rootChainManagerCaller: ContractCaller;
+  private readonly rootChainManagerCaller: ContractCaller<typeof RootChainManagerABI>;
   private readonly childClient: BridgeChildClient;
   private readonly childAdapter: Adapter;
   private readonly parentAdapter: Adapter;
-  private readonly stateReceiverCaller: ContractCaller;
+  private readonly stateReceiverCaller: ContractCaller<StateReceiverAbi>;
   private readonly exitProof: ExitProofBuilder;
   private readonly proofConcurrency: number;
   private readonly getTrustedPredicates: () => Promise<readonly string[]>;
@@ -163,7 +176,7 @@ export class POSBridgeHelpers {
     this.stateReceiverCaller = new ContractCaller({
       adapter: config.childAdapter,
       getAddress: () => Promise.resolve(STATE_RECEIVER_ADDRESS),
-      abi: [...StateReceiverABI, ...FailedStateSyncHashesABI, ...ReplayFailedStateSyncABI],
+      abi: STATE_RECEIVER_ABI,
       isParent: false,
       logger: config.logger,
       chainId: config.childChainId
@@ -200,18 +213,14 @@ export class POSBridgeHelpers {
     const cached = this.predicateCache.get(tokenAddress);
     if (cached !== undefined) return cached;
     const lookup = (async (): Promise<string> => {
-      const tokenType = await this.rootChainManagerCaller.read<string>('tokenToType', [
-        tokenAddress
-      ]);
-      if (!tokenType || tokenType === ZERO_TOPIC) {
+      const tokenType = await this.rootChainManagerCaller.read('tokenToType', [tokenAddress]);
+      if (tokenType === ZERO_TOPIC) {
         throw new InvalidTokenTypeError(
           `Token ${tokenAddress} is not registered with the RootChainManager`,
           { info: { tokenAddress } }
         );
       }
-      const predicate = await this.rootChainManagerCaller.read<string>('typeToPredicate', [
-        tokenType
-      ]);
+      const predicate = await this.rootChainManagerCaller.read('typeToPredicate', [tokenType]);
       // The answer came from an RPC and is about to become an approval
       // spender, so it must be one of the predicates the index publishes.
       // Thrown inside the cached promise so the eviction below clears it.
@@ -370,8 +379,8 @@ export class POSBridgeHelpers {
     depositTxHash: string;
     options: ContractCallerOptions;
   }): Promise<TxResult> {
-    const { method, args } = await this.replayCallOf(depositTxHash);
-    return this.stateReceiverCaller.write(method, args, options);
+    const call = await this.replayCallOf(depositTxHash);
+    return this.stateReceiverCaller.write(call, options);
   }
 
   /** The unsigned `{ to, data }` of {@link replayDeposit}; reads the chain to build it. */
@@ -382,8 +391,8 @@ export class POSBridgeHelpers {
     depositTxHash: string;
     options: ContractCallerOptions;
   }): Promise<PreparedTx> {
-    const { method, args } = await this.replayCallOf(depositTxHash);
-    return this.stateReceiverCaller.prepareWrite(method, args, options);
+    const call = await this.replayCallOf(depositTxHash);
+    return this.stateReceiverCaller.prepareWrite(call, options);
   }
 
   /**
@@ -398,7 +407,7 @@ export class POSBridgeHelpers {
     const stateReceiverCaller = this.stateReceiverCaller;
     const [receipt, lastStateId] = await Promise.all([
       this.parentAdapter.getTransactionReceipt(depositTxHash),
-      stateReceiverCaller.read<bigint | string>('lastStateId', [])
+      stateReceiverCaller.read('lastStateId', [])
     ]);
 
     if (receipt === null) {
@@ -416,12 +425,12 @@ export class POSBridgeHelpers {
     }
 
     const stateSync = stateSyncOf({ receipt, depositTxHash });
-    if (BigInt(lastStateId) < stateSync.stateId)
+    if (lastStateId < stateSync.stateId)
       return { status: { deposited: false, reason: 'not-synced' }, payload: undefined };
 
     const [storedHash, storedPayload] = await Promise.all([
-      stateReceiverCaller.read<string>('failedStateSyncHashes', [stateSync.stateId]),
-      stateReceiverCaller.read<string>('failedStateSyncs', [stateSync.stateId])
+      stateReceiverCaller.read('failedStateSyncHashes', [stateSync.stateId]),
+      stateReceiverCaller.read('failedStateSyncs', [stateSync.stateId])
     ]);
     // Both empty: delivered, or replayed since. Both set is impossible by
     // construction; the hash wins so the answer is still defined.
@@ -452,10 +461,7 @@ export class POSBridgeHelpers {
    * The replay call for a deposit, or `DepositNotReplayableError` when the
    * deposit is not in a replayable state.
    */
-  private async replayCallOf(depositTxHash: string): Promise<{
-    method: 'replayFailedStateSync' | 'replayFailedStateSyncWithData';
-    args: readonly unknown[];
-  }> {
+  private async replayCallOf(depositTxHash: string): Promise<WriteCall<StateReceiverAbi>> {
     const { status, payload } = await this.readDelivery(depositTxHash);
     if (status.deposited) {
       throw new DepositNotReplayableError(
@@ -537,9 +543,7 @@ export class POSBridgeHelpers {
       this.childClient.soliditySha3(receipt.blockNumber, nibblePath, logIndex)
     );
     return withConcurrency(this.proofConcurrency, exitHashes, async (exitHash) =>
-      (await this.rootChainManagerCaller.read<boolean>('processedExits', [exitHash]))
-        ? EXITED
-        : NOT_EXITED
+      (await this.rootChainManagerCaller.read('processedExits', [exitHash])) ? EXITED : NOT_EXITED
     );
   }
 

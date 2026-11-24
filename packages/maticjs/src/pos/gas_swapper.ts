@@ -25,16 +25,10 @@ export interface GasSwapperConfig {
 }
 
 export class GasSwapper {
-  /**
-   * @internal — wiring hook for POSClient's construction of the bridge
-   * helpers. ContractCaller is not part of the public API contract and
-   * may change shape in any release; consumers should treat this
-   * member as non-existent.
-   */
-  readonly caller: ContractCaller;
+  readonly #caller: ContractCaller<typeof GasSwapperABI>;
 
   constructor(config: GasSwapperConfig) {
-    this.caller = new ContractCaller({
+    this.#caller = new ContractCaller({
       adapter: config.adapter,
       getAddress: config.getAddress,
       abi: GasSwapperABI,
@@ -44,8 +38,6 @@ export class GasSwapper {
       chainId: config.chainId
     });
   }
-
-  /** Underlying caller — exposed for advanced consumers. */
 
   /**
    * Single-call deposit + ETH→token swap. Used by the `*WithGas`
@@ -64,7 +56,7 @@ export class GasSwapper {
       error: DepositError,
       info: { operation: 'depositWithGas', mode: 'write', tokenAddress, method: 'swapAndBridge' },
       run: () =>
-        this.caller.write(
+        this.#caller.write(
           'swapAndBridge',
           [tokenAddress, depositAmount, userAddress, swapCallData],
           options
@@ -89,7 +81,7 @@ export class GasSwapper {
         method: 'swapAndBridge'
       },
       run: () =>
-        this.caller.prepareWrite(
+        this.#caller.prepareWrite(
           'swapAndBridge',
           [tokenAddress, depositAmount, userAddress, swapCallData],
           options

@@ -251,7 +251,11 @@ const assertPassThrough = ({ err, operation }: { err: unknown; operation: string
 
 // --- the collaborators, real objects over adapters and lookups that fail ---
 
-const failingCaller = ({ abi }: { abi: readonly unknown[] }): ContractCaller =>
+const failingCaller = <TAbi extends readonly unknown[]>({
+  abi
+}: {
+  abi: TAbi;
+}): ContractCaller<TAbi> =>
   new ContractCaller({
     adapter: new RejectingAdapter(),
     getAddress: () => Promise.reject(boom()),

@@ -486,8 +486,10 @@
       "functionName": "headerBlocks",
       "args": [
         {
-          "type": "string",
-          "value": "0x22e12360"
+          "type": "bigint",
+          "value": {
+            "$bigint": "585180000"
+          }
         }
       ],
       "blockTag": "safe"
@@ -556,8 +558,10 @@
       "functionName": "headerBlocks",
       "args": [
         {
-          "type": "string",
-          "value": "0x22e12360"
+          "type": "bigint",
+          "value": {
+            "$bigint": "585180000"
+          }
         }
       ],
       "blockTag": "safe"

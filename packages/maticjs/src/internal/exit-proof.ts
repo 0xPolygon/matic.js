@@ -22,6 +22,7 @@
 
 import { RLP } from '@ethereumjs/rlp';
 
+import type { RootChainABI } from '../abi/RootChain.js';
 import type { BlockTag, Hex } from '../adapter.js';
 import type { CheckpointRangeInvalidReason } from '../errors.js';
 import type {
@@ -46,7 +47,7 @@ import {
   ProofApiNotSetError,
   TransactionNotFoundError
 } from '../errors.js';
-import { findCheckpointSlot, parseHeaderBlocksResult } from '../pos/find_checkpoint_slot.js';
+import { findCheckpointSlot } from '../pos/find_checkpoint_slot.js';
 import { BufferUtil } from '../utils/buffer-utils.js';
 import { concatBytes } from '../utils/bytes.js';
 import { MAX_CHECKPOINT_DEPTH, ProofUtil } from '../utils/proof_util.js';
@@ -95,7 +96,7 @@ export interface ExitProofBuilderConfig {
    * The on-chain `RootChain` contract on the parent chain. Used for
    * `findRootBlockFromChild` during exit-payload construction.
    */
-  rootChainCaller: ContractCaller;
+  rootChainCaller: ContractCaller<typeof RootChainABI>;
   /** Matic (child) chain client for receipt / block / proof reads. */
   childClient: BridgeChildClient;
   /**
@@ -177,7 +178,7 @@ const DEFAULT_ROOT_CHAIN_BLOCK: BlockTag = 'safe';
 export const ZERO_TOPIC = '0x0000000000000000000000000000000000000000000000000000000000000000';
 
 export class ExitProofBuilder {
-  private readonly rootChainCaller: ContractCaller;
+  private readonly rootChainCaller: ContractCaller<typeof RootChainABI>;
   private readonly childClient: BridgeChildClient;
   private readonly proofApiClient: ProofApiClient | undefined;
   private readonly rootChainDefaultBlock: BlockTag;
@@ -277,7 +278,7 @@ export class ExitProofBuilder {
     burnTxHash: string
   ): Promise<{ receipt: ITransactionReceipt | undefined; checkpointed: boolean }> {
     const [lastChildBlock, receipt] = await Promise.all([
-      this.rootChainCaller.read<bigint | string>('getLastChildBlock', [], {
+      this.rootChainCaller.read('getLastChildBlock', [], {
         blockTag: this.rootChainDefaultBlock
       }),
       this.receiptOrPending(burnTxHash)
@@ -286,7 +287,7 @@ export class ExitProofBuilder {
     return {
       receipt,
       checkpointed: isCheckpointed({
-        lastChildBlock: BigInt(lastChildBlock),
+        lastChildBlock,
         txBlockNumber: receipt.blockNumber
       })
     };
@@ -494,13 +495,13 @@ export class ExitProofBuilder {
     burnTxHash: string
   ): Promise<{ lastChildBlock: bigint; txBlockNumber: number | null }> {
     const [lastChildBlock, tx] = await Promise.all([
-      this.rootChainCaller.read<bigint | string>('getLastChildBlock', [], {
+      this.rootChainCaller.read('getLastChildBlock', [], {
         blockTag: this.rootChainDefaultBlock
       }),
       this.childClient.getTransaction(burnTxHash)
     ]);
     return {
-      lastChildBlock: BigInt(lastChildBlock),
+      lastChildBlock,
       txBlockNumber: tx.blockNumber
     };
   }
@@ -514,39 +515,25 @@ export class ExitProofBuilder {
     const blockTag = this.rootChainDefaultBlock;
     const headerBlockNumber = await findCheckpointSlot({
       childBlockNumber: BigInt(txBlockNumber),
-      readCurrentHeaderBlock: async () => {
-        const v = await this.rootChainCaller.read<bigint | string>('currentHeaderBlock', [], {
+      readCurrentHeaderBlock: () =>
+        this.rootChainCaller.read('currentHeaderBlock', [], { blockTag }),
+      readHeaderBlocks: async (headerId) => {
+        const [, start, end] = await this.rootChainCaller.read('headerBlocks', [headerId], {
           blockTag
         });
-        return BigInt(v);
-      },
-      readHeaderBlocks: async (headerId) => {
-        const headerBlock = await this.rootChainCaller.read<unknown>(
-          'headerBlocks',
-          [`0x${headerId.toString(16)}`],
-          { blockTag }
-        );
-        return parseHeaderBlocksResult(headerBlock);
+        return { start, end };
       }
     });
 
-    const rootBlockInfo = parseHeaderBlocksResult(
-      await this.rootChainCaller.read<unknown>(
-        'headerBlocks',
-        [`0x${headerBlockNumber.toString(16)}`],
-        { blockTag }
-      )
-    );
-    assertCheckpointRange({
-      start: rootBlockInfo.start,
-      end: rootBlockInfo.end,
-      txBlockNumber
+    const [, start, end] = await this.rootChainCaller.read('headerBlocks', [headerBlockNumber], {
+      blockTag
     });
+    assertCheckpointRange({ start, end, txBlockNumber });
 
     return {
       headerBlockNumber,
-      end: rootBlockInfo.end.toString(),
-      start: rootBlockInfo.start.toString()
+      end: end.toString(),
+      start: start.toString()
     };
   }
 }

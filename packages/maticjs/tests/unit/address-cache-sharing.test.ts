@@ -102,7 +102,7 @@ describe('address cache shared by POSClient and StakingClient', () => {
     expect(await pos.getAddresses()).deep.equals(FULL);
     expect(await staking.getAddresses()).deep.equals(FULL);
     expect(await staking.stakeManager.getAddress()).equals(FULL.StakeManager);
-    expect(await pos.rootChainManager.caller.getContractAddress()).equals(FULL.RootChainManager);
+    expect((await pos.rootChainManager.prepareExit('0x')).to).equals(FULL.RootChainManager);
     expect(fetches).equals(1);
   });
 

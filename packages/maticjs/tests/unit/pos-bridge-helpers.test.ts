@@ -29,7 +29,7 @@ import type {
 import type { IBlockWithTransaction, ITransactionReceipt } from '../../src/interfaces/index.ts';
 import type { BridgeChildClient } from '../../src/internal/pos-bridge-helpers.ts';
 
-import { RootChainABI } from '../../src/abi/index.ts';
+import { RootChainABI, RootChainManagerABI } from '../../src/abi/index.ts';
 import { LogEventSignature } from '../../src/constant.ts';
 import { ContractCaller } from '../../src/internal/contract-caller.ts';
 import { POSBridgeHelpers } from '../../src/internal/pos-bridge-helpers.ts';
@@ -100,14 +100,14 @@ function fakeChildClient(over: Partial<BridgeChildClient> = {}): BridgeChildClie
 }
 
 function makeHelpers(opts: {
-  rootCaller: ContractCaller;
+  rootCaller: ContractCaller<typeof RootChainABI>;
   childClient?: BridgeChildClient;
   childAdapter?: Adapter;
   parentAdapter?: Adapter;
   rootChainDefaultBlock?: 'safe' | 'latest';
 }): POSBridgeHelpers {
   return new POSBridgeHelpers({
-    rootChainManagerCaller: opts.rootCaller,
+    rootChainManagerCaller: callerOn(RootChainManagerABI, opts.parentAdapter ?? new FakeAdapter()),
     rootChainCaller: opts.rootCaller,
     childClient: opts.childClient ?? fakeChildClient(),
     childAdapter: opts.childAdapter ?? new FakeAdapter(),
@@ -121,14 +121,21 @@ function makeHelpers(opts: {
   });
 }
 
-function rootCallerOn(adapter: Adapter): ContractCaller {
+function callerOn<TAbi extends readonly unknown[]>(
+  abi: TAbi,
+  adapter: Adapter
+): ContractCaller<TAbi> {
   return new ContractCaller({
     adapter,
     getAddress: () => Promise.resolve('0x1111111111111111111111111111111111111111'),
-    abi: RootChainABI,
+    abi,
     isParent: true,
     logger: noopLogger
   });
+}
+
+function rootCallerOn(adapter: Adapter): ContractCaller<typeof RootChainABI> {
+  return callerOn(RootChainABI, adapter);
 }
 
 afterEach(() => {
@@ -375,7 +382,7 @@ describe('POSBridgeHelpers — fast path falls back to local construction on pro
       headerBlocks: wellFormedHeaderBlock({ start: 1n, end: 1000n })
     });
     return new POSBridgeHelpers({
-      rootChainManagerCaller: rootCallerOn(adapter),
+      rootChainManagerCaller: callerOn(RootChainManagerABI, adapter),
       rootChainCaller: rootCallerOn(adapter),
       childClient: fakeChildClient({
         getTransaction: () => Promise.resolve({ blockNumber: 100 }),

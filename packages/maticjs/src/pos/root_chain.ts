@@ -17,9 +17,9 @@ import type { Logger } from '../logger.js';
 import { RootChainABI } from '../abi/RootChain.js';
 import { CheckpointReadError, withOperation } from '../errors.js';
 import { ContractCaller } from '../internal/contract-caller.js';
-import { findCheckpointSlot, parseHeaderBlocksResult } from './find_checkpoint_slot.js';
+import { findCheckpointSlot } from './find_checkpoint_slot.js';
 
-export interface RootChainConfig {
+interface RootChainWiring {
   adapter: Adapter;
   /** Resolves the deployed `RootChain` proxy address. */
   getAddress: () => Promise<Hex>;
@@ -27,6 +27,9 @@ export interface RootChainConfig {
   defaultFrom?: Hex;
   /** Pinned id of the chain this contract is on; see `ContractCallerConfig.chainId`. */
   chainId?: number;
+}
+
+interface RootChainSettings {
   /**
    * L1 block tag every checkpoint read pins to. Defaults to `'safe'`:
    * reading `getLastChildBlock` / `currentHeaderBlock` / `headerBlocks`
@@ -39,29 +42,36 @@ export interface RootChainConfig {
   defaultBlock?: BlockTag;
 }
 
+/**
+ * Either the fields the handle builds its own caller from, or a caller built
+ * elsewhere. The client builds it once and hands the same object to the
+ * exit-proof builder, which is how they share it without the handle exposing it.
+ */
+export type RootChainConfig = RootChainSettings &
+  (RootChainWiring | { caller: ContractCaller<typeof RootChainABI> });
+
 const DEFAULT_ROOT_CHAIN_BLOCK: BlockTag = 'safe';
 
 export class RootChain {
-  /**
-   * @internal — wiring hook for POSClient's construction of the bridge
-   * helpers. ContractCaller is not part of the public API contract and
-   * may change shape in any release; consumers should treat this
-   * member as non-existent.
-   */
-  readonly caller: ContractCaller;
+  readonly #caller: ContractCaller<typeof RootChainABI>;
   readonly defaultBlock: BlockTag;
 
   constructor(config: RootChainConfig) {
     this.defaultBlock = config.defaultBlock ?? DEFAULT_ROOT_CHAIN_BLOCK;
-    this.caller = new ContractCaller({
-      adapter: config.adapter,
-      getAddress: config.getAddress,
-      abi: RootChainABI,
-      isParent: true,
-      logger: config.logger,
-      defaultFrom: config.defaultFrom,
-      chainId: config.chainId
-    });
+    if ('caller' in config) {
+      const { caller } = config;
+      this.#caller = caller;
+    } else {
+      this.#caller = new ContractCaller({
+        adapter: config.adapter,
+        getAddress: config.getAddress,
+        abi: RootChainABI,
+        isParent: true,
+        logger: config.logger,
+        defaultFrom: config.defaultFrom,
+        chainId: config.chainId
+      });
+    }
   }
 
   /**
@@ -73,12 +83,7 @@ export class RootChain {
     return withOperation({
       error: CheckpointReadError,
       info: { operation: 'getLastChildBlock', mode: 'read', method: 'getLastChildBlock' },
-      run: async () => {
-        const v = await this.caller.read<bigint | string>('getLastChildBlock', [], {
-          blockTag: this.defaultBlock
-        });
-        return BigInt(v);
-      }
+      run: () => this.#caller.read('getLastChildBlock', [], { blockTag: this.defaultBlock })
     });
   }
 
@@ -99,19 +104,12 @@ export class RootChain {
       run: () =>
         findCheckpointSlot({
           childBlockNumber,
-          readCurrentHeaderBlock: async () => {
-            const v = await this.caller.read<bigint | string>('currentHeaderBlock', [], {
+          readCurrentHeaderBlock: () => this.#caller.read('currentHeaderBlock', [], { blockTag }),
+          readHeaderBlocks: async (headerId: bigint) => {
+            const [, start, end] = await this.#caller.read('headerBlocks', [headerId], {
               blockTag
             });
-            return BigInt(v);
-          },
-          readHeaderBlocks: async (headerId: bigint) => {
-            const headerBlock = await this.caller.read<unknown>(
-              'headerBlocks',
-              [`0x${headerId.toString(16)}`],
-              { blockTag }
-            );
-            return parseHeaderBlocksResult(headerBlock);
+            return { start, end };
           }
         })
     });

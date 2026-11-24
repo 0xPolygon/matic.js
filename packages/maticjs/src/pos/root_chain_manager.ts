@@ -17,7 +17,7 @@ import { RootChainManagerABI } from '../abi/RootChainManager.js';
 import { DepositError, ExitError, BridgeStatusError, withOperation } from '../errors.js';
 import { ContractCaller } from '../internal/contract-caller.js';
 
-export interface RootChainManagerConfig {
+interface RootChainManagerWiring {
   adapter: Adapter;
   getAddress: () => Promise<Hex>;
   logger: Logger;
@@ -26,25 +26,33 @@ export interface RootChainManagerConfig {
   chainId?: number;
 }
 
+/**
+ * Either the fields the handle builds its own caller from, or a caller built
+ * elsewhere. The client builds it once and hands the same object to the bridge
+ * helpers, which is how they share it without the handle exposing it.
+ */
+export type RootChainManagerConfig =
+  | RootChainManagerWiring
+  | { caller: ContractCaller<typeof RootChainManagerABI> };
+
 export class RootChainManager {
-  /**
-   * @internal — wiring hook for POSClient's construction of the bridge
-   * helpers. ContractCaller is not part of the public API contract and
-   * may change shape in any release; consumers should treat this
-   * member as non-existent.
-   */
-  readonly caller: ContractCaller;
+  readonly #caller: ContractCaller<typeof RootChainManagerABI>;
 
   constructor(config: RootChainManagerConfig) {
-    this.caller = new ContractCaller({
-      adapter: config.adapter,
-      getAddress: config.getAddress,
-      abi: RootChainManagerABI,
-      isParent: true,
-      logger: config.logger,
-      defaultFrom: config.defaultFrom,
-      chainId: config.chainId
-    });
+    if ('caller' in config) {
+      const { caller } = config;
+      this.#caller = caller;
+    } else {
+      this.#caller = new ContractCaller({
+        adapter: config.adapter,
+        getAddress: config.getAddress,
+        abi: RootChainManagerABI,
+        isParent: true,
+        logger: config.logger,
+        defaultFrom: config.defaultFrom,
+        chainId: config.chainId
+      });
+    }
   }
 
   /**
@@ -61,7 +69,7 @@ export class RootChainManager {
     return withOperation({
       error: DepositError,
       info: { operation: 'deposit', mode: 'write', tokenAddress, method: 'depositFor' },
-      run: () => this.caller.write('depositFor', [userAddress, tokenAddress, depositData], options)
+      run: () => this.#caller.write('depositFor', [userAddress, tokenAddress, depositData], options)
     });
   }
 
@@ -76,7 +84,7 @@ export class RootChainManager {
       error: DepositError,
       info: { operation: 'prepareDeposit', mode: 'prepare', tokenAddress, method: 'depositFor' },
       run: () =>
-        this.caller.prepareWrite('depositFor', [userAddress, tokenAddress, depositData], options)
+        this.#caller.prepareWrite('depositFor', [userAddress, tokenAddress, depositData], options)
     });
   }
 
@@ -85,7 +93,7 @@ export class RootChainManager {
     return withOperation({
       error: ExitError,
       info: { operation: 'exit', mode: 'write', method: 'exit' },
-      run: () => this.caller.write('exit', [exitPayload], options)
+      run: () => this.#caller.write('exit', [exitPayload], options)
     });
   }
 
@@ -94,7 +102,7 @@ export class RootChainManager {
     return withOperation({
       error: ExitError,
       info: { operation: 'prepareExit', mode: 'prepare', method: 'exit' },
-      run: () => this.caller.prepareWrite('exit', [exitPayload], options)
+      run: () => this.#caller.prepareWrite('exit', [exitPayload], options)
     });
   }
 
@@ -103,7 +111,7 @@ export class RootChainManager {
     return withOperation({
       error: BridgeStatusError,
       info: { operation: 'isExitProcessed', mode: 'read', method: 'processedExits' },
-      run: () => this.caller.read<boolean>('processedExits', [exitHash])
+      run: () => this.#caller.read('processedExits', [exitHash])
     });
   }
 }
