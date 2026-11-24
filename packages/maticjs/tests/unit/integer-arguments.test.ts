@@ -32,9 +32,9 @@ import {
  * Each row pins the outcome on a recording adapter, which shows the argument
  * the SDK hands the adapter, and for the real viem adapter over a stub
  * transport, which shows what reaches the node (or what the library throws
- * while encoding it). A row marked `changed` is one whose outcome used to be a
- * native error or a library error and is now the SDK's own
- * `InvalidNumericValueError`, thrown before any request is built.
+ * while encoding it). A number that is not a non-negative safe integer is
+ * rejected with the SDK's own `InvalidNumericValueError` before any request
+ * is built.
  */
 
 const ERC721: Hex = '0x00000000000000000000000000000000000000c2';
@@ -73,36 +73,36 @@ const INDEX_ROWS: readonly Row[] = [
     `value 42n | adapter ["${IDX}", 3n]`,
     `value 42n | node tokenOfOwnerByIndex["${NODE_IDX}", 3n]`
   ],
-  ['0.5', `${READ_REJECTED} | adapter not called`, `${READ_REJECTED} | node not called`], // changed: rejected by the SDK's integer check
-  ['NaN', `${READ_REJECTED} | adapter not called`, `${READ_REJECTED} | node not called`], // changed: rejected by the SDK's integer check
-  ['Infinity', `${READ_REJECTED} | adapter not called`, `${READ_REJECTED} | node not called`], // changed: rejected by the SDK's integer check
-  ['-1', `${READ_REJECTED} | adapter not called`, `${READ_REJECTED} | node not called`], // changed: rejected by the SDK's integer check
+  ['0.5', `${READ_REJECTED} | adapter not called`, `${READ_REJECTED} | node not called`],
+  ['NaN', `${READ_REJECTED} | adapter not called`, `${READ_REJECTED} | node not called`],
+  ['Infinity', `${READ_REJECTED} | adapter not called`, `${READ_REJECTED} | node not called`],
+  ['-1', `${READ_REJECTED} | adapter not called`, `${READ_REJECTED} | node not called`],
   [
     'MAX_SAFE_INTEGER + 2',
     `${READ_REJECTED} | adapter not called`,
     `${READ_REJECTED} | node not called`
-  ] // changed: rejected by the SDK's integer check
+  ]
 ];
 
 /** The permit write has no viem column: a real write needs a signer, and the prepared call shows the same encoding. */
 const WRITE_V_ROWS: readonly Row[] = [
   ['0', `${SENT} | adapter v [0n]`, ''],
   ['3', `${SENT} | adapter v [3n]`, ''],
-  ['0.5', `${WRITE_REJECTED} | adapter v not called`, ''], // changed: rejected by the SDK's integer check
-  ['NaN', `${WRITE_REJECTED} | adapter v not called`, ''], // changed: rejected by the SDK's integer check
-  ['Infinity', `${WRITE_REJECTED} | adapter v not called`, ''], // changed: rejected by the SDK's integer check
-  ['-1', `${WRITE_REJECTED} | adapter v not called`, ''], // changed: rejected by the SDK's integer check
-  ['MAX_SAFE_INTEGER + 2', `${WRITE_REJECTED} | adapter v not called`, ''] // changed: rejected by the SDK's integer check
+  ['0.5', `${WRITE_REJECTED} | adapter v not called`, ''],
+  ['NaN', `${WRITE_REJECTED} | adapter v not called`, ''],
+  ['Infinity', `${WRITE_REJECTED} | adapter v not called`, ''],
+  ['-1', `${WRITE_REJECTED} | adapter v not called`, ''],
+  ['MAX_SAFE_INTEGER + 2', `${WRITE_REJECTED} | adapter v not called`, '']
 ];
 
 const PREPARE_V_ROWS: readonly Row[] = [
   ['0', `${PREPARED} | adapter v [0n]`, word(0)],
   ['3', `${PREPARED} | adapter v [3n]`, word(3)],
-  ['0.5', `${WRITE_REJECTED} | adapter v not called`, WRITE_REJECTED], // changed: rejected by the SDK's integer check
-  ['NaN', `${WRITE_REJECTED} | adapter v not called`, WRITE_REJECTED], // changed: rejected by the SDK's integer check
-  ['Infinity', `${WRITE_REJECTED} | adapter v not called`, WRITE_REJECTED], // changed: rejected by the SDK's integer check
-  ['-1', `${WRITE_REJECTED} | adapter v not called`, WRITE_REJECTED], // changed: rejected by the SDK's integer check
-  ['MAX_SAFE_INTEGER + 2', `${WRITE_REJECTED} | adapter v not called`, WRITE_REJECTED] // changed: rejected by the SDK's integer check
+  ['0.5', `${WRITE_REJECTED} | adapter v not called`, WRITE_REJECTED],
+  ['NaN', `${WRITE_REJECTED} | adapter v not called`, WRITE_REJECTED],
+  ['Infinity', `${WRITE_REJECTED} | adapter v not called`, WRITE_REJECTED],
+  ['-1', `${WRITE_REJECTED} | adapter v not called`, WRITE_REJECTED],
+  ['MAX_SAFE_INTEGER + 2', `${WRITE_REJECTED} | adapter v not called`, WRITE_REJECTED]
 ];
 
 // --- harness -----------------------------------------------------------------------
