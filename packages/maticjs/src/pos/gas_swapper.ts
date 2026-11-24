@@ -12,8 +12,10 @@ import type { ContractCallerOptions } from '../internal/contract-caller.js';
 import type { Logger } from '../logger.js';
 
 import { GasSwapperABI } from '../abi/GasSwapper.js';
-import { DepositError, withOperation } from '../errors.js';
+import { DepositError, InvalidHexStringError, withOperation } from '../errors.js';
 import { ContractCaller } from '../internal/contract-caller.js';
+import { BufferUtil } from '../utils/buffer-utils.js';
+import { bytesToHex } from '../utils/bytes.js';
 
 export interface GasSwapperConfig {
   adapter: Adapter;
@@ -22,6 +24,24 @@ export interface GasSwapperConfig {
   defaultFrom?: Hex;
   /** Pinned id of the chain this contract is on; see `ContractCallerConfig.chainId`. */
   chainId?: number;
+}
+
+/**
+ * The number a hex `depositAmount` stands for. The contract takes a `uint256`
+ * and the adapter takes an integer, so the hex the callers build
+ * (`encodeParameters([amount], ['uint256'])`) is read here, once, instead of
+ * being left for each web3 library to read in its own way. A value that is
+ * not `0x`-prefixed hex, or has no digits, is rejected as the SDK's own
+ * malformed-hex error rather than a bare `SyntaxError` from `BigInt`.
+ */
+function amountOf(depositAmount: string): bigint {
+  const bytes = BufferUtil.toBuffer(depositAmount);
+  if (bytes.length === 0) {
+    throw new InvalidHexStringError('depositAmount must be 0x-prefixed hex with at least one digit', {
+      info: { value: depositAmount }
+    });
+  }
+  return BigInt(`0x${bytesToHex(bytes)}`);
 }
 
 export class GasSwapper {
@@ -58,7 +78,7 @@ export class GasSwapper {
       run: () =>
         this.#caller.write(
           'swapAndBridge',
-          [tokenAddress, depositAmount, userAddress, swapCallData],
+          [tokenAddress, amountOf(depositAmount), userAddress, swapCallData],
           options
         )
     });
@@ -83,7 +103,7 @@ export class GasSwapper {
       run: () =>
         this.#caller.prepareWrite(
           'swapAndBridge',
-          [tokenAddress, depositAmount, userAddress, swapCallData],
+          [tokenAddress, amountOf(depositAmount), userAddress, swapCallData],
           options
         )
     });
