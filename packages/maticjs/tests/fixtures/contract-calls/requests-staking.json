@@ -1139,8 +1139,10 @@
           }
         },
         {
-          "type": "number",
-          "value": 27
+          "type": "bigint",
+          "value": {
+            "$bigint": "27"
+          }
         },
         {
           "type": "string",
@@ -1178,8 +1180,10 @@
           }
         },
         {
-          "type": "number",
-          "value": 27
+          "type": "bigint",
+          "value": {
+            "$bigint": "27"
+          }
         },
         {
           "type": "string",
@@ -1223,8 +1227,10 @@
           }
         },
         {
-          "type": "number",
-          "value": 27
+          "type": "bigint",
+          "value": {
+            "$bigint": "27"
+          }
         },
         {
           "type": "string",

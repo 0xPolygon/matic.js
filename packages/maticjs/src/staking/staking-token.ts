@@ -28,7 +28,7 @@ import {
 } from '../errors.js';
 import { ContractCaller } from '../internal/contract-caller.js';
 import { buildPermitTypedData } from './permit.js';
-import { pinChainId, toBigInt, toHexAddress, toTuple } from './stake-manager.js';
+import { pinChainId } from './stake-manager.js';
 
 /** Permit lifetime when the caller does not pass one; matches the 3.x staking plugin. */
 const DEFAULT_PERMIT_TTL_SECONDS = 1800;
@@ -43,8 +43,7 @@ export interface PreparePermitParams {
   deadline?: bigint;
 }
 
-function toChainIdNumber(value: unknown): number {
-  const id = toBigInt(value, 'eip712Domain.chainId');
+function toChainIdNumber(id: bigint): number {
   if (id > BigInt(Number.MAX_SAFE_INTEGER)) {
     throw new BridgeEventDecodeFailedError('eip712Domain chainId exceeds the safe integer range', {
       info: {
@@ -65,7 +64,7 @@ function toChainIdNumber(value: unknown): number {
 export class StakingToken {
   /** `true` for POL; MATIC has no EIP-2612 `permit`. */
   readonly supportsPermit: boolean;
-  private readonly caller: ContractCaller;
+  private readonly caller: ContractCaller<typeof PolTokenABI>;
   private readonly l1ChainId: number;
   private readonly getStakeManagerAddress: () => Promise<Hex>;
   private readonly tokenLabel: string;
@@ -98,14 +97,6 @@ export class StakingToken {
       info: { operation: 'getAddress', mode: 'read' },
       run: () => this.caller.getContractAddress()
     });
-  }
-
-  private async readBigInt(
-    method: string,
-    args: readonly unknown[],
-    options?: TxOptions
-  ): Promise<bigint> {
-    return toBigInt(await this.caller.read<unknown>(method, args, options), method);
   }
 
   private assertPermit(method: string): void {
@@ -181,7 +172,7 @@ export class StakingToken {
     return withOperation({
       error: StakingReadError,
       info: { operation: 'getBalance', mode: 'read', method: 'balanceOf' },
-      run: () => this.readBigInt('balanceOf', [params.user], options)
+      run: () => this.caller.read('balanceOf', [params.user], options)
     });
   }
 
@@ -192,7 +183,7 @@ export class StakingToken {
       info: { operation: 'getAllowanceForStakeManager', mode: 'read', method: 'allowance' },
       run: async () => {
         const spender = await this.getStakeManagerAddress();
-        return this.readBigInt('allowance', [params.owner, spender], options);
+        return this.caller.read('allowance', [params.owner, spender], options);
       }
     });
   }
@@ -207,7 +198,7 @@ export class StakingToken {
       info: { operation: 'getNonce', mode: 'read', method: 'nonces' },
       run: async () => {
         this.assertPermit('getNonce');
-        return this.readBigInt('nonces', [params.owner], options);
+        return this.caller.read('nonces', [params.owner], options);
       }
     });
   }
@@ -226,32 +217,23 @@ export class StakingToken {
       info: { operation: 'preparePermit', mode: 'prepare' },
       run: async () => {
         this.assertPermit('preparePermit');
-        const [domainRaw, nonce, spender] = await Promise.all([
-          this.caller.read<unknown>('eip712Domain', [], options),
-          this.readBigInt('nonces', [params.owner], options),
+        const [domain, nonce, spender] = await Promise.all([
+          this.caller.read('eip712Domain', [], options),
+          this.caller.read('nonces', [params.owner], options),
           params.spender === undefined
             ? this.getStakeManagerAddress()
             : Promise.resolve(params.spender)
         ]);
         // Outputs: [fields, name, version, chainId, verifyingContract, salt, extensions]
-        const d = toTuple(domainRaw, 5, 'eip712Domain');
-        const name = d[1];
-        const version = d[2];
-        if (typeof name !== 'string' || typeof version !== 'string') {
-          throw new BridgeEventDecodeFailedError('eip712Domain name/version are not strings', {
-            info: {
-              field: 'eip712Domain'
-            }
-          });
-        }
+        const [, name, version, chainId, verifyingContract] = domain;
         const deadline =
           params.deadline ?? BigInt(Math.floor(Date.now() / 1000) + DEFAULT_PERMIT_TTL_SECONDS);
         return buildPermitTypedData({
           domain: {
             name,
             version,
-            chainId: toChainIdNumber(d[3]),
-            verifyingContract: toHexAddress(d[4], 'eip712Domain.verifyingContract')
+            chainId: toChainIdNumber(chainId),
+            verifyingContract
           },
           owner: params.owner,
           spender,

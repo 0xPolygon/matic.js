@@ -130,7 +130,7 @@ const WRITES: readonly WriteCase[] = [
     name: 'validatorShare.delegateWithPermit',
     to: SHARE,
     functionName: 'buyVoucherWithPermit',
-    args: [PERMIT.amount, PERMIT.minSharesToMint, PERMIT.deadline, 27, R, S],
+    args: [PERMIT.amount, PERMIT.minSharesToMint, PERMIT.deadline, 27n, R, S],
     write: (c, o) => c.validatorShare(SHARE).delegateWithPermit(PERMIT, o),
     prepare: (c, o) => c.validatorShare(SHARE).prepareDelegateWithPermit(PERMIT, o)
   },
