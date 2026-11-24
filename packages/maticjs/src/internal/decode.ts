@@ -14,16 +14,27 @@
  * the compile-time types from the same ABI; the agreement test over every
  * vendored function is what pins the two together.
  *
+ * It is written by hand against the ABI rather than as a schema per method.
+ * The ABI's `outputs` already state the shape of every result, so a schema
+ * for each method would state it a second time and could drift from it; and
+ * a validation library would add a runtime dependency to an SDK that keeps
+ * its runtime dependencies few.
+ *
  * A mismatch throws `BridgeEventDecodeFailedError` with no `cause`: the value
  * is judged malformed by this code, so the failure is the SDK's own, not a
  * library error being wrapped.
+ *
+ * It also holds the check for an integer argument the SDK converts before a
+ * call (a token index, a permit `v`): a value that is not a non-negative safe
+ * integer is rejected with `InvalidNumericValueError` before anything is sent,
+ * rather than ending in a native error from `BigInt`.
  */
 
 import type { Hex } from '../adapter.js';
 import type { BridgeEventDecodeFailedInfo } from '../errors.js';
 import type { Abi, AbiParameter } from './abi-types.js';
 
-import { BridgeEventDecodeFailedError } from '../errors.js';
+import { BridgeEventDecodeFailedError, InvalidNumericValueError } from '../errors.js';
 
 const DECIMAL = /^-?[0-9]+$/;
 const HEX_QUANTITY = /^0x[0-9a-fA-F]+$/;
@@ -121,6 +132,29 @@ const parseInteger = (value: unknown): bigint | undefined => {
     return text === undefined ? undefined : BigInt(text);
   }
   return undefined;
+};
+
+/**
+ * An integer a public method takes as a plain `number` (an ERC-721 index, a
+ * permit `v`), as the `bigint` the contract call wants. Only a non-negative
+ * safe integer is accepted: `BigInt(0.5)` throws a native `RangeError`, and
+ * `BigInt(Number.MAX_SAFE_INTEGER + 2)` quietly rounds to another number.
+ * Rejecting here means a bad argument fails as the SDK's own error before any
+ * request is built, and the same way on every web3 library.
+ */
+export const decodeIntegerArgument = ({
+  value,
+  field
+}: {
+  value: unknown;
+  field: string;
+}): bigint => {
+  if (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0) {
+    return BigInt(value);
+  }
+  throw new InvalidNumericValueError(`${field} must be a non-negative safe integer`, {
+    info: typeof value === 'number' ? { value } : { received: typeof value }
+  });
 };
 
 /** One `address`: `0x` and 40 hex digits, exactly. */
@@ -310,6 +344,8 @@ export const decodeAbiResult = ({
       value: raw
     });
   }
+  // A longer array is accepted: the extra trailing entries are ignored,
+  // matching what earlier releases accepted.
   if (raw.length < outputs.length) {
     return reject({
       message: `${method} did not decode to a tuple of at least ${outputs.length} fields`,

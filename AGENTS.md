@@ -146,9 +146,11 @@ Why:
 The compiler rejects a method name, argument list or result type that the ABI
 does not have. `packages/maticjs/scripts/check-contract-calls.mjs` fails on a
 bare `Adapter.read`, on a method name that is neither a literal nor a name a
-helper forwards as a type parameter, on an `@internal` tag and on a `caller`
-member that is not `#caller`. Its allowlist lives in that script and nowhere
-else. `tests/unit/contract-calls-gate.test.ts` runs it in CI, and
+helper forwards as a type parameter, on an `@internal` tag and on a class member
+named `caller`, or typed `ContractCaller` under any name, that is not `#private`,
+and on a public `ContractCaller` `read`, `write`, `prepareWrite` or `estimateGas`
+signature whose method parameter is typed `string`. Its allowlist lives in that
+script and nowhere else. `tests/unit/contract-calls-gate.test.ts` runs it in CI, and
 `pnpm --filter @polygonlabs/maticjs run check:contract-calls` runs it by hand.
 `tests/unit/abi-decode-agreement.test.ts` checks every vendored ABI function on
 all three libraries. Neither may be weakened to make a change pass.

@@ -33,6 +33,7 @@ import {
   withOperation
 } from '../errors.js';
 import { ContractCaller } from '../internal/contract-caller.js';
+import { decodeIntegerArgument } from '../internal/decode.js';
 
 export interface ERC721Config {
   tokenAddress: Hex;
@@ -114,7 +115,12 @@ export class ERC721 {
         method: 'tokenOfOwnerByIndex',
         index
       },
-      run: () => this.#caller.read('tokenOfOwnerByIndex', [userAddress, BigInt(index)], options)
+      run: () =>
+        this.#caller.read(
+          'tokenOfOwnerByIndex',
+          [userAddress, decodeIntegerArgument({ value: index, field: 'index' })],
+          options
+        )
     });
   }
 

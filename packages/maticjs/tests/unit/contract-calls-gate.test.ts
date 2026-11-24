@@ -51,17 +51,23 @@ export interface Adapter {
   'internal/contract-caller.ts': `
 import type { Adapter } from '../adapter.js';
 export interface WriteCall { method: string; args: readonly unknown[] }
-export class ContractCaller {
+type Name = 'balanceOf' | 'approve' | 'exists' | 'a' | 'b';
+export class ContractCaller<TAbi = unknown> {
+  declare readonly abi?: TAbi;
   constructor(private readonly adapter: Adapter) {}
+  read(method: Name, args: readonly unknown[]): Promise<unknown>;
   async read(method: string, _args: readonly unknown[]): Promise<unknown> {
     return this.adapter.read({ functionName: method });
   }
+  write(call: Name | WriteCall, args?: readonly unknown[]): Promise<unknown>;
   async write(call: string | WriteCall, _args?: readonly unknown[]): Promise<unknown> {
     return call;
   }
+  prepareWrite(call: Name | WriteCall, args?: readonly unknown[]): Promise<unknown>;
   async prepareWrite(call: string | WriteCall, _args?: readonly unknown[]): Promise<unknown> {
     return call;
   }
+  estimateGas(call: Name | WriteCall, args?: readonly unknown[]): Promise<unknown>;
   async estimateGas(call: string | WriteCall, _args?: readonly unknown[]): Promise<unknown> {
     return call;
   }
@@ -195,6 +201,93 @@ export const wiring = (caller: ContractCaller) => ({ caller });
     });
 
     expect(violations.map((v) => v.rule)).deep.equal([4, 4, 4, 4]);
+  });
+
+  it('fails any class member that holds a ContractCaller and is not #private, whatever its name', () => {
+    const { violations } = run({
+      files: {
+        'pos/holders.ts': `
+import type { Adapter } from '../adapter.js';
+import { ContractCaller } from '../internal/contract-caller.js';
+export class TsPrivate { private readonly helperCaller!: ContractCaller<readonly string[]>; }
+export class Public { readonly helper!: ContractCaller<readonly string[]>; }
+export class Optional { private readonly maybe: ContractCaller<readonly string[]> | undefined; }
+export class ParameterProperty { constructor(private readonly via: ContractCaller<readonly string[]>) {} }
+export class Inferred { private readonly built = new ContractCaller(null as unknown as Adapter); }
+`
+      }
+    });
+
+    expect(violations.map((v) => [v.rule, v.line])).deep.equal([
+      [4, 4],
+      [4, 5],
+      [4, 6],
+      [4, 7],
+      [4, 8]
+    ]);
+  });
+
+  it('accepts a #private ContractCaller member and callers that are not class members', () => {
+    const { violations } = run({
+      files: {
+        'pos/fine.ts': `
+import { ContractCaller } from '../internal/contract-caller.js';
+export class Hidden {
+  readonly #helper: ContractCaller<readonly string[]>;
+  readonly #optional: ContractCaller<readonly string[]> | undefined;
+  constructor(helper: ContractCaller<readonly string[]>) {
+    this.#helper = helper;
+    this.#optional = undefined;
+  }
+  use(): unknown { return [this.#helper, this.#optional]; }
+  build(helper: ContractCaller): ContractCaller { return helper; }
+}
+export interface Config { helperCaller: ContractCaller<readonly string[]> }
+export const wiring = (helperCaller: ContractCaller) => ({ helperCaller });
+`
+      }
+    });
+
+    expect(violations).deep.equal([]);
+  });
+
+  it('fails a public ContractCaller signature whose method parameter is typed string', () => {
+    const { violations } = run({
+      files: {
+        'internal/contract-caller.ts': `
+import type { Adapter } from '../adapter.js';
+export interface WriteCall { method: string; args: readonly unknown[] }
+type Name = 'balanceOf' | 'approve';
+export class ContractCaller<TAbi = unknown> {
+  declare readonly abi?: TAbi;
+  constructor(private readonly adapter: Adapter) {}
+  read(method: Name, args: readonly unknown[]): Promise<unknown>;
+  read<T>(method: string, args: readonly unknown[]): Promise<T>;
+  async read(method: string, _args: readonly unknown[]): Promise<unknown> {
+    return this.adapter.read({ functionName: method });
+  }
+  write<N extends string>(call: N, args?: readonly unknown[]): Promise<unknown>;
+  write(call: Name | WriteCall, args?: readonly unknown[]): Promise<unknown>;
+  async write(call: string | WriteCall, _args?: readonly unknown[]): Promise<unknown> {
+    return call;
+  }
+  prepareWrite(call: string | WriteCall, _args?: readonly unknown[]): Promise<unknown> {
+    return Promise.resolve(call);
+  }
+  estimateGas(call: Name | WriteCall, args?: readonly unknown[]): Promise<unknown>;
+  async estimateGas(call: string | WriteCall, _args?: readonly unknown[]): Promise<unknown> {
+    return call;
+  }
+}
+`
+      }
+    });
+
+    expect(violations.map((v) => [v.rule, v.line])).deep.equal([
+      [5, 9],
+      [5, 13],
+      [5, 18]
+    ]);
   });
 
   it('lets a reviewed allowlist entry through, and fails an entry that matches nothing', () => {

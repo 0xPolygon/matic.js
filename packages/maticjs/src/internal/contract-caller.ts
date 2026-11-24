@@ -124,7 +124,9 @@ export interface ContractCallerConfig<TAbi extends Abi> {
   /**
    * ABI fragment for this contract. The adapter narrows internally —
    * each library has its own ABI shape. The runtime value flows
-   * through unchanged.
+   * through unchanged. It also drives the validation of every read
+   * result: `decode.ts` checks what a read returns against this ABI's
+   * `outputs`.
    */
   abi: TAbi;
   /**

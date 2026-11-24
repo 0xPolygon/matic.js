@@ -15,6 +15,7 @@ import type { PlasmaAddresses } from '../../src/plasma/addresses.ts';
 
 import { RootChainABI } from '../../src/abi/RootChain.ts';
 import { RootChainManagerABI } from '../../src/abi/RootChainManager.ts';
+import { ContractCaller } from '../../src/internal/contract-caller.ts';
 import { noopLogger } from '../../src/logger.ts';
 import { PlasmaClient } from '../../src/plasma/plasma-client.ts';
 import { POSClient } from '../../src/pos-client.ts';
@@ -123,6 +124,31 @@ describe('the callers inside the bridge handles are not reachable', () => {
     void swapper.caller;
     expect('caller' in swapper).equals(false);
     expect(Object.getOwnPropertyNames(swapper)).not.include('caller');
+  });
+
+  it('no own property of a handle holds a ContractCaller, whatever it is named', async () => {
+    const pos = await init();
+    const swapper = new GasSwapper({
+      adapter: new NoopAdapter(),
+      getAddress: () => Promise.resolve('0x1111111111111111111111111111111111111111'),
+      logger: noopLogger
+    });
+    const holders = {
+      pos,
+      rootChainManager: pos.rootChainManager,
+      rootChain: pos.rootChain,
+      swapper
+    };
+    for (const [name, handle] of Object.entries(holders)) {
+      const properties: Array<string | symbol> = [
+        ...Object.getOwnPropertyNames(handle),
+        ...Object.getOwnPropertySymbols(handle)
+      ];
+      const holding = properties.filter(
+        (key) => Reflect.get(handle, key) instanceof ContractCaller
+      );
+      expect(holding.map(String), `${name} exposes a ContractCaller`).deep.equals([]);
+    }
   });
 
   it('the handles still call through their private caller', async () => {

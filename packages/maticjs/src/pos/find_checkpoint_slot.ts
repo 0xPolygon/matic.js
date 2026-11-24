@@ -28,15 +28,16 @@ import { BridgeEventDecodeFailedError, BurnTxNotCheckpointedError } from '../err
 import { decodeInteger } from '../internal/decode.js';
 
 /**
- * Normalise a `headerBlocks(headerId)` value that is not yet decoded to
- * `{ start, end }`.
+ * Normalise a raw `headerBlocks(headerId)` value to `{ start, end }`.
  *
- * `ContractCaller.read` already returns the decoded tuple, so the checkpoint
- * reads take indices 1 and 2 of it directly. This stays for a raw value from
- * elsewhere: a positional array (viem, and the ethers `Result`, which is an
- * array subclass) is read by index, the one shape all three libraries share;
- * a plain `{ start, end }` object is accepted as a fallback. Each field is an
- * unsigned integer in the `headerBlocks` ABI, so it is decoded as one.
+ * Nothing in `src` calls this: `ContractCaller.read` already returns the
+ * decoded tuple, so the checkpoint reads take indices 1 and 2 of it directly.
+ * It is kept as an exported helper because `tests/unit/cluster2-rpc-shapes.test.ts`
+ * pins the shapes it accepts and rejects. A positional array (viem, and the
+ * ethers `Result`, which is an array subclass) is read by index, the one shape
+ * all three libraries share; a plain `{ start, end }` object is accepted as a
+ * fallback. Each field is an unsigned integer in the `headerBlocks` ABI, so
+ * `decodeInteger` checks it as one.
  */
 export function parseHeaderBlocksResult(result: unknown): { start: bigint; end: bigint } {
   const uint256 = (value: unknown, field: string): bigint =>

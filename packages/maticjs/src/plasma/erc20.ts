@@ -134,7 +134,7 @@ export class PlasmaERC20 {
   readonly isParent: boolean;
   readonly #caller: ContractCaller<typeof PlasmaChildERC20ABI>;
   /** Only on a child token that is the native-token contract. */
-  private readonly nativeCaller: ContractCaller<typeof PlasmaMRC20ABI> | undefined;
+  readonly #nativeCaller: ContractCaller<typeof PlasmaMRC20ABI> | undefined;
   private readonly bridge: PlasmaBridgeServices;
 
   constructor(config: PlasmaERC20Config) {
@@ -149,7 +149,7 @@ export class PlasmaERC20 {
       chainId: config.chainId
     };
     this.#caller = new ContractCaller({ ...shared, abi: PlasmaChildERC20ABI });
-    this.nativeCaller = isNativeBurn({
+    this.#nativeCaller = isNativeBurn({
       tokenAddress: config.tokenAddress,
       isParent: config.isParent
     })
@@ -342,9 +342,9 @@ export class PlasmaERC20 {
       run: () => {
         this.requireChild('startWithdraw');
         assertOptionsObject({ method: 'startWithdraw', options });
-        return this.nativeCaller === undefined
+        return this.#nativeCaller === undefined
           ? this.#caller.write('withdraw', [amount], childBurnOptions({ options }))
-          : this.nativeCaller.write('withdraw', [amount], nativeBurnOptions({ amount, options }));
+          : this.#nativeCaller.write('withdraw', [amount], nativeBurnOptions({ amount, options }));
       }
     });
   }
@@ -374,9 +374,9 @@ export class PlasmaERC20 {
       run: () => {
         this.requireChild('startWithdraw');
         assertOptionsObject({ method: 'prepareStartWithdraw', options });
-        return this.nativeCaller === undefined
+        return this.#nativeCaller === undefined
           ? this.#caller.prepareWrite('withdraw', [amount], childBurnOptions({ options }))
-          : this.nativeCaller.prepareWrite(
+          : this.#nativeCaller.prepareWrite(
               'withdraw',
               [amount],
               nativeBurnOptions({ amount, options })

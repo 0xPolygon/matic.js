@@ -22,11 +22,23 @@
  *   (3) a doc-comment `@internal` marker: a member documented as internal but
  *       still typed and reachable is public in practice, so it is made private
  *       instead;
- *   (4) a class member named `caller` that is not `#caller`: a TypeScript
- *       `private` member is still printed in the declarations and reachable
- *       from JavaScript, an ECMAScript `#` field is neither. Properties of
- *       constructor-config interfaces and object literals are inputs, not
- *       members of a handle, and are not covered.
+ *   (4) a class member that holds a `ContractCaller` and is not an ECMAScript
+ *       `#` member, whatever it is named, or a member named `caller` that is
+ *       not `#caller`: a TypeScript `private` member is still printed in the
+ *       declarations and reachable from JavaScript, an ECMAScript `#` field is
+ *       neither. A member holds a caller when its type is `ContractCaller`
+ *       with any type arguments, alone or in a union (`| undefined`), whether
+ *       declared or inferred, as a property or a constructor parameter
+ *       property. Properties of constructor-config interfaces and object
+ *       literals are inputs, not members of a handle, and are not covered;
+ *   (5) a public `read`, `write`, `prepareWrite` or `estimateGas` signature on
+ *       `ContractCaller` whose method parameter is typed `string` (or a union
+ *       or type parameter that admits any `string`): the compiler accepts a
+ *       literal name against such an overload, so re-adding one would let a
+ *       call skip the ABI's names and types without any call site changing.
+ *       Only the signatures callers can see count: the declared overloads, or
+ *       the implementation when there are none. The implementation behind
+ *       typed overloads is invisible to callers and may take a `string`.
  *
  * The allowlist below is the only place an exception can live. Each entry
  * needs a reason, and an entry that matches nothing fails, so the list stays
@@ -51,7 +63,7 @@ const PACKAGE_DIR = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 /**
  * Reviewed exceptions: `{ rule, file, code, reason }`, where `file` is
- * relative to `src`, `code` is the trimmed source line and `rule` is 1 to 4.
+ * relative to `src`, `code` is the trimmed source line and `rule` is 1 to 5.
  * Expected to stay empty.
  */
 export const ALLOWLIST = [];
@@ -103,6 +115,60 @@ const isForwardedName = ({ checker, node }) => {
       ? checker.getTypeFromTypeNode(declared.type)
       : checker.getTypeAtLocation(node);
   return (type.flags & ts.TypeFlags.TypeParameter) !== 0;
+};
+
+/**
+ * `true` when `type` is the `ContractCaller` class, with any type arguments,
+ * or a union that contains it (`ContractCaller<...> | undefined`).
+ */
+const isCallerType = ({ type, srcDir }) => {
+  const parts = type.isUnion() ? type.types : [type];
+  return parts.some((part) =>
+    (part.symbol?.declarations ?? []).some(
+      (d) =>
+        ts.isClassDeclaration(d) &&
+        d.name?.text === 'ContractCaller' &&
+        posix(relative(srcDir, d.getSourceFile().fileName)) === CALLER_FILE
+    )
+  );
+};
+
+/** `true` when a method's first-parameter type admits any `string` (the `string` keyword, alone, in a union, or as a type parameter's constraint). */
+const admitsAnyString = ({ typeNode, signature }) => {
+  if (typeNode === undefined) return true;
+  if (typeNode.kind === ts.SyntaxKind.StringKeyword) return true;
+  if (ts.isParenthesizedTypeNode(typeNode))
+    return admitsAnyString({ typeNode: typeNode.type, signature });
+  if (ts.isUnionTypeNode(typeNode)) {
+    return typeNode.types.some((t) => admitsAnyString({ typeNode: t, signature }));
+  }
+  if (ts.isTypeReferenceNode(typeNode) && ts.isIdentifier(typeNode.typeName)) {
+    const parameter = signature.typeParameters?.find((p) => p.name.text === typeNode.typeName.text);
+    if (parameter !== undefined) {
+      return (
+        parameter.constraint !== undefined &&
+        admitsAnyString({ typeNode: parameter.constraint, signature })
+      );
+    }
+  }
+  return false;
+};
+
+/** The signatures of `ContractCaller`'s methods that callers can see. */
+const publicCallSignatures = ({ classNode }) => {
+  const methods = classNode.members.filter(
+    (m) =>
+      ts.isMethodDeclaration(m) &&
+      ts.isIdentifier(m.name) &&
+      CALLER_METHODS.has(m.name.text) &&
+      (ts.getCombinedModifierFlags(m) & (ts.ModifierFlags.Private | ts.ModifierFlags.Protected)) ===
+        0
+  );
+  return [...new Set(methods.map((m) => m.name.text))].flatMap((name) => {
+    const named = methods.filter((m) => m.name.text === name);
+    const overloads = named.filter((m) => m.body === undefined);
+    return overloads.length > 0 ? overloads : named;
+  });
 };
 
 const lineOf = ({ sf, node }) => {
@@ -162,6 +228,25 @@ export const inspectProgram = ({ program, srcDir, allowlist = ALLOWLIST }) => {
 
     const visit = (node) => {
       scanComments(node);
+
+      if (
+        file === CALLER_FILE &&
+        ts.isClassDeclaration(node) &&
+        node.name?.text === 'ContractCaller'
+      ) {
+        for (const signature of publicCallSignatures({ classNode: node })) {
+          const [first] = signature.parameters;
+          if (!admitsAnyString({ typeNode: first?.type, signature })) continue;
+          const { line, code } = lineOf({ sf, node: signature });
+          report({
+            rule: 5,
+            file,
+            line,
+            code,
+            message: `ContractCaller.${signature.name.text} has a public signature whose method parameter is typed string: type it against the ABI's names so the compiler can reject a name the ABI lacks`
+          });
+        }
+      }
 
       if (ts.isCallExpression(node)) {
         const { name, declarations } = declarationsOf({ checker, callee: node.expression });
@@ -239,21 +324,29 @@ export const inspectProgram = ({ program, srcDir, allowlist = ALLOWLIST }) => {
             ts.ModifierFlags.Protected |
             ts.ModifierFlags.Readonly)) !==
           0;
-      if (
-        (isClassMember || isParameterProperty) &&
-        node.name !== undefined &&
-        (ts.isIdentifier(node.name) || ts.isStringLiteral(node.name)) &&
-        node.name.text === 'caller'
-      ) {
-        const { line, code } = lineOf({ sf, node });
-        report({
-          rule: 4,
-          file,
-          line,
-          code,
-          message:
-            'a member named caller must be an ECMAScript #caller field, so it is neither printed in the declarations nor reachable'
-        });
+      if (isClassMember || isParameterProperty) {
+        const named =
+          node.name !== undefined &&
+          (ts.isIdentifier(node.name) || ts.isStringLiteral(node.name)) &&
+          node.name.text === 'caller';
+        const holdsCaller =
+          !(node.name !== undefined && ts.isPrivateIdentifier(node.name)) &&
+          !ts.isMethodDeclaration(node) &&
+          !ts.isGetAccessorDeclaration(node) &&
+          !ts.isSetAccessorDeclaration(node) &&
+          isCallerType({ type: checker.getTypeAtLocation(node), srcDir });
+        if (named || holdsCaller) {
+          const { line, code } = lineOf({ sf, node });
+          report({
+            rule: 4,
+            file,
+            line,
+            code,
+            message: named
+              ? 'a member named caller must be an ECMAScript #caller field, so it is neither printed in the declarations nor reachable'
+              : 'a class member that holds a ContractCaller must be an ECMAScript # member, so it is neither printed in the declarations nor reachable'
+          });
+        }
       }
 
       ts.forEachChild(node, visit);

@@ -178,7 +178,7 @@ const DEFAULT_ROOT_CHAIN_BLOCK: BlockTag = 'safe';
 export const ZERO_TOPIC = '0x0000000000000000000000000000000000000000000000000000000000000000';
 
 export class ExitProofBuilder {
-  private readonly rootChainCaller: ContractCaller<typeof RootChainABI>;
+  readonly #rootChainCaller: ContractCaller<typeof RootChainABI>;
   private readonly childClient: BridgeChildClient;
   private readonly proofApiClient: ProofApiClient | undefined;
   private readonly rootChainDefaultBlock: BlockTag;
@@ -186,7 +186,7 @@ export class ExitProofBuilder {
   private readonly proofConcurrency: number;
 
   constructor(config: ExitProofBuilderConfig) {
-    this.rootChainCaller = config.rootChainCaller;
+    this.#rootChainCaller = config.rootChainCaller;
     this.childClient = config.childClient;
     this.proofApiClient = config.proofApiClient;
     this.rootChainDefaultBlock = config.rootChainDefaultBlock ?? DEFAULT_ROOT_CHAIN_BLOCK;
@@ -278,7 +278,7 @@ export class ExitProofBuilder {
     burnTxHash: string
   ): Promise<{ receipt: ITransactionReceipt | undefined; checkpointed: boolean }> {
     const [lastChildBlock, receipt] = await Promise.all([
-      this.rootChainCaller.read('getLastChildBlock', [], {
+      this.#rootChainCaller.read('getLastChildBlock', [], {
         blockTag: this.rootChainDefaultBlock
       }),
       this.receiptOrPending(burnTxHash)
@@ -495,7 +495,7 @@ export class ExitProofBuilder {
     burnTxHash: string
   ): Promise<{ lastChildBlock: bigint; txBlockNumber: number | null }> {
     const [lastChildBlock, tx] = await Promise.all([
-      this.rootChainCaller.read('getLastChildBlock', [], {
+      this.#rootChainCaller.read('getLastChildBlock', [], {
         blockTag: this.rootChainDefaultBlock
       }),
       this.childClient.getTransaction(burnTxHash)
@@ -516,16 +516,16 @@ export class ExitProofBuilder {
     const headerBlockNumber = await findCheckpointSlot({
       childBlockNumber: BigInt(txBlockNumber),
       readCurrentHeaderBlock: () =>
-        this.rootChainCaller.read('currentHeaderBlock', [], { blockTag }),
+        this.#rootChainCaller.read('currentHeaderBlock', [], { blockTag }),
       readHeaderBlocks: async (headerId) => {
-        const [, start, end] = await this.rootChainCaller.read('headerBlocks', [headerId], {
+        const [, start, end] = await this.#rootChainCaller.read('headerBlocks', [headerId], {
           blockTag
         });
         return { start, end };
       }
     });
 
-    const [, start, end] = await this.rootChainCaller.read('headerBlocks', [headerBlockNumber], {
+    const [, start, end] = await this.#rootChainCaller.read('headerBlocks', [headerBlockNumber], {
       blockTag
     });
     assertCheckpointRange({ start, end, txBlockNumber });

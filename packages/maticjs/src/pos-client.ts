@@ -208,7 +208,7 @@ export class POSClient {
   private readonly fetcher: AddressFetcher;
   private readonly logger: Logger;
   private readonly bridge: POSBridgeHelpers;
-  private readonly rootChainManagerCaller: ContractCaller<typeof RootChainManagerABI>;
+  readonly #rootChainManagerCaller: ContractCaller<typeof RootChainManagerABI>;
   private readonly proofGenerationApiUrl: string | undefined;
 
   private constructor(args: {
@@ -231,7 +231,7 @@ export class POSClient {
     this.fetcher = args.fetcher;
     this.logger = args.logger;
     this.bridge = args.bridge;
-    this.rootChainManagerCaller = args.rootChainManagerCaller;
+    this.#rootChainManagerCaller = args.rootChainManagerCaller;
     this.proofGenerationApiUrl = args.proofGenerationApiUrl;
   }
 
@@ -769,7 +769,7 @@ export class POSClient {
       error: DepositError,
       info: { operation: 'depositEther', mode: 'write', method: 'depositEtherFor' },
       run: () =>
-        this.rootChainManagerCaller.write('depositEtherFor', [userAddress], {
+        this.#rootChainManagerCaller.write('depositEtherFor', [userAddress], {
           ...options,
           value: amount
         })
@@ -786,7 +786,7 @@ export class POSClient {
       error: DepositError,
       info: { operation: 'prepareDepositEther', mode: 'prepare', method: 'depositEtherFor' },
       run: () =>
-        this.rootChainManagerCaller.prepareWrite('depositEtherFor', [userAddress], {
+        this.#rootChainManagerCaller.prepareWrite('depositEtherFor', [userAddress], {
           ...options,
           value: amount
         })

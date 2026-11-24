@@ -13,6 +13,7 @@ import type { StakingContractConfig } from './stake-manager.js';
 import { ValidatorShareABI } from '../abi/ValidatorShare.js';
 import { StakingReadError, StakingWriteError, withOperation } from '../errors.js';
 import { ContractCaller } from '../internal/contract-caller.js';
+import { decodeIntegerArgument } from '../internal/decode.js';
 import { pinChainId } from './stake-manager.js';
 
 /**
@@ -456,5 +457,12 @@ export class ValidatorShare {
 function permitArgs(
   p: DelegateWithPermitParams
 ): readonly [bigint, bigint, bigint, bigint, Hex, Hex] {
-  return [p.amount, p.minSharesToMint, p.deadline, BigInt(p.v), p.r, p.s];
+  return [
+    p.amount,
+    p.minSharesToMint,
+    p.deadline,
+    decodeIntegerArgument({ value: p.v, field: 'v' }),
+    p.r,
+    p.s
+  ];
 }
