@@ -68,14 +68,14 @@ export interface ClaimUndelegatedParams {
 export class ValidatorShare {
   /** The ValidatorShare proxy this instance is bound to. */
   readonly address: Hex;
-  private readonly caller: ContractCaller<typeof ValidatorShareABI>;
+  readonly #caller: ContractCaller<typeof ValidatorShareABI>;
   private readonly l1ChainId: number;
 
   constructor(config: Omit<StakingContractConfig, 'getAddress'> & { address: Hex }) {
     const address = config.address;
     this.address = address;
     this.l1ChainId = config.l1ChainId;
-    this.caller = new ContractCaller({
+    this.#caller = new ContractCaller({
       adapter: config.adapter,
       getAddress: () => Promise.resolve(address),
       abi: ValidatorShareABI,
@@ -89,7 +89,7 @@ export class ValidatorShare {
     args: WriteArgs<typeof ValidatorShareABI, N>,
     options?: TxOptions
   ): Promise<TxResult> {
-    return this.caller.write(method, args, pinChainId(options, this.l1ChainId));
+    return this.#caller.write(method, args, pinChainId(options, this.l1ChainId));
   }
 
   private async prepare<N extends WriteName<typeof ValidatorShareABI>>(
@@ -97,7 +97,7 @@ export class ValidatorShare {
     args: WriteArgs<typeof ValidatorShareABI, N>,
     options?: TxOptions
   ): Promise<PreparedTx> {
-    return this.caller.prepareWrite(method, args, pinChainId(options, this.l1ChainId));
+    return this.#caller.prepareWrite(method, args, pinChainId(options, this.l1ChainId));
   }
 
   // --- writes -------------------------------------------------------
@@ -323,7 +323,7 @@ export class ValidatorShare {
         contractAddress: this.address,
         method: 'exchangeRate'
       },
-      run: () => this.caller.read('exchangeRate', [], options)
+      run: () => this.#caller.read('exchangeRate', [], options)
     });
   }
 
@@ -337,7 +337,7 @@ export class ValidatorShare {
         contractAddress: this.address,
         method: 'getLiquidRewards'
       },
-      run: () => this.caller.read('getLiquidRewards', [params.user], options)
+      run: () => this.#caller.read('getLiquidRewards', [params.user], options)
     });
   }
 
@@ -351,7 +351,7 @@ export class ValidatorShare {
         contractAddress: this.address,
         method: 'minAmount'
       },
-      run: () => this.caller.read('minAmount', [], options)
+      run: () => this.#caller.read('minAmount', [], options)
     });
   }
 
@@ -365,7 +365,7 @@ export class ValidatorShare {
         contractAddress: this.address,
         method: 'balanceOf'
       },
-      run: () => this.caller.read('balanceOf', [params.user], options)
+      run: () => this.#caller.read('balanceOf', [params.user], options)
     });
   }
 
@@ -380,7 +380,7 @@ export class ValidatorShare {
         method: 'getTotalStake'
       },
       run: async () => {
-        const [stake, rate] = await this.caller.read('getTotalStake', [params.user], options);
+        const [stake, rate] = await this.#caller.read('getTotalStake', [params.user], options);
         return { stake, rate };
       }
     });
@@ -397,7 +397,7 @@ export class ValidatorShare {
         method: 'unbonds'
       },
       run: async () => {
-        const [shares, withdrawEpoch] = await this.caller.read('unbonds', [params.user], options);
+        const [shares, withdrawEpoch] = await this.#caller.read('unbonds', [params.user], options);
         return { shares, withdrawEpoch };
       }
     });
@@ -414,7 +414,7 @@ export class ValidatorShare {
         method: 'unbonds_new'
       },
       run: async () => {
-        const [shares, withdrawEpoch] = await this.caller.read(
+        const [shares, withdrawEpoch] = await this.#caller.read(
           'unbonds_new',
           [params.user, params.nonce],
           options
@@ -434,7 +434,7 @@ export class ValidatorShare {
         contractAddress: this.address,
         method: 'unbondNonces'
       },
-      run: () => this.caller.read('unbondNonces', [params.user], options)
+      run: () => this.#caller.read('unbondNonces', [params.user], options)
     });
   }
 
@@ -448,7 +448,7 @@ export class ValidatorShare {
         contractAddress: this.address,
         method: 'validatorId'
       },
-      run: () => this.caller.read('validatorId', [], options)
+      run: () => this.#caller.read('validatorId', [], options)
     });
   }
 }

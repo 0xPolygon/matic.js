@@ -11,8 +11,28 @@
  * token class inherited that surface, which forced *all* code that
  * touched contracts to live somewhere in that hierarchy. The rewrite
  * replaces the chain with composition: each token class
- * (`ERC20`, `ERC721`, …) holds a `private caller: ContractCaller`
- * and forwards through it.
+ * (`ERC20`, `ERC721`, …) holds a `#caller` field and forwards through
+ * it. The caller is an ECMAScript private field, not a TypeScript
+ * `private` member or a doc-comment marker on a public one, so it is
+ * neither reachable from JavaScript nor printed in the published type
+ * declarations.
+ *
+ * # Typed against the ABI
+ *
+ * `ContractCaller<TAbi>` is generic over the contract's `as const` ABI.
+ * `read`, `write`, `prepareWrite` and `estimateGas` accept only that ABI's
+ * function names, each with its own argument list, and `read` returns the
+ * type the ABI gives the result. A mistyped name, a missing argument or a
+ * result of the wrong shape is therefore a compile error rather than a
+ * failure in a consumer's production code. A call descriptor
+ * (`{ method, args }`, typed `WriteCall`) lets a call builder choose
+ * between two methods at run time without losing that tie. Method names
+ * stay string literals at the call so they remain greppable.
+ *
+ * Every `read` result is validated and normalised by `decode.ts` against
+ * the same ABI before any other code sees it; the type mapping in
+ * `abi-types.ts` and that decoder are pinned together by a test over every
+ * vendored function.
  *
  * # Design notes
  *
@@ -92,7 +112,7 @@ export interface InternalWriteSettings {
   gasHeadroom?: bigint;
 }
 
-export interface ContractCallerConfig<TAbi extends Abi = Abi> {
+export interface ContractCallerConfig<TAbi extends Abi> {
   adapter: Adapter;
   /**
    * Resolves the contract's current address. Consumers of an
@@ -238,7 +258,7 @@ const writeInvocationOf = ({
   };
 };
 
-export class ContractCaller<TAbi extends Abi = Abi> {
+export class ContractCaller<TAbi extends Abi> {
   private readonly adapter: Adapter;
   private readonly getAddress: () => Promise<Hex>;
   private readonly abi: TAbi;
@@ -276,8 +296,6 @@ export class ContractCaller<TAbi extends Abi = Abi> {
     args: ReadArgs<TAbi, N>,
     options?: ContractCallerOptions
   ): Promise<ReadResult<TAbi, N>>;
-  /** @deprecated temporary: removed once every call is typed */
-  read<T>(method: string, args?: readonly unknown[], options?: ContractCallerOptions): Promise<T>;
   // The implementation returns `unknown` and each overload names what the
   // ABI says that value is: `decodeAbiResult` walks the same ABI the types
   // are derived from, and a test over every vendored function pins the two
@@ -315,12 +333,6 @@ export class ContractCaller<TAbi extends Abi = Abi> {
     options?: ContractCallerOptions
   ): Promise<bigint>;
   estimateGas(call: WriteCall<TAbi>, options?: ContractCallerOptions): Promise<bigint>;
-  /** @deprecated temporary: removed once every call is typed */
-  estimateGas(
-    method: string,
-    args?: readonly unknown[],
-    options?: ContractCallerOptions
-  ): Promise<bigint>;
   async estimateGas(...params: readonly unknown[]): Promise<bigint> {
     const { method, args, options } = writeInvocationOf({ operation: 'estimateGas', params });
     const address = await this.getAddress();
@@ -342,13 +354,6 @@ export class ContractCaller<TAbi extends Abi = Abi> {
   ): Promise<TxResult>;
   write(
     call: WriteCall<TAbi>,
-    options?: ContractCallerOptions,
-    internal?: InternalWriteSettings
-  ): Promise<TxResult>;
-  /** @deprecated temporary: removed once every call is typed */
-  write(
-    method: string,
-    args?: readonly unknown[],
     options?: ContractCallerOptions,
     internal?: InternalWriteSettings
   ): Promise<TxResult>;
@@ -405,12 +410,6 @@ export class ContractCaller<TAbi extends Abi = Abi> {
     options?: ContractCallerOptions
   ): Promise<PreparedTx>;
   prepareWrite(call: WriteCall<TAbi>, options?: ContractCallerOptions): Promise<PreparedTx>;
-  /** @deprecated temporary: removed once every call is typed */
-  prepareWrite(
-    method: string,
-    args?: readonly unknown[],
-    options?: ContractCallerOptions
-  ): Promise<PreparedTx>;
   async prepareWrite(...params: readonly unknown[]): Promise<PreparedTx> {
     const { method, args, options } = writeInvocationOf({ operation: 'prepareWrite', params });
     const address = await this.getAddress();

@@ -152,6 +152,44 @@ pnpm run e2e
 See [`../../e2e/README.md`](../../e2e/README.md) for booting the devnet
 and running one file.
 
+## Contract-call tests
+
+Every contract call goes through the typed `ContractCaller`, and these suites
+pin what it asks the adapter for and what it does with the answer. All of them
+run offline in the unit tier. The request and wire suites compare against the
+committed JSON under
+[`fixtures/contract-calls/`](./fixtures/contract-calls/README.md); when one
+fails, find out why the behaviour changed, and do not re-record a fixture to
+turn it green.
+
+- **Requests** (`contract-requests-pos`, `-staking` and `-plasma`) run each
+  public method that reaches a contract against a recording adapter and compare
+  every request: contract, function, block tag, write fields, and each
+  argument's value and JavaScript type.
+- **Wire** (`contract-read-wire`) runs every read through the real viem,
+  ethers v5 and ethers v6 adapters over a stub JSON-RPC transport. The three
+  must send the same bytes and the public method must return the same value.
+- **Result shapes** (`contract-result-shapes-pos`, `-staking` and `-plasma`)
+  record, for every read, what it returns or throws for each shape a node can
+  answer, well formed or not.
+- **Decoder** (`decode`) pins each rule of `src/internal/decode.ts` with an
+  accept row and a reject row. `abi-decode-agreement` checks every function of
+  every vendored ABI: all three libraries decode a result to the same value,
+  with the run-time kind the type mapping in `src/internal/abi-types.ts` names.
+  It fails loudly on an ABI type the mapping does not support.
+- **Caller** (`contract-caller-typed`, `contract-caller-types`) pins the
+  request each call shape sends and, at compile time, what the compiler
+  rejects: a mistyped name, a wrong argument list or result type, a name typed
+  as `string`. `caller-is-private` shows the clients build one caller per
+  contract and expose none.
+- **Gas swapper** (`gas-swapper-amount`) pins how the deposit amount reaches
+  the adapter and the error a malformed one ends in.
+- **Gate** (`contract-calls-gate`) runs `scripts/check-contract-calls.mjs`,
+  which fails on a bare `Adapter.read`, on a method name that is not a literal,
+  on an `@internal` tag and on a `caller` member that is not `#caller`, and
+  feeds it a small program that breaks each rule to show that it fires. Run it
+  by hand with `pnpm run check:contract-calls`.
+
 ## Adding a new test
 
 - **Unit (no network) tests** live under `tests/unit/`. They never need

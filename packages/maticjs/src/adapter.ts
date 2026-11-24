@@ -193,8 +193,12 @@ export interface PreparedTx {
  * The provider-agnostic surface every bridge primitive is written against.
  *
  * Implementations MUST:
- * - return `bigint` for every numeric value (not `BigNumber`, not
- *   `number`, not decimal strings);
+ * - return `bigint` for every numeric value they produce themselves, such
+ *   as a gas estimate (not `BigNumber`, not `number`, not decimal
+ *   strings). `read` is the exception: it returns the underlying
+ *   library's own decoded value (an ethers v5 `BigNumber`, a `number` for
+ *   a small integer), and the SDK's contract caller validates it against
+ *   the ABI and normalises it, so an adapter need not;
  * - resolve `write()` as soon as the transaction is broadcast — never
  *   wait for confirmation in `write()` itself;
  * - memoise the confirmation inside the returned `TxResult` so

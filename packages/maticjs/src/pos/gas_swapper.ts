@@ -37,9 +37,12 @@ export interface GasSwapperConfig {
 function amountOf(depositAmount: string): bigint {
   const bytes = BufferUtil.toBuffer(depositAmount);
   if (bytes.length === 0) {
-    throw new InvalidHexStringError('depositAmount must be 0x-prefixed hex with at least one digit', {
-      info: { value: depositAmount }
-    });
+    throw new InvalidHexStringError(
+      'depositAmount must be 0x-prefixed hex with at least one digit',
+      {
+        info: { value: depositAmount }
+      }
+    );
   }
   return BigInt(`0x${bytesToHex(bytes)}`);
 }

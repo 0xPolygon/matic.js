@@ -3,7 +3,6 @@ import { describe, expectTypeOf, it } from 'vitest';
 import type { ChildERC20ABI, ChildERC721ABI, StakeManagerABI } from '../../src/abi/index.ts';
 import type { Hex, PreparedTx, TxResult } from '../../src/adapter.ts';
 import type {
-  Abi,
   ReadArgs,
   ReadName,
   ReadResult,
@@ -19,30 +18,19 @@ import type { ContractCaller } from '../../src/internal/contract-caller.ts';
  * `tsc` (test files are in the typecheck project), so an unused
  * `@ts-expect-error` below is itself an error and each negative proof is live.
  *
- * While the untyped signature exists next to the typed one, a call that is
- * wrong for the ABI still compiles against the untyped signature, so a
- * negative proof written against the class would prove nothing. The
- * name-first negatives are therefore written against `Strict`, which spells
- * out the typed signatures from the same helper types; the descriptor form
- * has no untyped counterpart, so its negatives are written against the class.
- * The positive proofs are on the class: a result type of `bigint` can only
- * come from the typed signature.
+ * Every proof, positive and negative, is written against the class itself:
+ * it has one signature per method, so a call that is wrong for the ABI has
+ * nothing looser to fall back on.
  */
 
 type Token = typeof ChildERC20ABI;
 type Staking = typeof StakeManagerABI;
 type Nft = typeof ChildERC721ABI;
 
-interface Strict<TAbi extends Abi> {
-  read<N extends ReadName<TAbi>>(method: N, args: ReadArgs<TAbi, N>): Promise<ReadResult<TAbi, N>>;
-  write<N extends WriteName<TAbi>>(method: N, args: WriteArgs<TAbi, N>): Promise<TxResult>;
-  prepareWrite<N extends WriteName<TAbi>>(method: N, args: WriteArgs<TAbi, N>): Promise<PreparedTx>;
-  estimateGas<N extends WriteName<TAbi>>(method: N, args: WriteArgs<TAbi, N>): Promise<bigint>;
-}
-
 declare const token: ContractCaller<Token>;
 declare const staking: ContractCaller<Staking>;
-declare const strictToken: Strict<Token>;
+declare const untyped: ContractCaller<readonly unknown[]>;
+declare const looseName: string;
 declare const user: Hex;
 
 type TupleAbi = readonly [
@@ -161,15 +149,35 @@ describe('what the compiler rejects', () => {
   it('a typo in the method name, or a name of the other kind', () => {
     const reject = (): void => {
       // @ts-expect-error typo'd method name
-      void strictToken.read('balanceOff', [user]);
+      void token.read('balanceOff', [user]);
       // @ts-expect-error a state-changing name given to read
-      void strictToken.read('approve', [user, 1n]);
+      void token.read('approve', [user, 1n]);
       // @ts-expect-error a view name given to write
-      void strictToken.write('balanceOf', [user]);
+      void token.write('balanceOf', [user]);
       // @ts-expect-error a view name given to prepareWrite
-      void strictToken.prepareWrite('balanceOf', [user]);
+      void token.prepareWrite('balanceOf', [user]);
       // @ts-expect-error a view name given to estimateGas
-      void strictToken.estimateGas('balanceOf', [user]);
+      void token.estimateGas('balanceOf', [user]);
+    };
+    expectTypeOf(reject).toBeFunction();
+  });
+
+  it('a method name typed as string, a result type chosen by the caller, or an ABI that is not const', () => {
+    const reject = async (): Promise<void> => {
+      // @ts-expect-error a name that is only known to be a string
+      void token.read(looseName, [user]);
+      // @ts-expect-error a name that is only known to be a string
+      void token.write(looseName, [user, 1n]);
+      // @ts-expect-error a name that is only known to be a string
+      void token.prepareWrite(looseName, [user, 1n]);
+      // @ts-expect-error a name that is only known to be a string
+      void token.estimateGas(looseName, [user, 1n]);
+      // @ts-expect-error the result type comes from the ABI, not from the caller
+      void token.read<bigint>('balanceOf', [user]);
+      // @ts-expect-error a caller over a non-const ABI has no callable names
+      void untyped.read('balanceOf', [user]);
+      // @ts-expect-error a caller over a non-const ABI has no callable names
+      void untyped.write('approve', [user, 1n]);
     };
     expectTypeOf(reject).toBeFunction();
   });
@@ -177,15 +185,15 @@ describe('what the compiler rejects', () => {
   it('the wrong number or type of arguments', () => {
     const reject = (): void => {
       // @ts-expect-error one argument too few
-      void strictToken.write('approve', [user]);
+      void token.write('approve', [user]);
       // @ts-expect-error one argument too many
-      void strictToken.read('balanceOf', [user, user]);
+      void token.read('balanceOf', [user, user]);
       // @ts-expect-error a hex string for a uint256
-      void strictToken.write('approve', [user, '0x01']);
+      void token.write('approve', [user, '0x01']);
       // @ts-expect-error a number for a uint256
-      void strictToken.write('approve', [user, 1]);
+      void token.write('approve', [user, 1]);
       // @ts-expect-error a boolean where an address goes
-      void strictToken.read('balanceOf', [true]);
+      void token.read('balanceOf', [true]);
     };
     expectTypeOf(reject).toBeFunction();
   });
@@ -193,7 +201,7 @@ describe('what the compiler rejects', () => {
   it('a result used as the wrong type', () => {
     const reject = async (): Promise<void> => {
       // @ts-expect-error a uint256 is a bigint, not a string
-      const asString: string = await strictToken.read('balanceOf', [user]);
+      const asString: string = await token.read('balanceOf', [user]);
       void asString;
     };
     expectTypeOf(reject).toBeFunction();
@@ -202,7 +210,7 @@ describe('what the compiler rejects', () => {
   it("a method of another contract's ABI", () => {
     const reject = (): void => {
       // @ts-expect-error validators belongs to StakeManager, not to the token
-      void strictToken.read('validators', [1n]);
+      void token.read('validators', [1n]);
     };
     expectTypeOf(reject).toBeFunction();
   });

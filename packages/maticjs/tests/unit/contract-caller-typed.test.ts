@@ -74,17 +74,13 @@ describe('requests are what the 4.0 caller sent, through each call shape', () =>
     );
   });
 
-  it('write: estimate then send, by method name, by descriptor, and by the deprecated signature', async () => {
+  it('write: estimate then send, by method name and by descriptor', async () => {
     const expected = fixtureRows({ file: 'requests-pos.json', name: 'erc20.approve' });
     const byName = world();
     await byName.caller.write('approve', [SPENDER, 5n]);
     const byDescriptor = world();
     await byDescriptor.caller.write({ method: 'approve', args: [SPENDER, 5n] });
-    // A name typed as plain `string` can only reach the deprecated signature.
-    const looseName: string = 'approve';
-    const byOldSignature = world();
-    await byOldSignature.caller.write(looseName, [SPENDER, 5n]);
-    for (const w of [byName, byDescriptor, byOldSignature]) {
+    for (const w of [byName, byDescriptor]) {
       expect(rowsOf(w.log)).deep.equal(expected);
     }
   });
@@ -307,9 +303,9 @@ describe('a read is validated against the ABI', () => {
 
   it('fails a method the ABI does not carry with a plain Error, not an SDK error', async () => {
     const { caller } = world({ answers: { missingMethod: 1n } });
-    // Only the deprecated signature can name it, which is how a plain-JS caller would.
-    const looseName: string = 'missingMethod';
-    const err = await outcome(() => caller.read(looseName, []));
+    // A plain-JS caller can name a method the ABI lacks; the compiler rejects it.
+    // @ts-expect-error not a function of the token ABI
+    const err = await outcome(() => caller.read('missingMethod', []));
     expect(err).instanceOf(Error);
     expect(err).not.instanceOf(BridgeEventDecodeFailedError);
     expect(err).property('message').include('missingMethod');

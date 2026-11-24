@@ -132,7 +132,7 @@ export type PlasmaChildERC20 = Pick<
 export class PlasmaERC20 {
   readonly tokenAddress: Hex;
   readonly isParent: boolean;
-  private readonly caller: ContractCaller<typeof PlasmaChildERC20ABI>;
+  readonly #caller: ContractCaller<typeof PlasmaChildERC20ABI>;
   /** Only on a child token that is the native-token contract. */
   private readonly nativeCaller: ContractCaller<typeof PlasmaMRC20ABI> | undefined;
   private readonly bridge: PlasmaBridgeServices;
@@ -148,7 +148,7 @@ export class PlasmaERC20 {
       logger: config.logger,
       chainId: config.chainId
     };
-    this.caller = new ContractCaller({ ...shared, abi: PlasmaChildERC20ABI });
+    this.#caller = new ContractCaller({ ...shared, abi: PlasmaChildERC20ABI });
     this.nativeCaller = isNativeBurn({
       tokenAddress: config.tokenAddress,
       isParent: config.isParent
@@ -167,7 +167,7 @@ export class PlasmaERC20 {
         tokenAddress: this.tokenAddress,
         method: 'balanceOf'
       },
-      run: () => this.caller.read('balanceOf', [userAddress], options)
+      run: () => this.#caller.read('balanceOf', [userAddress], options)
     });
   }
 
@@ -187,7 +187,7 @@ export class PlasmaERC20 {
       run: async () => {
         this.requireParent('getAllowance');
         const { DepositManager } = await this.bridge.getAddresses();
-        return this.caller.read('allowance', [userAddress, DepositManager], options);
+        return this.#caller.read('allowance', [userAddress, DepositManager], options);
       }
     });
   }
@@ -209,7 +209,7 @@ export class PlasmaERC20 {
       run: async () => {
         this.requireParent('approve');
         const { DepositManager } = await this.bridge.getAddresses();
-        return this.caller.write('approve', [DepositManager, amount], options);
+        return this.#caller.write('approve', [DepositManager, amount], options);
       }
     });
   }
@@ -227,7 +227,7 @@ export class PlasmaERC20 {
       run: async () => {
         this.requireParent('approve');
         const { DepositManager } = await this.bridge.getAddresses();
-        return this.caller.prepareWrite('approve', [DepositManager, amount], options);
+        return this.#caller.prepareWrite('approve', [DepositManager, amount], options);
       }
     });
   }
@@ -343,7 +343,7 @@ export class PlasmaERC20 {
         this.requireChild('startWithdraw');
         assertOptionsObject({ method: 'startWithdraw', options });
         return this.nativeCaller === undefined
-          ? this.caller.write('withdraw', [amount], childBurnOptions({ options }))
+          ? this.#caller.write('withdraw', [amount], childBurnOptions({ options }))
           : this.nativeCaller.write('withdraw', [amount], nativeBurnOptions({ amount, options }));
       }
     });
@@ -375,7 +375,7 @@ export class PlasmaERC20 {
         this.requireChild('startWithdraw');
         assertOptionsObject({ method: 'prepareStartWithdraw', options });
         return this.nativeCaller === undefined
-          ? this.caller.prepareWrite('withdraw', [amount], childBurnOptions({ options }))
+          ? this.#caller.prepareWrite('withdraw', [amount], childBurnOptions({ options }))
           : this.nativeCaller.prepareWrite(
               'withdraw',
               [amount],

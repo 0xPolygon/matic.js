@@ -77,6 +77,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:pack": "node scripts/pack-smoke.mjs",
+    "check:contract-calls": "node scripts/check-contract-calls.mjs",
     "check:error-ownership": "node scripts/check-error-ownership.mjs"
   },
   "keywords": [

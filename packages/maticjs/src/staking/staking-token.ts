@@ -64,7 +64,7 @@ function toChainIdNumber(id: bigint): number {
 export class StakingToken {
   /** `true` for POL; MATIC has no EIP-2612 `permit`. */
   readonly supportsPermit: boolean;
-  private readonly caller: ContractCaller<typeof PolTokenABI>;
+  readonly #caller: ContractCaller<typeof PolTokenABI>;
   private readonly l1ChainId: number;
   private readonly getStakeManagerAddress: () => Promise<Hex>;
   private readonly tokenLabel: string;
@@ -81,7 +81,7 @@ export class StakingToken {
     this.l1ChainId = config.l1ChainId;
     this.getStakeManagerAddress = config.getStakeManagerAddress;
     this.tokenLabel = config.tokenLabel;
-    this.caller = new ContractCaller({
+    this.#caller = new ContractCaller({
       adapter: config.adapter,
       getAddress: config.getAddress,
       abi: PolTokenABI,
@@ -95,7 +95,7 @@ export class StakingToken {
     return withOperation({
       error: AddressLookupError,
       info: { operation: 'getAddress', mode: 'read' },
-      run: () => this.caller.getContractAddress()
+      run: () => this.#caller.getContractAddress()
     });
   }
 
@@ -119,7 +119,7 @@ export class StakingToken {
       info: { operation: 'approveStakeManager', mode: 'write', method: 'approve' },
       run: async () => {
         const spender = await this.getStakeManagerAddress();
-        return this.caller.write(
+        return this.#caller.write(
           'approve',
           [spender, params.amount],
           pinChainId(options, this.l1ChainId)
@@ -138,7 +138,7 @@ export class StakingToken {
       info: { operation: 'prepareApproveStakeManager', mode: 'prepare', method: 'approve' },
       run: async () => {
         const spender = await this.getStakeManagerAddress();
-        return this.caller.prepareWrite(
+        return this.#caller.prepareWrite(
           'approve',
           [spender, params.amount],
           pinChainId(options, this.l1ChainId)
@@ -172,7 +172,7 @@ export class StakingToken {
     return withOperation({
       error: StakingReadError,
       info: { operation: 'getBalance', mode: 'read', method: 'balanceOf' },
-      run: () => this.caller.read('balanceOf', [params.user], options)
+      run: () => this.#caller.read('balanceOf', [params.user], options)
     });
   }
 
@@ -183,7 +183,7 @@ export class StakingToken {
       info: { operation: 'getAllowanceForStakeManager', mode: 'read', method: 'allowance' },
       run: async () => {
         const spender = await this.getStakeManagerAddress();
-        return this.caller.read('allowance', [params.owner, spender], options);
+        return this.#caller.read('allowance', [params.owner, spender], options);
       }
     });
   }
@@ -198,7 +198,7 @@ export class StakingToken {
       info: { operation: 'getNonce', mode: 'read', method: 'nonces' },
       run: async () => {
         this.assertPermit('getNonce');
-        return this.caller.read('nonces', [params.owner], options);
+        return this.#caller.read('nonces', [params.owner], options);
       }
     });
   }
@@ -218,8 +218,8 @@ export class StakingToken {
       run: async () => {
         this.assertPermit('preparePermit');
         const [domain, nonce, spender] = await Promise.all([
-          this.caller.read('eip712Domain', [], options),
-          this.caller.read('nonces', [params.owner], options),
+          this.#caller.read('eip712Domain', [], options),
+          this.#caller.read('nonces', [params.owner], options),
           params.spender === undefined
             ? this.getStakeManagerAddress()
             : Promise.resolve(params.spender)

@@ -137,12 +137,12 @@ function stakeForArgs(p: StakeForParams): readonly [Hex, bigint, bigint, boolean
  * node or library error is rethrown unchanged.
  */
 export class StakeManager {
-  private readonly caller: ContractCaller<typeof StakeManagerABI>;
+  readonly #caller: ContractCaller<typeof StakeManagerABI>;
   private readonly l1ChainId: number;
 
   constructor(config: StakingContractConfig) {
     this.l1ChainId = config.l1ChainId;
-    this.caller = new ContractCaller({
+    this.#caller = new ContractCaller({
       adapter: config.adapter,
       getAddress: config.getAddress,
       abi: StakeManagerABI,
@@ -156,7 +156,7 @@ export class StakeManager {
     return withOperation({
       error: AddressLookupError,
       info: { operation: 'getAddress', mode: 'read' },
-      run: () => this.caller.getContractAddress()
+      run: () => this.#caller.getContractAddress()
     });
   }
 
@@ -166,7 +166,7 @@ export class StakeManager {
     options?: TxOptions,
     gasHeadroom?: bigint
   ): Promise<TxResult> {
-    return this.caller.write(method, args, pinChainId(options, this.l1ChainId), { gasHeadroom });
+    return this.#caller.write(method, args, pinChainId(options, this.l1ChainId), { gasHeadroom });
   }
 
   private async prepare<N extends WriteName<typeof StakeManagerABI>>(
@@ -174,7 +174,7 @@ export class StakeManager {
     args: WriteArgs<typeof StakeManagerABI, N>,
     options?: TxOptions
   ): Promise<PreparedTx> {
-    return this.caller.prepareWrite(method, args, pinChainId(options, this.l1ChainId));
+    return this.#caller.prepareWrite(method, args, pinChainId(options, this.l1ChainId));
   }
 
   // --- writes -------------------------------------------------------
@@ -418,7 +418,7 @@ export class StakeManager {
       error: StakingReadError,
       info: { operation: 'getValidator', mode: 'read', method: 'validators' },
       run: async () => {
-        const t = await this.caller.read('validators', [params.validatorId], options);
+        const t = await this.#caller.read('validators', [params.validatorId], options);
         return {
           amount: t[0],
           reward: t[1],
@@ -443,7 +443,7 @@ export class StakeManager {
     return withOperation({
       error: StakingReadError,
       info: { operation: 'getValidatorContract', mode: 'read', method: 'getValidatorContract' },
-      run: () => this.caller.read('getValidatorContract', [params.validatorId], options)
+      run: () => this.#caller.read('getValidatorContract', [params.validatorId], options)
     });
   }
 
@@ -455,7 +455,7 @@ export class StakeManager {
     return withOperation({
       error: StakingReadError,
       info: { operation: 'getValidatorId', mode: 'read', method: 'getValidatorId' },
-      run: () => this.caller.read('getValidatorId', [params.user], options)
+      run: () => this.#caller.read('getValidatorId', [params.user], options)
     });
   }
 
@@ -464,7 +464,7 @@ export class StakeManager {
     return withOperation({
       error: StakingReadError,
       info: { operation: 'getDelegatedAmount', mode: 'read', method: 'delegatedAmount' },
-      run: () => this.caller.read('delegatedAmount', [params.validatorId], options)
+      run: () => this.#caller.read('delegatedAmount', [params.validatorId], options)
     });
   }
 
@@ -473,7 +473,7 @@ export class StakeManager {
     return withOperation({
       error: StakingReadError,
       info: { operation: 'getValidatorStake', mode: 'read', method: 'validatorStake' },
-      run: () => this.caller.read('validatorStake', [params.validatorId], options)
+      run: () => this.#caller.read('validatorStake', [params.validatorId], options)
     });
   }
 
@@ -482,7 +482,7 @@ export class StakeManager {
     return withOperation({
       error: StakingReadError,
       info: { operation: 'getMinDeposit', mode: 'read', method: 'minDeposit' },
-      run: () => this.caller.read('minDeposit', [], options)
+      run: () => this.#caller.read('minDeposit', [], options)
     });
   }
 
@@ -491,7 +491,7 @@ export class StakeManager {
     return withOperation({
       error: StakingReadError,
       info: { operation: 'getMinHeimdallFee', mode: 'read', method: 'minHeimdallFee' },
-      run: () => this.caller.read('minHeimdallFee', [], options)
+      run: () => this.#caller.read('minHeimdallFee', [], options)
     });
   }
 
@@ -500,7 +500,7 @@ export class StakeManager {
     return withOperation({
       error: StakingReadError,
       info: { operation: 'getWithdrawalDelay', mode: 'read', method: 'WITHDRAWAL_DELAY' },
-      run: () => this.caller.read('WITHDRAWAL_DELAY', [], options)
+      run: () => this.#caller.read('WITHDRAWAL_DELAY', [], options)
     });
   }
 
@@ -509,7 +509,7 @@ export class StakeManager {
     return withOperation({
       error: StakingReadError,
       info: { operation: 'getCheckpointReward', mode: 'read', method: 'CHECKPOINT_REWARD' },
-      run: () => this.caller.read('CHECKPOINT_REWARD', [], options)
+      run: () => this.#caller.read('CHECKPOINT_REWARD', [], options)
     });
   }
 
@@ -518,7 +518,7 @@ export class StakeManager {
     return withOperation({
       error: StakingReadError,
       info: { operation: 'isLocked', mode: 'read', method: 'locked' },
-      run: () => this.caller.read('locked', [], options)
+      run: () => this.#caller.read('locked', [], options)
     });
   }
 
@@ -527,7 +527,7 @@ export class StakeManager {
     return withOperation({
       error: StakingReadError,
       info: { operation: 'getCurrentEpoch', mode: 'read', method: 'currentEpoch' },
-      run: () => this.caller.read('currentEpoch', [], options)
+      run: () => this.#caller.read('currentEpoch', [], options)
     });
   }
 
@@ -536,7 +536,7 @@ export class StakeManager {
     return withOperation({
       error: StakingReadError,
       info: { operation: 'getTotalStaked', mode: 'read', method: 'currentValidatorSetTotalStake' },
-      run: () => this.caller.read('currentValidatorSetTotalStake', [], options)
+      run: () => this.#caller.read('currentValidatorSetTotalStake', [], options)
     });
   }
 }

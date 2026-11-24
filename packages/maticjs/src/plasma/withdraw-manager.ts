@@ -90,13 +90,13 @@ export interface PlasmaWithdrawManagerConfig {
 export class PlasmaWithdrawManager {
   private readonly adapter: Adapter;
   private readonly logger: Logger;
-  private readonly caller: ContractCaller<typeof PlasmaWithdrawManagerABI>;
+  readonly #caller: ContractCaller<typeof PlasmaWithdrawManagerABI>;
   private onFinalizeGasLimit: Promise<bigint> | undefined;
 
   constructor(config: PlasmaWithdrawManagerConfig) {
     this.adapter = config.adapter;
     this.logger = config.logger;
-    this.caller = new ContractCaller({
+    this.#caller = new ContractCaller({
       adapter: config.adapter,
       getAddress: config.getWithdrawManagerAddress,
       abi: PlasmaWithdrawManagerABI,
@@ -116,7 +116,7 @@ export class PlasmaWithdrawManager {
    * withdraw manager keeps for it. A token with no queue contract has none.
    */
   async getExitQueueSize(token: Hex): Promise<bigint> {
-    const queue = await this.caller.read('exitsQueues', [token]);
+    const queue = await this.#caller.read('exitsQueues', [token]);
     if (ZERO_ADDRESS.test(queue)) return 0n;
     const queueCaller = new ContractCaller({
       adapter: this.adapter,
@@ -186,7 +186,7 @@ export class PlasmaWithdrawManager {
         await this.requireGasFloor(options.gasLimit);
         const gasLimit =
           options.gasLimit ?? (await this.defaultGasLimit({ call, options, queueSize }));
-        return this.caller.write(call, { ...options, gasLimit });
+        return this.#caller.write(call, { ...options, gasLimit });
       }
     });
   }
@@ -218,7 +218,7 @@ export class PlasmaWithdrawManager {
         const call = callFor(tokens);
         await this.requireQueuedExits(tokens);
         await this.requireGasFloor(options.gasLimit);
-        return this.caller.prepareWrite(call, options);
+        return this.#caller.prepareWrite(call, options);
       }
     });
   }
@@ -291,7 +291,7 @@ export class PlasmaWithdrawManager {
     options: ContractCallerOptions;
     queueSize: bigint;
   }): Promise<bigint> {
-    const estimate = await this.caller.estimateGas(call, options);
+    const estimate = await this.#caller.estimateGas(call, options);
     const sized = estimate + queueSize * PROCESS_EXITS_GAS_PER_EXIT;
     return sized < MAX_PROCESS_EXITS_GAS_LIMIT ? sized : MAX_PROCESS_EXITS_GAS_LIMIT;
   }
@@ -319,7 +319,7 @@ export class PlasmaWithdrawManager {
    */
   private async fetchOnFinalizeGasLimit(): Promise<bigint> {
     try {
-      return await this.caller.read('ON_FINALIZE_GAS_LIMIT', []);
+      return await this.#caller.read('ON_FINALIZE_GAS_LIMIT', []);
     } catch (err) {
       if (!answersWithoutConstant(err)) throw err;
       this.logger.warn(
