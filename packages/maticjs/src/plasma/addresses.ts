@@ -6,11 +6,10 @@
  * Plasma has its own parsed shape and its own cache rather than sharing the
  * bridge's. A refresh that is fine for one parser and not for the other (an
  * index that drops a Plasma key but keeps every PoS key, or the reverse) must
- * change only the client whose parser rejects it. With separate stores, the
- * PoS and staking clients keep today's single shared fetch and failure
- * behaviour untouched, and this client gets the same stale-while-revalidate
- * behaviour over its own store. The cost is one extra index fetch per cache
- * TTL in a process that runs a `PlasmaClient` beside a `POSClient`.
+ * change only the client whose parser rejects it. A separate store gives
+ * that: a refresh that drops a Plasma key affects only this client. The cost
+ * is one extra index fetch per cache TTL in a process that runs a
+ * `PlasmaClient` beside a `POSClient`.
  */
 import type { Network } from '../networks.js';
 
@@ -185,8 +184,7 @@ export function parsePlasmaAddresses(params: {
 }
 
 /**
- * The Plasma client's own cache. No other module reads or fills it, so
- * retiring Plasma deletes it with this folder.
+ * The Plasma client's own cache. No other module reads or fills it.
  */
 const plasmaStore = createAddressIndexStore<PlasmaAddresses>();
 
