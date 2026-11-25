@@ -4,9 +4,8 @@
  * queue reads they depend on.
  *
  * Each ABI is imported from its own module, never the ABI barrel: the
- * barrel would pull every ABI into any entry that reaches this file, and
- * the entry-isolation gate fails the build if the Plasma ABIs leak into
- * the root entry.
+ * barrel would pull every ABI into any entry that reaches this file, so the
+ * Plasma ABIs would leak into the other entries.
  */
 import type { Adapter, Hex, PreparedTx, TxResult } from '../adapter.js';
 import type { OperationInfo } from '../errors.js';
@@ -52,16 +51,11 @@ export const MAX_PROCESS_EXITS_GAS_LIMIT = 16_000_000n;
  *
  * The loop runs only while `gasleft() > ON_FINALIZE_GAS_LIMIT`, and the
  * transaction spends some gas before the first check, so the smallest limit
- * that processes anything is `ON_FINALIZE_GAS_LIMIT` plus that spend. On a
- * devnet (`ON_FINALIZE_GAS_LIMIT` 300,000) the smallest limits that
- * processed the head exit were 338,207 for `processExits`, 338,859 for
- * `processExitsBatch([MATIC])`, 339,233 for `processExitsBatch([MATIC, POL])`
- * and 347,331 for `processExitsBatch([POL, MATIC])`: about 8.3k more for
- * each empty token ahead of the one holding the exit. A call with a limit
- * too low for the loop to start succeeded and used 31,296 gas.
+ * that processes anything is `ON_FINALIZE_GAS_LIMIT` plus that spend, and the
+ * spend grows with each empty token named ahead of the one holding the exit.
  *
- * 30,000 puts the floor, 330,000 today, below the smallest working
- * minimum, so the SDK never rejects a limit that can work. It is a lower
+ * The floor is `ON_FINALIZE_GAS_LIMIT` plus 30,000, below the smallest limit
+ * that works, so the SDK never rejects a limit that can work. It is a lower
  * bound, not a sufficient limit: see {@link PlasmaWithdrawManager.processExits}.
  */
 export const PRE_LOOP_GAS_ALLOWANCE = 30_000n;
@@ -144,25 +138,19 @@ export class PlasmaWithdrawManager {
    * {@link MAX_PROCESS_EXITS_GAS_LIMIT}).
    *
    * **Gas floor.** A `gasLimit` you pass is used exactly as given, except
-   * that one below `ON_FINALIZE_GAS_LIMIT + 30_000n` (330,000 on the
-   * deployed contract) throws `ExitGasLimitTooLowError` before anything is
-   * sent. The contract's loop runs only while
-   * `gasleft() > ON_FINALIZE_GAS_LIMIT`, so a limit that cannot get the loop
-   * started completes successfully and processes nothing: on a devnet a call
-   * with 318,670 gas, for an exit that needs 159,335, did exactly that.
+   * that one below `ON_FINALIZE_GAS_LIMIT + 30_000n` throws
+   * `ExitGasLimitTooLowError` before anything is sent. The contract's loop
+   * runs only while `gasleft() > ON_FINALIZE_GAS_LIMIT`, so a limit that
+   * cannot get the loop started completes successfully and processes nothing.
    *
    * The floor sits below the smallest working minimum so it never rejects a
-   * limit that can work. Measured on a devnet, the smallest limits that
-   * processed the head exit were 338,207 (`processExits`), 338,859
-   * (`processExitsBatch([MATIC])`), 339,233 (`processExitsBatch([MATIC,
-   * POL])`) and 347,331 (`processExitsBatch([POL, MATIC])`), about 8.3k more
-   * for each empty token ahead of the queue holding the exit; a call that
-   * could not start the loop used 31,296 gas. A limit between the floor and
-   * the real minimum is accepted and can still complete as a silent no-op,
-   * more so with several tokens. The SDK's default limit is the safe value.
-   * A caller who passes the raw `eth_estimateGas` value (214,204 for one
-   * exit) gets a no-op: the estimate is the gas the run used, not the
-   * `gasleft()` the loop needs at its start. `getWithdrawStatus` is the proof
+   * limit that can work. A limit between the floor and the real minimum is
+   * accepted and can still complete as a silent no-op, more so with several
+   * tokens, because each empty token named ahead of the queue holding the
+   * exit raises the minimum. The SDK's default limit is the safe value. A
+   * caller who passes the raw `eth_estimateGas` value gets a no-op: the
+   * estimate is the gas the run used, not the `gasleft()` the loop needs at
+   * its start. `getWithdrawStatus` is the proof
    * that an exit completed; a successful receipt is not.
    *
    * `ON_FINALIZE_GAS_LIMIT` is read from the contract once per instance, with
@@ -203,8 +191,6 @@ export class PlasmaWithdrawManager {
    * used. The contract's loop needs more than that at its start (it stops
    * silently once `gasleft()` falls to `ON_FINALIZE_GAS_LIMIT`), so a
    * transaction sized by the estimate alone succeeds and processes nothing.
-   * On a devnet the estimate was 214,204 for a call that needs about 338,000
-   * to start the loop.
    */
   async prepareProcessExits(
     { tokens }: { tokens: readonly Hex[] },

@@ -5,9 +5,8 @@
  * consumers carry none of the PoS bridge's ABIs except `RootChain`, which
  * checkpoint reads need. Plasma modules import each ABI from its own module,
  * never a barrel, so the Plasma ABIs land in chunks the other entries do not
- * load (checked by `scripts/check-entry-isolation.mjs`). The ABIs are public at
- * `@polygonlabs/maticjs/plasma/abi`, not re-exported here, so this entry's
- * surface stays the client.
+ * load. The ABIs are public at `@polygonlabs/maticjs/plasma/abi`, not
+ * re-exported here, so this entry's surface stays the client.
  * Token handles are exported as a type only: instances come from
  * `PlasmaClient.init`, which wires the address index and the two adapters.
  */

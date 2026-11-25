@@ -101,7 +101,8 @@ interface PlasmaClientFixedAddressesConfig extends PlasmaClientBaseConfig {
   /**
    * Pre-resolved addresses; the SDK then never reaches the address index.
    * The seven Plasma addresses ({@link PlasmaAddresses}); an absent or
-   * malformed one fails `init` with `ContractNotAvailableOnNetworkError`.
+   * malformed one rejects `init` with an `InitError` whose `cause` is a
+   * `ContractNotAvailableOnNetworkError`.
    * Keys outside the seven are ignored, so a PoS bridge index passed here
    * fails naming the Plasma keys it lacks.
    */
@@ -375,7 +376,7 @@ export class PlasmaClient {
    * `onAddressRefreshError` is called.
    *
    * Pair them with the vendored ABIs at `@polygonlabs/maticjs/plasma/abi`
-   * (and `RootChain` from `@polygonlabs/maticjs/abi`) and your own client to
+   * (and `RootChainABI` from `@polygonlabs/maticjs/abi`) and your own client to
    * call a contract method the SDK does not wrap.
    */
   async getAddresses(): Promise<PlasmaAddresses> {

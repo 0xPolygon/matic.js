@@ -6,7 +6,7 @@
 TypeScript SDK for the Polygon PoS bridge, the Plasma bridge and PoS
 staking. Deposits, withdrawals, and exit proofs against `RootChainManager` —
 across ERC-20, ERC-721, ERC-1155 and native ETH — plus Plasma ERC-20
-withdrawals from `@polygonlabs/maticjs/plasma` and validator and delegator
+deposits and withdrawals from `@polygonlabs/maticjs/plasma` and validator and delegator
 staking from `@polygonlabs/maticjs/staking`, driven by whichever EVM client
 library you already have: `viem`, `ethers v5`, or `ethers v6`.
 
@@ -34,7 +34,7 @@ carries no code for the bridges and features you do not call:
 | Import                                                  | What it is for                                                                |
 | ------------------------------------------------------- | ----------------------------------------------------------------------------- |
 | `@polygonlabs/maticjs`                                  | PoS bridge: `POSClient`, errors, status types                                 |
-| `@polygonlabs/maticjs/plasma`                           | Plasma bridge: `PlasmaClient` (ERC-20 withdrawals)                            |
+| `@polygonlabs/maticjs/plasma`                           | Plasma bridge: `PlasmaClient` (ERC-20 deposits and withdrawals)                |
 | `@polygonlabs/maticjs/staking`                          | Validator and delegator staking: `StakingClient`                              |
 | `@polygonlabs/maticjs/viem`, `/ethers-v5`, `/ethers-v6` | The adapter factory for the library you use                                   |
 | `@polygonlabs/maticjs/abi`                              | The PoS and staking ABIs plus `RootChainABI`, for calls the SDK does not wrap |
@@ -350,13 +350,28 @@ of them; `RootChainABI` stays in `./abi`. The errors only Plasma raises
 `NativeBurnValueMismatchError`, `ChildBurnValueNotAllowedError`) and the event
 topics `PlasmaEventSignature` are imported from `@polygonlabs/maticjs/plasma`, so a
 PoS-only app never loads them; `isMaticjsError` from any entry still recognises
-them. Token handles come
+them. `sanitiseError` is exported there too: it returns a copy of an error with
+every RPC `token=` query parameter redacted, for logging an error that carries
+an RPC URL. Token handles come
 from `plasma.parent.erc20(address)` and `plasma.child.erc20(address)`, and the call
 shapes (`deposit(amount, userAddress)`, `startWithdraw(amount)`) match the PoS
 bridge's. The two handles are different types, `PlasmaParentERC20` and
 `PlasmaChildERC20`, each listing only the methods that can work on that chain, so
 calling a parent-only method on the child handle is a compile error rather than a
 failed transaction.
+
+A deposit runs on the parent chain: approve the `DepositManager`, then call
+`deposit(amount, userAddress)` on `plasma.parent.erc20(token)`. The spender is
+fixed, because a Plasma deposit pulls through the manager and not through a
+predicate, so `approve(amount)` and `approveMax()` take no spender. `getBalance`
+and `getAllowance` read what the holder has and what the manager may pull; each
+write has a `prepareXxx` sibling.
+
+```ts
+const token = plasma.parent.erc20(tokenAddress); // `plasma` as built below
+await (await token.approve(amount)).confirmed(); // or `token.approveMax()`
+await (await token.deposit(amount, userAddress)).confirmed();
+```
 
 A withdrawal has three steps, and the third waits out the exit period:
 
@@ -535,7 +550,8 @@ never read.
 >   node's estimate plus `PROCESS_EXITS_GAS_PER_EXIT` (350,000 gas) for every exit
 >   in the queue, capped at `MAX_PROCESS_EXITS_GAS_LIMIT` (16,000,000 gas), which
 >   keeps the transaction under Ethereum's per-transaction gas cap. Both constants
->   are exported from `@polygonlabs/maticjs/plasma`. A long queue is paid out over
+>   are exported from `@polygonlabs/maticjs/plasma`, as is
+>   `PRE_LOOP_GAS_ALLOWANCE` (see "Your own `gasLimit`" below). A long queue is paid out over
 >   several calls, because each call handles as many exits as its gas allows. A
 >   long queue also drives the default limit up toward that 16,000,000 cap, and
 >   the sending wallet must hold native balance for the full limit × `maxFeePerGas`
@@ -550,10 +566,11 @@ never read.
 >   `options.from` or the adapter's signer, so pass `{ from }` when the adapter has
 >   neither, and they reject with `ExitQueueEmptyError` when nothing is queued.
 > - **Your own `gasLimit`.** A limit you pass is used exactly as given, with one
->   exception: a limit too low for the contract's loop to start (below its
->   `ON_FINALIZE_GAS_LIMIT` reserve plus the call's own overhead) would succeed and
->   process nothing, so the SDK refuses it with `ExitGasLimitTooLowError` before
->   anything is sent. `info.minimum` on that error is the floor. Read it rather
+>   exception: a limit too low for the contract's loop to start (below the floor, the
+>   contract's `ON_FINALIZE_GAS_LIMIT` reserve plus `PRE_LOOP_GAS_ALLOWANCE`, 30,000
+>   gas for the call's own overhead) would succeed and process nothing, so the SDK
+>   refuses it with `ExitGasLimitTooLowError` before anything is sent.
+>   `info.minimum` on that error is the floor. Read it rather
 >   than hardcoding a number, because it follows the contract. The floor only
 >   rules out limits that can never work: a limit a little above it can still
 >   complete without processing anything, more so when you name several tokens.

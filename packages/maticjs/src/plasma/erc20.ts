@@ -11,7 +11,7 @@
  * reading the exit's status, is a parent-chain call.
  *
  * Each ABI is imported from its own module, never the ABI barrel, so the
- * entry-isolation gate can keep the Plasma ABIs out of the other entries.
+ * Plasma ABIs stay out of the other entries.
  */
 import type { Adapter, Hex, PreparedTx, TxResult } from '../adapter.js';
 import type { ContractCallerOptions } from '../internal/contract-caller.js';
@@ -395,7 +395,8 @@ export class PlasmaERC20 {
    * Confirm a burn: build its exit payload locally from RPC and queue the exit
    * through the burn-only predicate. Returns the transaction to pass as
    * `confirmTxHash` to `getWithdrawStatus`. The burn's block must already be
-   * checkpointed. Parent chain only.
+   * checkpointed. Send it from the account that made the burn; the predicate
+   * starts the exit only for that account. Parent chain only.
    */
   async confirmWithdraw(
     burnTxHash: string,
@@ -446,7 +447,8 @@ export class PlasmaERC20 {
    * Same as {@link confirmWithdraw} but takes the exit payload from the proof
    * API. Throws `ProofApiNotSetError` when the client was built without a
    * `proofGenerationApiUrl`; if the API is configured and then fails, the
-   * payload is built locally instead.
+   * payload is built locally instead. Send it from the account that made the
+   * burn; the predicate starts the exit only for that account.
    */
   async confirmWithdrawFast(
     burnTxHash: string,
