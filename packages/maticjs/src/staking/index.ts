@@ -18,6 +18,7 @@ export { splitSignature } from './permit.js';
 // imports them from the entry it already uses. Same classes as the root
 // entry's (one module), so `find` / `has` work across both imports.
 export {
+  AdapterResultMismatchError,
   AddressLookupError,
   BridgeEventDecodeFailedError,
   ConfirmationError,
@@ -41,6 +42,7 @@ export {
   rootCause
 } from '../errors.js';
 export type {
+  AdapterResultMismatchInfo,
   BridgeEventDecodeFailedInfo,
   ContractNotAvailableOnNetworkInfo,
   ErrorInfo,

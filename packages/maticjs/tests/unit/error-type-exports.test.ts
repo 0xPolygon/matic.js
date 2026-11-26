@@ -8,6 +8,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type {
+  AdapterResultMismatchInfo,
   BatchSizeLimitExceededInfo,
   BridgeEventDecodeFailedInfo,
   BufferTypeRequiredInfo,
@@ -47,6 +48,7 @@ import type {
   Web3ClientNotInitializedInfo
 } from '../../src/index.ts';
 import type {
+  AdapterResultMismatchInfo as PlasmaAdapterResultMismatchInfo,
   BridgeEventDecodeFailedInfo as PlasmaBridgeEventDecodeFailedInfo,
   BurnTxNotCheckpointedInfo as PlasmaBurnTxNotCheckpointedInfo,
   CheckpointRangeInvalidInfo as PlasmaCheckpointRangeInvalidInfo,
@@ -77,6 +79,7 @@ import type {
   UnsupportedNetworkInfo as PlasmaUnsupportedNetworkInfo
 } from '../../src/plasma/index.ts';
 import type {
+  AdapterResultMismatchInfo as StakingAdapterResultMismatchInfo,
   BridgeEventDecodeFailedInfo as StakingBridgeEventDecodeFailedInfo,
   ContractNotAvailableOnNetworkInfo as StakingContractNotAvailableOnNetworkInfo,
   ErrorInfo as StakingErrorInfo,
@@ -98,13 +101,16 @@ import type {
 } from '../../src/staking/index.ts';
 
 import {
+  AdapterResultMismatchError,
   FeeEstimationFailedError,
   MATICJS_ERROR_NAMES,
   TransactionNotFoundError,
   UnsupportedNetworkError,
   Web3ClientNotInitializedError
 } from '../../src/index.ts';
+import { AdapterResultMismatchError as PlasmaAdapterResultMismatchError } from '../../src/plasma/index.ts';
 import {
+  AdapterResultMismatchError as StakingAdapterResultMismatchError,
   FeeEstimationFailedError as StakingFeeEstimationFailedError,
   MATICJS_ERROR_NAMES as STAKING_MATICJS_ERROR_NAMES,
   TransactionNotFoundError as StakingTransactionNotFoundError,
@@ -113,6 +119,7 @@ import {
 } from '../../src/staking/index.ts';
 
 type Root = [
+  AdapterResultMismatchInfo,
   BatchSizeLimitExceededInfo,
   BridgeEventDecodeFailedInfo,
   BufferTypeRequiredInfo,
@@ -153,6 +160,7 @@ type Root = [
 ];
 
 type Staking = [
+  StakingAdapterResultMismatchInfo,
   StakingBridgeEventDecodeFailedInfo,
   StakingContractNotAvailableOnNetworkInfo,
   StakingErrorInfo,
@@ -174,6 +182,7 @@ type Staking = [
 ];
 
 type Plasma = [
+  PlasmaAdapterResultMismatchInfo,
   PlasmaBridgeEventDecodeFailedInfo,
   PlasmaBurnTxNotCheckpointedInfo,
   PlasmaCheckpointRangeInvalidInfo,
@@ -206,12 +215,19 @@ type Plasma = [
 
 describe('error type exports', () => {
   it('every info and option type is importable from the root, staking and plasma entries', () => {
-    const root: Root['length'] = 37;
-    const staking: Staking['length'] = 18;
-    const plasma: Plasma['length'] = 28;
-    expect(root).equals(37);
-    expect(staking).equals(18);
-    expect(plasma).equals(28);
+    const root: Root['length'] = 38;
+    const staking: Staking['length'] = 19;
+    const plasma: Plasma['length'] = 29;
+    expect(root).equals(38);
+    expect(staking).equals(19);
+    expect(plasma).equals(29);
+  });
+
+  // A staking or Plasma read can reject with this class, so its own entry
+  // exports it; it must be the root's class, or `has` / `find` would disagree.
+  it('AdapterResultMismatchError is the same class from the root, staking and plasma entries', () => {
+    expect(StakingAdapterResultMismatchError).equals(AdapterResultMismatchError);
+    expect(PlasmaAdapterResultMismatchError).equals(AdapterResultMismatchError);
   });
 
   // A staking write can raise these (chain guard, signer/provider checks,
