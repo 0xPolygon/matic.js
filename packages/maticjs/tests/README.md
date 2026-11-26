@@ -168,6 +168,10 @@ All of them run offline in the unit tier.
   rejects: a mistyped name, a wrong argument list or result type, a name typed
   as `string`. `caller-is-private` shows the clients build one caller per
   contract and expose none.
+- **Argument order** (`contract-argument-order`) pins that the public methods
+  whose parameters share a type (two addresses, two amounts) send them in the
+  order the contract's ABI names its inputs, which the compiler cannot see. Each
+  row gives every parameter a distinct value, so a swap fails exactly its row.
 - **Mismatch error** (`adapter-result-mismatch`) pins the
   `AdapterResultMismatchError` a read rejects with when an adapter's result
   does not match the ABI: its message for a custom adapter, its message for
