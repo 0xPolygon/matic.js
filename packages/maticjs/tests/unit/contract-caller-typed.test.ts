@@ -1,6 +1,3 @@
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
-
 import { describe, expect, it } from 'vitest';
 
 import type { Hex, PreparedTx, ReadRequest, TxResult, WriteRequest } from '../../src/adapter.ts';
@@ -16,10 +13,10 @@ import { OTHER, RecordingAdapter, RequestLog, rowsOf, USER } from './contract-ca
 
 /**
  * The caller is generic over its ABI and decodes every read, but the requests
- * it hands the adapter must not move. The expected requests here are read
- * from the committed request fixtures, which record what the 4.0 caller sent
- * for the same calls, so a change to what a typed call sends fails against
- * the old truth, not against a value recomputed from the new code.
+ * it hands the adapter must not move: the rows below are the 4.0 caller's
+ * requests for the token ABI, written out by hand so a change to what a typed
+ * call sends fails against a stated expectation, not a value recomputed from
+ * the code under test.
  */
 
 const TOKEN: Hex = '0x00000000000000000000000000000000000000c1';
@@ -35,15 +32,51 @@ const FULL_OPTIONS: ContractCallerOptions = {
   chainId: 1
 };
 
-/** The rows the fixture `name` records for the token ABI, in order. */
-const fixtureRows = ({ file, name }: { file: string; name: string }): RequestRow[] => {
-  const parsed: unknown = JSON.parse(
-    readFileSync(join(import.meta.dirname, '..', 'fixtures', 'contract-calls', file), 'utf8')
-  );
-  if (typeof parsed !== 'object' || parsed === null) throw new Error('fixture is not an object');
-  const rows: unknown = Reflect.get(parsed, name);
-  if (!Array.isArray(rows)) throw new Error(`fixture ${name} is not a list`);
-  return rows.filter((row: RequestRow) => row.contract === 'ChildERC20ABI');
+const stringArg = (value: string) => ({ type: 'string', value });
+const bigintArg = (n: bigint) => ({ type: 'bigint', value: { $bigint: n.toString() } });
+const APPROVE_ARGS = [stringArg(SPENDER), bigintArg(5n)];
+const ROW = { side: 'parent', contract: 'ChildERC20ABI', address: TOKEN } as const;
+
+const BALANCE_OF: RequestRow = {
+  ...ROW,
+  kind: 'read',
+  functionName: 'balanceOf',
+  args: [stringArg(USER)],
+  blockTag: null
+};
+const ESTIMATE_APPROVE: RequestRow = {
+  ...ROW,
+  kind: 'estimateGas',
+  functionName: 'approve',
+  args: APPROVE_ARGS
+};
+/** A write whose gas limit the caller took from the estimate (21000 + headroom, scaled). */
+const WRITE_APPROVE: RequestRow = {
+  ...ROW,
+  kind: 'write',
+  functionName: 'approve',
+  args: APPROVE_ARGS,
+  gasLimit: { $bigint: '24149' },
+  chainId: 1
+};
+const WRITE_APPROVE_EVERY_OPTION: RequestRow = {
+  ...ROW,
+  kind: 'write',
+  functionName: 'approve',
+  args: APPROVE_ARGS,
+  from: USER,
+  value: { $bigint: '11' },
+  gasLimit: { $bigint: '500000' },
+  maxFeePerGas: { $bigint: '30' },
+  maxPriorityFeePerGas: { $bigint: '2' },
+  nonce: 9,
+  chainId: 1
+};
+const PREPARE_APPROVE: RequestRow = {
+  ...ROW,
+  kind: 'prepareWrite',
+  functionName: 'approve',
+  args: APPROVE_ARGS
 };
 
 const world = ({ answers }: { answers?: Record<string, unknown> } = {}) => {
@@ -63,19 +96,15 @@ describe('requests are what the 4.0 caller sent, through each call shape', () =>
   it('read: the strict signature and the pinned block', async () => {
     const plain = world();
     await plain.caller.read('balanceOf', [USER]);
-    expect(rowsOf(plain.log)).deep.equal(
-      fixtureRows({ file: 'requests-pos.json', name: 'erc20.getBalance' })
-    );
+    expect(rowsOf(plain.log)).deep.equal([BALANCE_OF]);
 
     const pinned = world();
     await pinned.caller.read('balanceOf', [USER], { blockTag: 'finalized' });
-    expect(rowsOf(pinned.log)).deep.equal(
-      fixtureRows({ file: 'requests-pos.json', name: 'erc20.getBalance (pinned block)' })
-    );
+    expect(rowsOf(pinned.log)).deep.equal([{ ...BALANCE_OF, blockTag: 'finalized' }]);
   });
 
   it('write: estimate then send, by method name and by descriptor', async () => {
-    const expected = fixtureRows({ file: 'requests-pos.json', name: 'erc20.approve' });
+    const expected = [ESTIMATE_APPROVE, WRITE_APPROVE];
     const byName = world();
     await byName.caller.write('approve', [SPENDER, 5n]);
     const byDescriptor = world();
@@ -86,10 +115,7 @@ describe('requests are what the 4.0 caller sent, through each call shape', () =>
   });
 
   it('write: every option reaches the adapter, and a given gas limit skips the estimate', async () => {
-    const expected = fixtureRows({
-      file: 'requests-pos.json',
-      name: 'erc20.approve (every option)'
-    });
+    const expected = [WRITE_APPROVE_EVERY_OPTION];
     const byName = world();
     await byName.caller.write('approve', [SPENDER, 5n], FULL_OPTIONS);
     const byDescriptor = world();
@@ -116,7 +142,7 @@ describe('requests are what the 4.0 caller sent, through each call shape', () =>
   });
 
   it('prepareWrite: by method name and by descriptor', async () => {
-    const expected = fixtureRows({ file: 'requests-pos.json', name: 'erc20.prepareApprove' });
+    const expected = [PREPARE_APPROVE];
     const byName = world();
     await byName.caller.prepareWrite('approve', [SPENDER, 5n]);
     const byDescriptor = world();
@@ -125,9 +151,7 @@ describe('requests are what the 4.0 caller sent, through each call shape', () =>
     expect(rowsOf(byDescriptor.log)).deep.equal(expected);
   });
 
-  // No request fixture pins `from` or `value` on a prepared or estimated call, so the
-  // expectation here is the 4.0 behaviour written out: both pass through unchanged,
-  // and `from` falls back to the caller's default sender.
+  // `from` and `value` pass through unchanged, and `from` falls back to the caller's default sender.
   it('prepareWrite and estimateGas pass `from` and `value` through, with the default sender as fallback', async () => {
     const withOptions = world();
     await withOptions.caller.prepareWrite('approve', [SPENDER, 5n], { from: USER, value: 11n });
@@ -152,9 +176,7 @@ describe('requests are what the 4.0 caller sent, through each call shape', () =>
   });
 
   it('estimateGas: the same estimate request a write makes, with the multiplier applied', async () => {
-    const expected = fixtureRows({ file: 'requests-pos.json', name: 'erc20.approve' }).filter(
-      (row) => row.kind === 'estimateGas'
-    );
+    const expected = [ESTIMATE_APPROVE];
     const byName = world();
     expect(await byName.caller.estimateGas('approve', [SPENDER, 5n])).equal(24_149n);
     const byDescriptor = world();

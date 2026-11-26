@@ -24,13 +24,9 @@ import {
  * (`encodeParameters([amount], ['uint256'])`) and passes it as `depositAmount`.
  * The contract takes a `uint256`, so the adapter is handed an integer. The
  * table pins, for each shape of `depositAmount`, what the adapter receives (the
- * argument's type and value) and, through a real viem adapter over a stub node,
- * the calldata that reaches the node or the error the call ends in. A throw
+ * argument's type and value) and, for the shapes that fail, the error a real viem
+ * adapter over a stub node ends in. A throw
  * reads as the whole chain of error classes, outermost first.
- *
- * A row marked `changes when the amount is passed as an integer` is one whose
- * outcome is different once the gas swapper converts the string itself; every
- * other row must stay as it is.
  */
 
 const TOKEN: Hex = '0x00000000000000000000000000000000000000c1';
@@ -133,86 +129,68 @@ const gotInteger = (value: bigint): string =>
 /** A malformed amount is the SDK's own error, wrapped as every deposit failure is. */
 const MALFORMED = 'threw DepositError > InvalidHexStringError';
 
-/** The outcome line for a real viem adapter that sends this amount word. */
-const sendsWord = (word: string): string => `value calldata ${SELECTOR} amount ${word}`;
-
-const SELECTOR = '0x06921d28';
-
 interface AmountRow {
   shape: string;
   amount: string;
   /** What the adapter receives for the amount; identical for both entry points. */
   adapter: string;
-  /** What a real viem adapter sends or ends in; identical for both entry points. */
-  viem: string;
+  /**
+   * What a real viem adapter ends in, for the rows that end in an error; identical for both
+   * entry points. The calldata of a well-formed amount is checked on all three libraries in
+   * `bigint-argument-calldata.test.ts`.
+   */
+  viem?: string;
 }
 
 const ROWS: readonly AmountRow[] = [
   {
     shape: 'a 32-byte hex word',
     amount: WORD(5n),
-    // changes when the amount is passed as an integer
-    adapter: gotInteger(5n),
-    viem: sendsWord(WORD(5n).slice(2))
+    adapter: gotInteger(5n)
   },
   {
     shape: 'the largest uint256',
     amount: WORD(2n ** 256n - 1n),
-    // changes when the amount is passed as an integer
-    adapter: gotInteger(2n ** 256n - 1n),
-    viem: sendsWord('f'.repeat(64))
+    adapter: gotInteger(2n ** 256n - 1n)
   },
   {
     shape: 'a hex wider than 32 bytes',
     amount: `0x01${'00'.repeat(32)}`,
-    // changes when the amount is passed as an integer
     adapter: gotInteger(2n ** 256n),
     viem: 'threw IntegerOutOfRangeError'
   },
   {
     shape: 'a short hex',
     amount: '0x05',
-    // changes when the amount is passed as an integer
-    adapter: gotInteger(5n),
-    viem: sendsWord(WORD(5n).slice(2))
+    adapter: gotInteger(5n)
   },
   {
     shape: 'an odd-length hex',
     amount: '0x123',
-    // changes when the amount is passed as an integer
-    adapter: gotInteger(0x123n),
-    viem: sendsWord(WORD(0x123n).slice(2))
+    adapter: gotInteger(0x123n)
   },
   {
     shape: 'not hex',
     amount: 'abc',
-    // changes when the amount is passed as an integer
     adapter: MALFORMED,
-    // changes when the amount is passed as an integer
     viem: MALFORMED
   },
   {
     shape: 'an empty string',
     amount: '',
-    // changes when the amount is passed as an integer
     adapter: MALFORMED,
-    // changes when the amount is passed as an integer
     viem: MALFORMED
   },
   {
     shape: 'a bare 0x',
     amount: '0x',
-    // changes when the amount is passed as an integer
     adapter: MALFORMED,
-    // changes when the amount is passed as an integer
     viem: MALFORMED
   },
   {
     shape: 'a decimal string',
     amount: '5',
-    // changes when the amount is passed as an integer
     adapter: MALFORMED,
-    // changes when the amount is passed as an integer
     viem: MALFORMED
   }
 ];
@@ -224,7 +202,9 @@ describe('GasSwapper deposit amount', () => {
     for (const method of METHODS) {
       it(`${method}: ${row.shape}`, async () => {
         expect(await adapterReceives({ method, amount: row.amount })).equals(row.adapter);
-        expect(await viemSends({ method, amount: row.amount })).equals(row.viem);
+        if (row.viem !== undefined) {
+          expect(await viemSends({ method, amount: row.amount })).equals(row.viem);
+        }
       });
     }
   }
