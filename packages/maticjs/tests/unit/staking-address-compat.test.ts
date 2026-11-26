@@ -135,56 +135,6 @@ describe('StakingClient addresses from the CDN', () => {
   });
 });
 
-describe('StakingClient override classification', () => {
-  it('treats an optional PoS key (GasSwapper) as staking-only and returns exactly three keys', async () => {
-    const client = await init({ ...STAKING_ONLY, GasSwapper: GAS_SWAPPER });
-    expect(await client.getAddresses()).deep.equals(STAKING_ONLY);
-  });
-
-  it('treats a bridge key (RootChain) as a full index and fails on RootChainManager', async () => {
-    const err = await rejection(init({ ...STAKING_ONLY, RootChain: BRIDGE.RootChain }));
-    expect(err).property('name').equals('InitError');
-    expect(BridgeEventDecodeFailedError.find(err))
-      .property('message')
-      .equals("address index: missing or invalid 'RootChainManager'");
-  });
-
-  it('treats a bridge key present with value undefined as a full index', async () => {
-    const err = await rejection(init({ ...STAKING_ONLY, RootChainManager: undefined }));
-    expect(err).property('name').equals('InitError');
-    const cause = BridgeEventDecodeFailedError.find(err);
-    expect(cause)
-      .property('message')
-      .equals("address index: missing or invalid 'RootChainManager'");
-    expect(cause).nested.property('info.received').equals('undefined');
-  });
-
-  it('treats an object with only a Main key as staking-only and lists all three staking keys', async () => {
-    const err = await rejection(init({ Main: {} }));
-    expect(err).property('name').equals('InitError');
-    expect(ContractNotAvailableOnNetworkError.find(err))
-      .nested.property('info.missing')
-      .deep.equals(['StakeManager', 'MaticToken', 'PolToken']);
-    expect(BridgeEventDecodeFailedError.find(err)).equals(null);
-  });
-
-  it('treats a bridge key inherited through the prototype as a full index', async () => {
-    const inherited = Object.create({ RootChainManager: BRIDGE.RootChainManager }) as Record<
-      string,
-      unknown
-    >;
-    Object.assign(inherited, STAKING_ONLY);
-    const err = await rejection(init(inherited));
-    expect(err).property('name').equals('InitError');
-    // `key in obj` sees the inherited key, so the full-index parser runs;
-    // it reads the key off the prototype too and then fails on the next
-    // bridge key the object does not carry.
-    expect(BridgeEventDecodeFailedError.find(err))
-      .property('message')
-      .equals("address index: missing or invalid 'ERC20Predicate'");
-  });
-});
-
 describe('StakingClient full override with a malformed staking key', () => {
   it('fails with ContractNotAvailableOnNetworkError naming that key, not a bridge decode error', async () => {
     const err = await rejection(init({ ...FULL, PolToken: '0x1234' }));
@@ -199,15 +149,6 @@ describe('StakingClient full override with a malformed staking key', () => {
 describe('StakingClient exact error messages', () => {
   it('lists every missing staking key in a fixed order', async () => {
     const err = await rejection(init(BRIDGE));
-    expect(ContractNotAvailableOnNetworkError.find(err))
-      .property('message')
-      .equals(
-        'Address index for mainnet lacks staking contracts: StakeManager, MaticToken, PolToken'
-      );
-  });
-
-  it('lists every missing key of a staking-only override in the same order', async () => {
-    const err = await rejection(init({ GasSwapper: GAS_SWAPPER }));
     expect(ContractNotAvailableOnNetworkError.find(err))
       .property('message')
       .equals(

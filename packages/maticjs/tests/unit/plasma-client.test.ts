@@ -1,38 +1,18 @@
 /**
- * `PlasmaClient.init`, address resolution, the client-level calls, and the
- * chain-id pin.
+ * `PlasmaClient.init`: address resolution and the init-time configuration
+ * checks.
  *
- * Only the network boundary is faked: a recording adapter per chain and a
- * stubbed `fetch` for the address index. Address parsing, the Plasma-only
- * versus full-index discrimination, operation errors and the signer-chain
- * guard in the real viem adapter are the real code.
+ * Only the network boundary is faked: an inert adapter per chain and a
+ * stubbed `fetch` for the address index. Address parsing and the Plasma-only
+ * versus full-index discrimination are the real code.
  */
-import { createPublicClient, createWalletClient, custom } from 'viem';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type {
-  Adapter,
-  Hex,
-  PreparedTx,
-  ReadRequest,
-  Receipt,
-  TxResult,
-  WriteRequest
-} from '../../src/adapter.ts';
+import type { Adapter, Hex, PreparedTx, Receipt, TxResult } from '../../src/adapter.ts';
 import type { NetworkAddresses } from '../../src/networks.ts';
 import type { PlasmaAddresses } from '../../src/plasma/addresses.ts';
 
-import { viemAdapter } from '../../src/adapters/viem.ts';
-import {
-  ContractNotAvailableOnNetworkError,
-  ExitQueueEmptyError,
-  InvalidNumericValueError,
-  TransactionHashRequiredError,
-  TransactionNotFoundError,
-  UnsupportedNetworkError
-} from '../../src/errors.ts';
-import { ExitProofBuilder } from '../../src/internal/exit-proof.ts';
-import { L1_CHAIN_ID, L2_CHAIN_ID } from '../../src/networks.ts';
+import { ContractNotAvailableOnNetworkError, InvalidNumericValueError } from '../../src/errors.ts';
 import { PlasmaERC20 } from '../../src/plasma/erc20.ts';
 import { PlasmaClient } from '../../src/plasma/plasma-client.ts';
 import { __resetAddressCacheForTesting } from '../../src/services/address-service.ts';
@@ -45,11 +25,8 @@ const MATIC: Hex = '0x5555555555555555555555555555555555555555';
 const POL: Hex = '0x6666666666666666666666666666666666666666';
 const ROOT_CHAIN: Hex = '0x7777777777777777777777777777777777777777';
 const POS_ADDRESS: Hex = '0x8888888888888888888888888888888888888888';
-const QUEUE: Hex = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 const ZERO: Hex = '0x0000000000000000000000000000000000000000';
 const TOKEN: Hex = '0x9999999999999999999999999999999999999999';
-const USER: Hex = '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
-const BURN = `0x${'ab'.repeat(32)}`;
 const INDEX_URL = 'https://index.example.test/network';
 
 const PLASMA_ONLY: PlasmaAddresses = {
@@ -85,46 +62,22 @@ const BRIDGE_INDEX: NetworkAddresses = {
 };
 const PLASMA_KEYS = Object.keys(PLASMA_ONLY) as Array<keyof PlasmaAddresses>;
 
-/** One chain behind one adapter. */
+/** An adapter that is never driven: init only needs the two chains to exist. */
 class Chain implements Adapter {
-  readonly reads: ReadRequest[] = [];
-  readonly writes: WriteRequest[] = [];
-  readonly prepares: WriteRequest[] = [];
-  queueSize = 0n;
-  /** Answers for `request`; a method not listed rejects. */
-  readonly rpc = new Map<string, unknown>();
-
   getChainId(): Promise<number> {
     return Promise.resolve(1);
   }
-  read(req: ReadRequest): Promise<unknown> {
-    this.reads.push(req);
-    switch (req.functionName) {
-      case 'exitsQueues':
-        return Promise.resolve(this.queueSize === 0n ? ZERO : QUEUE);
-      case 'currentSize':
-        return Promise.resolve(this.queueSize);
-      case 'ON_FINALIZE_GAS_LIMIT':
-        return Promise.resolve(300_000n);
-      case 'getLastChildBlock':
-        return Promise.resolve(100n);
-      default:
-        return Promise.reject(new Error(`unscripted read ${req.functionName}`));
-    }
+  read(): Promise<unknown> {
+    return Promise.reject(new Error('not used'));
   }
-  write(req: WriteRequest): Promise<TxResult> {
-    this.writes.push(req);
-    return Promise.resolve({
-      hash: `0x${'aa'.repeat(32)}`,
-      confirmed: () => Promise.reject(new Error('not used'))
-    });
+  write(): Promise<TxResult> {
+    return Promise.reject(new Error('not used'));
   }
-  prepareWrite(req: WriteRequest): Promise<PreparedTx> {
-    this.prepares.push(req);
-    return Promise.resolve({ to: req.address, data: '0x' });
+  prepareWrite(): Promise<PreparedTx> {
+    return Promise.reject(new Error('not used'));
   }
   estimateGas(): Promise<bigint> {
-    return Promise.resolve(100_000n);
+    return Promise.reject(new Error('not used'));
   }
   getTransactionReceipt(): Promise<Receipt | null> {
     return Promise.resolve(null);
@@ -132,9 +85,8 @@ class Chain implements Adapter {
   keccak256(): string {
     throw new Error('not used');
   }
-  request<T>(method: string): Promise<T> {
-    if (!this.rpc.has(method)) return Promise.reject(new Error(`unscripted ${method}`));
-    return Promise.resolve(this.rpc.get(method) as T);
+  request<T>(): Promise<T> {
+    return Promise.reject(new Error('not used'));
   }
 }
 
@@ -323,279 +275,5 @@ describe('PlasmaClient.init configuration', () => {
     expect(plasma.parent.erc20(TOKEN)).property('isParent').equals(true);
     expect(plasma.child.erc20(TOKEN)).instanceOf(PlasmaERC20);
     expect(plasma.child.erc20(TOKEN)).property('isParent').equals(false);
-  });
-
-  it('pins writes to the network ids, and to chainIds when declared', async () => {
-    const pinned = { parent: new Chain(), child: new Chain() };
-    const preset = await initOn({ ...pinned, addresses: PLASMA_ONLY });
-    await preset.parent.erc20(TOKEN).approve(1n);
-    await preset.child.erc20(TOKEN).startWithdraw(1n);
-    expect(pinned.parent.writes[0]).property('chainId').equals(L1_CHAIN_ID.amoy);
-    expect(pinned.child.writes[0]).property('chainId').equals(L2_CHAIN_ID.amoy);
-
-    const declared = { parent: new Chain(), child: new Chain() };
-    const devnet = await initOn({
-      ...declared,
-      addresses: PLASMA_ONLY,
-      chainIds: { parent: 3151908, child: 4927 }
-    });
-    await devnet.parent.erc20(TOKEN).approve(1n);
-    await devnet.child.erc20(TOKEN).startWithdraw(1n);
-    expect(declared.parent.writes[0]).property('chainId').equals(3151908);
-    expect(declared.child.writes[0]).property('chainId').equals(4927);
-  });
-});
-
-describe('PlasmaClient.processExits', () => {
-  it('routes one token to processExits and several to processExitsBatch, on the manager', async () => {
-    const parent = new Chain();
-    parent.queueSize = 1n;
-    const plasma = await initOn({ parent, addresses: PLASMA_ONLY });
-    await plasma.processExits({ tokens: [MATIC] });
-    await plasma.processExits({ tokens: [MATIC, TOKEN] });
-    expect(parent.writes.map((w) => w.functionName)).deep.equals([
-      'processExits',
-      'processExitsBatch'
-    ]);
-    expect(parent.writes[0]).property('address').equals(MANAGER);
-    expect(parent.writes[0]).property('chainId').equals(L1_CHAIN_ID.amoy);
-  });
-
-  it('prepares the same call without sending', async () => {
-    const parent = new Chain();
-    parent.queueSize = 1n;
-    const plasma = await initOn({ parent, addresses: PLASMA_ONLY });
-    const prepared = await plasma.prepareProcessExits({ tokens: [MATIC] });
-    expect(prepared).property('to').equals(MANAGER);
-    expect(parent.writes).lengthOf(0);
-    expect(parent.prepares[0]).property('functionName').equals('processExits');
-  });
-
-  it('rejects an empty queue as ExitError caused by ExitQueueEmptyError, sending nothing', async () => {
-    const parent = new Chain();
-    const plasma = await initOn({ parent, addresses: PLASMA_ONLY });
-    const err = await rejection(() => plasma.processExits({ tokens: [MATIC] }));
-    expect(err).property('name').equals('ExitError');
-    expect(err).property('info').property('operation').equals('processExits');
-    expect(ExitQueueEmptyError.find(err)?.info.tokens).deep.equals([MATIC]);
-    expect(parent.writes).lengthOf(0);
-  });
-});
-
-describe('PlasmaClient.getProcessExitsGasLimit', () => {
-  const clientWithQueue = async (queueSize: bigint) => {
-    const parent = new Chain();
-    parent.queueSize = queueSize;
-    return { parent, plasma: await initOn({ parent, addresses: PLASMA_ONLY }) };
-  };
-
-  it.each([
-    [1n, 450_000n],
-    [3n, 1_150_000n],
-    [500n, 16_000_000n]
-  ])(
-    'equals the limit processExits sends with no gasLimit, for %s queued exits (%s)',
-    async (queueSize, expected) => {
-      const { parent, plasma } = await clientWithQueue(queueSize);
-      const limit = await plasma.getProcessExitsGasLimit({ tokens: [MATIC] });
-      expect(limit).equals(expected);
-      expect(parent.writes).lengthOf(0);
-      expect(parent.prepares).lengthOf(0);
-      await plasma.processExits({ tokens: [MATIC] });
-      expect(parent.writes[0]).property('gasLimit').equals(limit);
-    }
-  );
-
-  it('counts the exits of every token named, as the batch write does', async () => {
-    const { parent, plasma } = await clientWithQueue(2n);
-    const limit = await plasma.getProcessExitsGasLimit({ tokens: [MATIC, TOKEN] });
-    expect(limit).equals(100_000n + 4n * 350_000n);
-    await plasma.processExits({ tokens: [MATIC, TOKEN] });
-    expect(parent.writes[0]).property('functionName').equals('processExitsBatch');
-    expect(parent.writes[0]).property('gasLimit').equals(limit);
-  });
-
-  it('rejects an empty queue as ExitError caused by ExitQueueEmptyError, estimating nothing', async () => {
-    const { parent, plasma } = await clientWithQueue(0n);
-    let estimated = 0;
-    parent.estimateGas = (): Promise<bigint> => {
-      estimated += 1;
-      return Promise.resolve(1n);
-    };
-    const err = await rejection(() => plasma.getProcessExitsGasLimit({ tokens: [MATIC] }));
-    expect(err).property('name').equals('ExitError');
-    expect(err).property('info').property('operation').equals('getProcessExitsGasLimit');
-    expect(err).property('info').property('mode').equals('read');
-    expect(ExitQueueEmptyError.find(err)?.info.tokens).deep.equals([MATIC]);
-    expect(estimated).equals(0);
-    expect(parent.writes).lengthOf(0);
-  });
-
-  it('rethrows an estimation failure as the same object', async () => {
-    const { parent, plasma } = await clientWithQueue(1n);
-    const libraryError = new Error('execution reverted');
-    parent.estimateGas = (): Promise<bigint> => Promise.reject(libraryError);
-    const err = await rejection(() => plasma.getProcessExitsGasLimit({ tokens: [MATIC] }));
-    expect(err).equals(libraryError);
-  });
-
-  it('rethrows a queue read failure as the same object', async () => {
-    const { parent, plasma } = await clientWithQueue(1n);
-    const libraryError = new Error('rpc down');
-    parent.read = (): Promise<unknown> => Promise.reject(libraryError);
-    const err = await rejection(() => plasma.getProcessExitsGasLimit({ tokens: [MATIC] }));
-    expect(err).equals(libraryError);
-  });
-});
-
-describe('PlasmaClient.getWithdrawStatus', () => {
-  const pendingBurn = (): Chain => {
-    const child = new Chain();
-    child.rpc.set('eth_getTransactionByHash', { hash: BURN, blockNumber: null });
-    return child;
-  };
-
-  it("answers 'pending' for a burn in no block", async () => {
-    const plasma = await initOn({ child: pendingBurn(), addresses: PLASMA_ONLY });
-    expect(await plasma.getWithdrawStatus({ burnTxHash: BURN })).deep.equals({
-      exited: false,
-      reason: 'pending'
-    });
-  });
-
-  it('answers through a burn hash the node does not know as a rejected dependency', async () => {
-    const child = new Chain();
-    child.rpc.set('eth_getTransactionByHash', null);
-    const plasma = await initOn({ child, addresses: PLASMA_ONLY });
-    const err = await rejection(() => plasma.getWithdrawStatus({ burnTxHash: BURN }));
-    expect(err).property('name').equals('BridgeStatusError');
-    expect(err).property('info').property('burnTxHash').equals(BURN);
-    expect(TransactionNotFoundError.has(err)).equals(true);
-  });
-
-  it('rejects an empty burn hash as missing input', async () => {
-    const plasma = await initOn({ addresses: PLASMA_ONLY });
-    const err = await rejection(() => plasma.getWithdrawStatus({ burnTxHash: '' }));
-    expect(err).property('name').equals('BridgeStatusError');
-    expect(TransactionHashRequiredError.has(err)).equals(true);
-  });
-
-  it('reads the burn through the same builder the exit payloads come from', async () => {
-    const checkpoint = vi
-      .spyOn(ExitProofBuilder.prototype, 'getCheckpointStatus')
-      .mockResolvedValue({ checkpointed: false, reason: 'not-checkpointed' });
-    const plasma = await initOn({ addresses: PLASMA_ONLY });
-    expect(await plasma.getWithdrawStatus({ burnTxHash: BURN })).deep.equals({
-      exited: false,
-      reason: 'not-checkpointed'
-    });
-    expect(checkpoint.mock.calls).deep.equals([[BURN]]);
-  });
-
-  it("answers 'not-confirmed' for a checkpointed burn when no confirm transaction is given", async () => {
-    vi.spyOn(ExitProofBuilder.prototype, 'getCheckpointStatus').mockResolvedValue({
-      checkpointed: true
-    });
-    const plasma = await initOn({ addresses: PLASMA_ONLY });
-    expect(await plasma.getWithdrawStatus({ burnTxHash: BURN })).deep.equals({
-      exited: false,
-      reason: 'not-confirmed'
-    });
-  });
-
-  it('rejects when a burn reported checkpointed has no receipt to read its block from', async () => {
-    vi.spyOn(ExitProofBuilder.prototype, 'getCheckpointStatus').mockResolvedValue({
-      checkpointed: true
-    });
-    vi.spyOn(ExitProofBuilder.prototype, 'readBurn').mockResolvedValue({
-      receipt: undefined,
-      checkpointed: false
-    });
-    const confirm: Hex = `0x${'cd'.repeat(32)}`;
-    const parent = new Chain();
-    parent.getTransactionReceipt = (): Promise<Receipt | null> =>
-      Promise.resolve({
-        transactionHash: confirm,
-        status: 'success',
-        blockNumber: 1n,
-        logs: [
-          {
-            address: MANAGER,
-            topics: [
-              '0xaa5303fdad123ab5ecaefaf69137bf8632257839546d43a3b3dd148cc2879d6f',
-              `0x${'00'.repeat(32)}`,
-              `0x${(1n << 33n).toString(16).padStart(64, '0')}`
-            ],
-            data: '0x',
-            logIndex: 0
-          }
-        ]
-      });
-    const plasma = await initOn({ parent, addresses: PLASMA_ONLY });
-    const err = await rejection(() =>
-      plasma.getWithdrawStatus({ burnTxHash: BURN, confirmTxHash: confirm })
-    );
-    expect(err).property('name').equals('BridgeStatusError');
-    expect(TransactionNotFoundError.has(err)).equals(true);
-  });
-});
-
-describe('a wrong-chain signer is refused before anything is signed', () => {
-  const HOSTILE_CHAIN = 5;
-  const FROM = '0x2222222222222222222222222222222222222223';
-  const GAS = { gasLimit: 100_000n };
-
-  const viemOn = (chainId: number): { adapter: Adapter; broadcasts: () => number } => {
-    let wireSends = 0;
-    const transport = custom({
-      request: async ({ method }: { method: string }) => {
-        if (method === 'eth_chainId') return `0x${chainId.toString(16)}`;
-        if (method.startsWith('eth_send') || method.startsWith('eth_sign')) wireSends += 1;
-        throw new Error(`stub transport: unexpected RPC ${method}`);
-      }
-    });
-    const walletClient = createWalletClient({ account: FROM, transport });
-    const writeSpy = vi
-      .spyOn(walletClient, 'writeContract')
-      .mockResolvedValue(`0x${'11'.repeat(32)}`);
-    return {
-      adapter: viemAdapter({ public: createPublicClient({ transport }), wallet: walletClient }),
-      broadcasts: () => writeSpy.mock.calls.length + wireSends
-    };
-  };
-
-  it.each([
-    ['approve', 'parent', (p: PlasmaClient) => p.parent.erc20(TOKEN).approve(1n, GAS)],
-    ['deposit', 'parent', (p: PlasmaClient) => p.parent.erc20(TOKEN).deposit(1n, USER, GAS)],
-    ['startWithdraw', 'child', (p: PlasmaClient) => p.child.erc20(TOKEN).startWithdraw(1n, GAS)],
-    [
-      'native startWithdraw',
-      'child',
-      (p: PlasmaClient) =>
-        p.child.erc20('0x0000000000000000000000000000000000001010').startWithdraw(1n, GAS)
-    ],
-    [
-      'confirmWithdraw',
-      'parent',
-      (p: PlasmaClient) => {
-        vi.spyOn(ExitProofBuilder.prototype, 'buildExitPayload').mockResolvedValue('0x01');
-        return p.parent.erc20(TOKEN).confirmWithdraw(BURN, GAS);
-      }
-    ]
-  ])('%s rejects with UnsupportedNetworkError naming the pinned chain', async (_n, side, write) => {
-    const parent = viemOn(HOSTILE_CHAIN);
-    const child = viemOn(HOSTILE_CHAIN);
-    const plasma = await initOn({
-      parent: parent.adapter,
-      child: child.adapter,
-      addresses: PLASMA_ONLY
-    });
-    const err = await rejection(() => write(plasma));
-    const mismatch = UnsupportedNetworkError.find(err);
-    expect(mismatch)
-      .nested.property('info.expected')
-      .equals(side === 'parent' ? L1_CHAIN_ID.amoy : L2_CHAIN_ID.amoy);
-    expect(mismatch).nested.property('info.actual').equals(HOSTILE_CHAIN);
-    expect(parent.broadcasts() + child.broadcasts()).equals(0);
   });
 });

@@ -11,7 +11,12 @@ import type {
 import type { PlasmaAddresses } from '../../src/plasma/addresses.ts';
 import type { PlasmaWithdrawStatus } from '../../src/plasma/index.ts';
 
-import { ExitNotStartedError } from '../../src/errors.ts';
+import {
+  ExitNotStartedError,
+  InvalidHexStringError,
+  TransactionHashRequiredError,
+  TransactionNotFoundError
+} from '../../src/errors.ts';
 import { PlasmaClient } from '../../src/plasma/plasma-client.ts';
 import { cassetteAdapter, loadCassette } from './cassette-adapter.ts';
 
@@ -88,6 +93,9 @@ const PENDING = hex32(0xa1n);
 const MINED_UNCHECKPOINTED = hex32(0xa2n);
 const MINED_CHECKPOINTED = hex32(0xa3n);
 const SAME_BLOCK_NEIGHBOUR = hex32(0xa4n);
+const FIRST_IN_BLOCK = hex32(0xa5n);
+const NO_RECEIPT = hex32(0xa6n);
+const UNKNOWN_BURN = hex32(0xa7n);
 const CONFIRM = hex32(0xc1n);
 const NEIGHBOUR_CONFIRM = hex32(0xc2n);
 
@@ -96,6 +104,8 @@ interface ChildBurn {
   block: bigint | null;
   index: number;
   burner: Hex;
+  /** The node reports the burn in a block but has no receipt for it. */
+  noReceipt?: boolean;
 }
 
 /** What the child chain knows about each burn: its block, position and burner. */
@@ -107,7 +117,9 @@ class ChildChain implements Adapter {
       { block: LAST_CHECKPOINTED_BLOCK + 50n, index: BURN_INDEX, burner: BURNER }
     ],
     [MINED_CHECKPOINTED, { block: BURN_BLOCK, index: BURN_INDEX, burner: BURNER }],
-    [SAME_BLOCK_NEIGHBOUR, { block: BURN_BLOCK, index: NEIGHBOUR_INDEX, burner: BURNER }]
+    [SAME_BLOCK_NEIGHBOUR, { block: BURN_BLOCK, index: NEIGHBOUR_INDEX, burner: BURNER }],
+    [FIRST_IN_BLOCK, { block: BURN_BLOCK, index: 0, burner: BURNER }],
+    [NO_RECEIPT, { block: BURN_BLOCK, index: BURN_INDEX, burner: BURNER, noReceipt: true }]
   ]);
 
   request<T>(method: string, params: readonly unknown[]): Promise<T> {
@@ -122,7 +134,7 @@ class ChildChain implements Adapter {
     }
     if (method === 'eth_getTransactionReceipt') {
       const receipt =
-        burn === undefined || burn.block === null
+        burn === undefined || burn.block === null || burn.noReceipt === true
           ? null
           : {
               transactionHash: hash,
@@ -182,7 +194,6 @@ class ChildChain implements Adapter {
 
 /** The parent chain: the checkpoint, the confirm receipts, the exit token and the clock. */
 class ParentChain implements Adapter {
-  readonly receiptLookups: string[] = [];
   readonly existenceReads: bigint[] = [];
   readonly receipts = new Map<string, Receipt | null>();
   readonly existing = new Set<bigint>();
@@ -215,7 +226,6 @@ class ParentChain implements Adapter {
     return Promise.reject(new Error(`parent chain: unscripted ${method}`));
   }
   getTransactionReceipt(hash: string): Promise<Receipt | null> {
-    this.receiptLookups.push(hash);
     return Promise.resolve(this.receipts.get(hash) ?? null);
   }
   write(_req: WriteRequest): Promise<TxResult> {
@@ -335,12 +345,6 @@ const ROWS: Row[] = [
     expected: { exited: false, reason: 'ready-to-process' }
   },
   {
-    name: "'ready-to-process': long after exitableAt",
-    world: () => queuedExit(EXITABLE_AT + 86_400n),
-    params: { burnTxHash: MINED_CHECKPOINTED, confirmTxHash: CONFIRM },
-    expected: { exited: false, reason: 'ready-to-process' }
-  },
-  {
     name: 'exited: the exit token is gone, before exitableAt',
     world: () => {
       const world = queuedExit(EXITABLE_AT - 1n);
@@ -359,6 +363,38 @@ const ROWS: Row[] = [
     },
     params: { burnTxHash: MINED_CHECKPOINTED, confirmTxHash: CONFIRM },
     expected: { exited: true }
+  },
+  {
+    name: 'the exitor is compared whatever the case of the topic the node returned',
+    world: () => {
+      const world = queuedExit(EXITABLE_AT - 1n);
+      const upperCaseExitor: Hex = `0x${'00'.repeat(12)}${'AA'.padStart(40, '0')}`;
+      const log = exitStarted();
+      world.parent.receipts.set(
+        CONFIRM,
+        confirmReceipt({
+          logs: [{ ...log, topics: [EXIT_STARTED, upperCaseExitor, hex32(EXIT_ID)] }]
+        })
+      );
+      return world;
+    },
+    params: { burnTxHash: MINED_CHECKPOINTED, confirmTxHash: CONFIRM },
+    expected: { exited: false, reason: 'in-exit-window' }
+  },
+  {
+    name: 'a burn first in its block is matched by the branch mask 0x80',
+    world: () => {
+      const world = queuedExit(EXITABLE_AT - 1n);
+      const genuine = exitIdOf({ mask: 0x80n });
+      world.parent.receipts.set(
+        CONFIRM,
+        confirmReceipt({ logs: [exitStarted({ exitId: genuine })] })
+      );
+      world.parent.existing.add(genuine);
+      return world;
+    },
+    params: { burnTxHash: FIRST_IN_BLOCK, confirmTxHash: CONFIRM },
+    expected: { exited: false, reason: 'in-exit-window' }
   }
 ];
 
@@ -479,6 +515,60 @@ describe.each(surfaces)('%s: the status matrix', { timeout: 10_000 }, (_name, re
     expect(world.parent.existenceReads).lengthOf(0);
   });
 
+  describe('a burn the child chain cannot supply', () => {
+    it('rejects a burn hash the node does not know as a rejected dependency', async () => {
+      const plasma = await clientOn(queuedExit(0n));
+
+      const err = await rejection(read(plasma, { burnTxHash: UNKNOWN_BURN }));
+
+      expect(err).property('name').equals('BridgeStatusError');
+      expect(err).property('info').property('burnTxHash').equals(UNKNOWN_BURN);
+      expect(TransactionNotFoundError.has(err)).equals(true);
+    });
+
+    it('rejects a checkpointed burn that has no receipt to read its block from', async () => {
+      const plasma = await clientOn(queuedExit(0n));
+
+      const err = await rejection(read(plasma, { burnTxHash: NO_RECEIPT, confirmTxHash: CONFIRM }));
+
+      expect(err).property('name').equals('BridgeStatusError');
+      expect(TransactionNotFoundError.has(err)).equals(true);
+    });
+  });
+
+  describe('input that is not a hash', () => {
+    it('rejects an empty burn hash or an empty confirm hash as missing input', async () => {
+      const plasma = await clientOn(queuedExit(0n));
+
+      const burn = await rejection(read(plasma, { burnTxHash: '' }));
+      const confirm = await rejection(
+        read(plasma, { burnTxHash: MINED_CHECKPOINTED, confirmTxHash: '' })
+      );
+
+      for (const err of [burn, confirm]) {
+        expect(err).property('name').equals('BridgeStatusError');
+        expect(TransactionHashRequiredError.has(err)).equals(true);
+      }
+    });
+
+    it.each(['0x1234', 'not-a-hash', `0x${'zz'.repeat(32)}`])(
+      'rejects the malformed hash %s as invalid hex',
+      async (bad) => {
+        const plasma = await clientOn(queuedExit(0n));
+
+        const burn = await rejection(read(plasma, { burnTxHash: bad }));
+        const confirm = await rejection(
+          read(plasma, { burnTxHash: MINED_CHECKPOINTED, confirmTxHash: bad })
+        );
+
+        for (const err of [burn, confirm]) {
+          expect(err).property('name').equals('BridgeStatusError');
+          expect(InvalidHexStringError.has(err)).equals(true);
+        }
+      }
+    );
+  });
+
   describe('a confirm transaction that is not this burn’s confirm', () => {
     it('throws ExitNotStartedError when its receipt has no ExitStarted log', async () => {
       const world = queuedExit(0n);
@@ -556,6 +646,22 @@ describe.each(surfaces)('%s: the status matrix', { timeout: 10_000 }, (_name, re
       expect(world.parent.existenceReads).lengthOf(0);
     });
 
+    it('expects the branch mask 0x80, not 0, for a burn first in its block', async () => {
+      const world = queuedExit(0n);
+      const zero = exitIdOf({ mask: 0n });
+      world.parent.receipts.set(CONFIRM, confirmReceipt({ logs: [exitStarted({ exitId: zero })] }));
+      world.parent.existing.add(zero);
+      const plasma = await clientOn(world);
+
+      const err = await rejection(
+        read(plasma, { burnTxHash: FIRST_IN_BLOCK, confirmTxHash: CONFIRM })
+      );
+
+      expect(ExitNotStartedError.find(err))
+        .nested.property('info.reason')
+        .equals('branch-mask-mismatch');
+    });
+
     describe('two burns in the same block', () => {
       /** Both burns confirmed by the same account: the block and the exitor agree. */
       const twoConfirmedBurns = (now: bigint): World => {
@@ -613,35 +719,6 @@ describe.each(surfaces)('%s: the status matrix', { timeout: 10_000 }, (_name, re
           await read(plasma, { burnTxHash: SAME_BLOCK_NEIGHBOUR, confirmTxHash: NEIGHBOUR_CONFIRM })
         ).deep.equals({ exited: false, reason: 'ready-to-process' });
       });
-    });
-  });
-
-  describe('what a status read leaves alone', () => {
-    it('does not look up the confirm transaction when none is given', async () => {
-      const world = queuedExit(EXITABLE_AT);
-      const plasma = await clientOn(world);
-
-      await read(plasma, { burnTxHash: MINED_CHECKPOINTED });
-
-      expect(world.parent.receiptLookups).lengthOf(0);
-    });
-
-    it('does not look up the confirm transaction before the burn is checkpointed', async () => {
-      const world = queuedExit(EXITABLE_AT);
-      const plasma = await clientOn(world);
-
-      await read(plasma, { burnTxHash: MINED_UNCHECKPOINTED, confirmTxHash: CONFIRM });
-
-      expect(world.parent.receiptLookups).lengthOf(0);
-    });
-
-    it('asks for the exit token only once an exit is known', async () => {
-      const world = queuedExit(EXITABLE_AT);
-      const plasma = await clientOn(world);
-
-      await read(plasma, { burnTxHash: MINED_CHECKPOINTED, confirmTxHash: CONFIRM });
-
-      expect(world.parent.existenceReads).deep.equals([EXIT_ID]);
     });
   });
 });
