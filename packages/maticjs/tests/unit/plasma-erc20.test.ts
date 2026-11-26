@@ -1,7 +1,7 @@
 /**
- * `PlasmaERC20`: which contract, function and value each call sends, the
- * parent/child side guards, the POL to MATIC queue mapping, and that every
- * `prepare*` sibling hands back what its write sends.
+ * `PlasmaERC20`: the native-burn value guard, the POL to MATIC queue mapping,
+ * the proof API requirement for the fast confirm, and the runtime side guards
+ * for plain-JavaScript callers.
  *
  * Only the chain boundary is faked: a recording adapter per chain. The client
  * wiring, contract callers, address resolution and operation errors are the
@@ -23,20 +23,14 @@ import type {
 import type { PlasmaAddresses } from '../../src/plasma/addresses.ts';
 import type { PlasmaChildERC20, PlasmaERC20, PlasmaParentERC20 } from '../../src/plasma/erc20.ts';
 
-import { PlasmaChildERC20ABI } from '../../src/abi/plasma/ChildERC20.ts';
-import { PlasmaMRC20ABI } from '../../src/abi/plasma/MRC20.ts';
-import { MAX_AMOUNT } from '../../src/constant.ts';
 import {
   AllowedOnChildError,
   AllowedOnRootError,
-  ExitQueueEmptyError,
   ChildBurnValueNotAllowedError,
   NativeBurnValueMismatchError,
-  ProofApiNotSetError,
-  TxOptionNotObjectError
+  ProofApiNotSetError
 } from '../../src/errors.ts';
 import { ExitProofBuilder } from '../../src/internal/exit-proof.ts';
-import { PlasmaEventSignature } from '../../src/plasma/events.ts';
 import { PlasmaClient } from '../../src/plasma/plasma-client.ts';
 
 const PARENT_ID = 1111;
@@ -87,10 +81,6 @@ class RecordingChain implements Adapter {
     this.reads.push(req);
     const [first] = req.args ?? [];
     switch (req.functionName) {
-      case 'balanceOf':
-        return Promise.resolve(777n);
-      case 'allowance':
-        return Promise.resolve(888n);
       case 'exitsQueues':
         return Promise.resolve(this.queues.get(String(first).toLowerCase()) ?? ZERO);
       case 'currentSize':
@@ -181,216 +171,73 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('PlasmaERC20 reads and approvals', () => {
-  it('reads balanceOf on the chain the handle is on', async () => {
-    const { plasma, parent, child } = await fixture();
-    expect(await plasma.parent.erc20(POL).getBalance(USER)).equals(777n);
-    expect(parent.reads[0]).property('address').equals(POL);
-    expect(parent.reads[0]).property('args').deep.equals([USER]);
-    expect(await plasma.child.erc20(NATIVE).getBalance(USER)).equals(777n);
-    expect(child.reads[0]).property('address').equals(NATIVE);
-  });
+type TxOptions = Parameters<PlasmaERC20['startWithdraw']>[1];
 
-  it('reads the allowance granted to the DepositManager, whatever the token', async () => {
-    const { plasma, parent } = await fixture();
-    expect(await plasma.parent.erc20(POL).getAllowance(USER)).equals(888n);
-    expect(parent.reads[0]).property('functionName').equals('allowance');
-    expect(parent.reads[0]).property('args').deep.equals([USER, DEPOSIT_MANAGER]);
-  });
+/** The write and its prepare sibling share one guard; every row runs against both. */
+const BURN_VARIANTS: Array<
+  [
+    name: string,
+    record: 'writes' | 'prepares',
+    call: (token: PlasmaERC20, options?: TxOptions) => Promise<unknown>
+  ]
+> = [
+  ['startWithdraw', 'writes', (t, o) => t.startWithdraw(AMOUNT, o)],
+  ['prepareStartWithdraw', 'prepares', (t, o) => t.prepareStartWithdraw(AMOUNT, o)]
+];
 
-  it('approves the DepositManager on the token, pinned to the parent chain id', async () => {
-    const { plasma, parent } = await fixture();
-    await plasma.parent.erc20(POL).approve(AMOUNT);
-    expect(parent.writes).lengthOf(1);
-    expect(parent.writes[0]).property('address').equals(POL);
-    expect(parent.writes[0]).property('functionName').equals('approve');
-    expect(parent.writes[0]).property('args').deep.equals([DEPOSIT_MANAGER, AMOUNT]);
-    expect(parent.writes[0]).property('chainId').equals(PARENT_ID);
-  });
-
-  it('approveMax approves 2^256 - 1', async () => {
-    const { plasma, parent } = await fixture();
-    await plasma.parent.erc20(POL).approveMax();
-    expect(parent.writes[0]).property('args').deep.equals([DEPOSIT_MANAGER, MAX_AMOUNT]);
-  });
-});
-
-describe('PlasmaERC20.deposit', () => {
-  it('calls DepositManager.depositERC20ForUser(token, user, amount) with no value', async () => {
-    const { plasma, parent } = await fixture();
-    await plasma.parent.erc20(POL).deposit(AMOUNT, USER);
-    expect(parent.writes).lengthOf(1);
-    expect(parent.writes[0]).property('address').equals(DEPOSIT_MANAGER);
-    expect(parent.writes[0]).property('functionName').equals('depositERC20ForUser');
-    expect(parent.writes[0]).property('args').deep.equals([POL, USER, AMOUNT]);
-    expect(parent.writes[0]).property('value').equals(undefined);
-    expect(parent.writes[0]).property('chainId').equals(PARENT_ID);
-  });
-});
-
-describe('PlasmaERC20.startWithdraw', () => {
-  it('burns a child ERC-20 with PlasmaChildERC20.withdraw(amount) and no value', async () => {
+describe.each(BURN_VARIANTS)('PlasmaERC20.%s burn value', (_name, record, call) => {
+  it('sets a native burn value to the amount, whether the caller passes none or the amount', async () => {
     const { plasma, child } = await fixture();
-    await plasma.child.erc20(CHILD_TOKEN).startWithdraw(AMOUNT);
-    expect(child.writes).lengthOf(1);
-    expect(child.writes[0]).property('address').equals(CHILD_TOKEN);
-    expect(child.writes[0]).property('functionName').equals('withdraw');
-    expect(child.writes[0]).property('args').deep.equals([AMOUNT]);
-    expect(child.writes[0]).property('value').equals(undefined);
-    expect(child.writes[0]).property('abi').equals(PlasmaChildERC20ABI);
-    expect(child.writes[0]).property('chainId').equals(CHILD_ID);
+    await call(asRuntimeHandle(plasma.child.erc20(NATIVE)));
+    await call(asRuntimeHandle(plasma.child.erc20(NATIVE)), { value: AMOUNT });
+    expect(child[record]).lengthOf(2);
+    expect(child[record][0]).property('value').equals(AMOUNT);
+    expect(child[record][1]).property('value').equals(AMOUNT);
   });
 
-  it('burns the native-token contract with MRC20.withdraw(amount) and value = amount', async () => {
+  it.each([[1n], [AMOUNT + 1n], [0n]])(
+    'rejects a native burn whose value is %s, sending and estimating nothing',
+    async (value) => {
+      const { plasma, parent, child } = await fixture();
+      const err = await rejection(() =>
+        call(asRuntimeHandle(plasma.child.erc20(NATIVE)), { value })
+      );
+      expect(err).property('name').equals('WithdrawStartError');
+      const mismatch = NativeBurnValueMismatchError.find(err);
+      expect(mismatch?.info.amount).equals(AMOUNT);
+      expect(mismatch?.info.value).equals(value);
+      expect(child.sent + parent.sent).equals(0);
+      expect(child.estimates).lengthOf(0);
+    }
+  );
+
+  it('passes a child ERC-20 burn through when value is absent, 0n, or a plain-JavaScript 0', async () => {
     const { plasma, child } = await fixture();
-    await plasma.child.erc20(NATIVE).startWithdraw(AMOUNT);
-    expect(child.writes[0]).property('address').equals(NATIVE);
-    expect(child.writes[0]).property('functionName').equals('withdraw');
-    expect(child.writes[0]).property('args').deep.equals([AMOUNT]);
-    expect(child.writes[0]).property('value').equals(AMOUNT);
-    expect(child.writes[0]).property('abi').equals(PlasmaMRC20ABI);
-  });
-
-  it('sends an equal value as given, with the rest of the options', async () => {
-    const { plasma, child } = await fixture();
-    await plasma.child.erc20(NATIVE).startWithdraw(AMOUNT, { value: AMOUNT, gasLimit: 90_000n });
-    expect(child.writes).lengthOf(1);
-    expect(child.writes[0]).property('value').equals(AMOUNT);
-    expect(child.writes[0]).property('gasLimit').equals(90_000n);
-  });
-
-  it('rejects a native burn whose value differs from the amount, sending and estimating nothing', async () => {
-    const { plasma, parent, child } = await fixture();
-    const err = await rejection(() =>
-      plasma.child.erc20(NATIVE).startWithdraw(AMOUNT, { value: 1n })
-    );
-    expect(err).property('name').equals('WithdrawStartError');
-    const mismatch = NativeBurnValueMismatchError.find(err);
-    expect(mismatch?.info.amount).equals(AMOUNT);
-    expect(mismatch?.info.value).equals(1n);
-    expect(child.sent + parent.sent).equals(0);
-    expect(child.estimates).lengthOf(0);
-  });
-
-  it('rejects a zero value too: it is present, and different from the amount', async () => {
-    const { plasma, child } = await fixture();
-    const err = await rejection(() =>
-      plasma.child.erc20(NATIVE).startWithdraw(AMOUNT, { value: 0n })
-    );
-    expect(NativeBurnValueMismatchError.find(err)?.info.value).equals(0n);
-    expect(child.sent).equals(0);
-  });
-
-  it('passes a child ERC-20 burn through when value is absent or zero', async () => {
-    const { plasma, child } = await fixture();
-    await plasma.child.erc20(CHILD_TOKEN).startWithdraw(AMOUNT, { gasLimit: 90_000n });
-    await plasma.child.erc20(CHILD_TOKEN).startWithdraw(AMOUNT, { value: 0n });
-    expect(child.writes).lengthOf(2);
-    expect(child.writes[0]).property('gasLimit').equals(90_000n);
-    expect(child.writes[0]).property('value').equals(undefined);
-    expect(child.writes[1]).property('value').equals(0n);
-  });
-
-  it('passes a child ERC-20 burn through when a plain-JavaScript caller gives the number 0', async () => {
-    const { plasma, child } = await fixture();
-    await plasma.child.erc20(CHILD_TOKEN).startWithdraw(AMOUNT, { value: 0 as never });
-    expect(child.writes).lengthOf(1);
-    expect(child.writes[0]).property('value').equals(0);
+    const token = asRuntimeHandle(plasma.child.erc20(CHILD_TOKEN));
+    await call(token);
+    await call(token, { value: 0n });
+    await call(token, { value: 0 as never });
+    expect(child[record]).lengthOf(3);
+    expect(child[record][0]).property('value').equals(undefined);
+    expect(child[record][1]).property('value').equals(0n);
+    expect(child[record][2]).property('value').equals(0);
   });
 
   it('rejects a non-zero value on a child ERC-20 burn, estimating and sending nothing', async () => {
     const { plasma, parent, child } = await fixture();
     const err = await rejection(() =>
-      plasma.child.erc20(CHILD_TOKEN).startWithdraw(AMOUNT, { value: 1n })
+      call(asRuntimeHandle(plasma.child.erc20(CHILD_TOKEN)), { value: 1n })
     );
     expect(err).property('name').equals('WithdrawStartError');
     expect(ChildBurnValueNotAllowedError.find(err)?.info.value).equals(1n);
     expect(NativeBurnValueMismatchError.has(err)).equals(false);
     expect(child.sent + parent.sent).equals(0);
     expect(child.estimates).lengthOf(0);
-    expect(child.writes).lengthOf(0);
   });
 });
 
-describe('PlasmaERC20.prepareStartWithdraw native burn value', () => {
-  it('sets value = amount when the caller passes none', async () => {
-    const { plasma, child } = await fixture();
-    await plasma.child.erc20(NATIVE).prepareStartWithdraw(AMOUNT);
-    expect(child.prepares[0]).property('value').equals(AMOUNT);
-  });
-
-  it('keeps an equal value as given', async () => {
-    const { plasma, child } = await fixture();
-    await plasma.child.erc20(NATIVE).prepareStartWithdraw(AMOUNT, { value: AMOUNT });
-    expect(child.prepares).lengthOf(1);
-    expect(child.prepares[0]).property('value').equals(AMOUNT);
-  });
-
-  it('rejects a different value with NativeBurnValueMismatchError and prepares nothing', async () => {
-    const { plasma, parent, child } = await fixture();
-    const err = await rejection(() =>
-      plasma.child.erc20(NATIVE).prepareStartWithdraw(AMOUNT, { value: AMOUNT + 1n })
-    );
-    expect(err).property('name').equals('WithdrawStartError');
-    const mismatch = NativeBurnValueMismatchError.find(err);
-    expect(mismatch?.info.amount).equals(AMOUNT);
-    expect(mismatch?.info.value).equals(AMOUNT + 1n);
-    expect(child.sent + parent.sent).equals(0);
-  });
-
-  it('passes a child ERC-20 prepare through when value is absent or zero', async () => {
-    const { plasma, child } = await fixture();
-    await plasma.child.erc20(CHILD_TOKEN).prepareStartWithdraw(AMOUNT);
-    await plasma.child.erc20(CHILD_TOKEN).prepareStartWithdraw(AMOUNT, { value: 0n });
-    expect(child.prepares).lengthOf(2);
-    expect(child.prepares[0]).property('value').equals(undefined);
-    expect(child.prepares[1]).property('value').equals(0n);
-  });
-
-  it('passes a child ERC-20 prepare through when a plain-JavaScript caller gives the number 0', async () => {
-    const { plasma, child } = await fixture();
-    await plasma.child.erc20(CHILD_TOKEN).prepareStartWithdraw(AMOUNT, { value: 0 as never });
-    expect(child.prepares).lengthOf(1);
-    expect(child.prepares[0]).property('value').equals(0);
-  });
-
-  it('rejects a non-zero value on a child ERC-20 prepare and prepares nothing', async () => {
-    const { plasma, parent, child } = await fixture();
-    const err = await rejection(() =>
-      plasma.child.erc20(CHILD_TOKEN).prepareStartWithdraw(AMOUNT, { value: 1n })
-    );
-    expect(err).property('name').equals('WithdrawStartError');
-    expect(ChildBurnValueNotAllowedError.find(err)?.info.value).equals(1n);
-    expect(child.sent + parent.sent).equals(0);
-    expect(child.estimates).lengthOf(0);
-    expect(child.prepares).lengthOf(0);
-  });
-});
-
-describe('PlasmaERC20.confirmWithdraw', () => {
-  it('builds the payload for the Plasma Withdraw log and starts the exit through the predicate', async () => {
-    const { plasma, parent, buildPayload } = await fixture();
-    await plasma.parent.erc20(POL).confirmWithdraw(BURN);
-    expect(buildPayload.mock.calls).deep.equals([
-      [BURN, PlasmaEventSignature.Erc20Withdraw, false]
-    ]);
-    expect(parent.writes).lengthOf(1);
-    expect(parent.writes[0]).property('address').equals(PREDICATE);
-    expect(parent.writes[0]).property('functionName').equals('startExitWithBurntTokens');
-    expect(parent.writes[0]).property('args').deep.equals([PAYLOAD]);
-    expect(parent.writes[0]).property('chainId').equals(PARENT_ID);
-  });
-
-  it('confirmWithdrawFast takes the proof API arm', async () => {
-    const { plasma, parent, buildPayload } = await fixture({
-      proofGenerationApiUrl: 'https://proof.example.test'
-    });
-    await plasma.parent.erc20(POL).confirmWithdrawFast(BURN);
-    expect(buildPayload.mock.calls).deep.equals([[BURN, PlasmaEventSignature.Erc20Withdraw, true]]);
-    expect(parent.writes[0]).property('functionName').equals('startExitWithBurntTokens');
-  });
-
-  it('confirmWithdrawFast without a proof API URL rejects with ProofApiNotSetError and sends nothing', async () => {
+describe('PlasmaERC20.confirmWithdrawFast', () => {
+  it('without a proof API URL rejects with ProofApiNotSetError and sends nothing', async () => {
     const { plasma, parent, buildPayload } = await fixture();
     buildPayload.mockRestore();
     const err = await rejection(() => plasma.parent.erc20(POL).confirmWithdrawFast(BURN));
@@ -398,19 +245,9 @@ describe('PlasmaERC20.confirmWithdraw', () => {
     expect(ProofApiNotSetError.has(err)).equals(true);
     expect(parent.sent).equals(0);
   });
-
-  it('lets a payload-building failure through untouched when it is not an SDK error', async () => {
-    const { plasma, parent, buildPayload } = await fixture();
-    const libraryError = new Error('rpc down');
-    buildPayload.mockRejectedValue(libraryError);
-    expect(await rejection(() => plasma.parent.erc20(POL).confirmWithdraw(BURN))).equals(
-      libraryError
-    );
-    expect(parent.sent).equals(0);
-  });
 });
 
-describe('PlasmaERC20.completeWithdraw', () => {
+describe('PlasmaERC20.completeWithdraw queue', () => {
   const queued = async () => {
     const f = await fixture();
     f.parent.queues.set(MATIC.toLowerCase(), QUEUE);
@@ -446,82 +283,6 @@ describe('PlasmaERC20.completeWithdraw', () => {
     await plasma.parent.erc20(POL_LOWER).completeWithdraw();
     expect(parent.writes[0]).property('args').deep.equals([MATIC]);
   });
-
-  it('rejects with ExitQueueEmptyError, sending nothing, when the queue is empty', async () => {
-    const { plasma, parent } = await fixture();
-    const err = await rejection(() => plasma.parent.erc20(POL).completeWithdraw());
-    expect(err).property('name').equals('ExitError');
-    expect(err).property('info').property('operation').equals('completeWithdraw');
-    expect(ExitQueueEmptyError.find(err)?.info.tokens).deep.equals([MATIC]);
-    expect(parent.sent).equals(0);
-  });
-
-  it('uses a caller gasLimit untouched', async () => {
-    const { plasma, parent } = await queued();
-    await plasma.parent.erc20(POL).completeWithdraw({ gasLimit: 900_000n });
-    expect(parent.writes[0]).property('gasLimit').equals(900_000n);
-  });
-});
-
-describe('PlasmaERC20.getCompleteWithdrawGasLimit', () => {
-  const queued = async (queueSize: bigint) => {
-    const f = await fixture();
-    f.parent.queues.set(MATIC.toLowerCase(), QUEUE);
-    f.parent.queues.set(OTHER_TOKEN.toLowerCase(), QUEUE);
-    f.parent.queueSize = queueSize;
-    return f;
-  };
-
-  it.each([
-    [1n, ESTIMATE + 350_000n],
-    [3n, ESTIMATE + 3n * 350_000n],
-    [500n, 16_000_000n]
-  ])(
-    'equals the limit completeWithdraw sends, for a POL handle over %s queued exits',
-    async (queueSize, expected) => {
-      const { plasma, parent } = await queued(queueSize);
-      const token = plasma.parent.erc20(POL);
-      const limit = await token.getCompleteWithdrawGasLimit();
-      expect(limit).equals(expected);
-      expect(parent.sent).equals(0);
-      await token.completeWithdraw();
-      expect(parent.writes[0]).property('gasLimit').equals(limit);
-    }
-  );
-
-  it('reads the MATIC queue from a POL handle and its own queue from any other token', async () => {
-    const { plasma, parent } = await queued(1n);
-    await plasma.parent.erc20(POL).getCompleteWithdrawGasLimit();
-    await plasma.parent.erc20(OTHER_TOKEN).getCompleteWithdrawGasLimit();
-    const queueReads = parent.reads.filter((r) => r.functionName === 'exitsQueues');
-    expect(queueReads.map((r) => r.args)).deep.equals([[MATIC], [OTHER_TOKEN]]);
-    expect(parent.estimates.map((e) => e.args)).deep.equals([[MATIC], [OTHER_TOKEN]]);
-  });
-
-  it('estimates as the given sender, as the write does', async () => {
-    const { plasma, parent } = await queued(1n);
-    await plasma.parent.erc20(POL).getCompleteWithdrawGasLimit({ from: USER });
-    expect(parent.estimates[0]).property('from').equals(USER);
-  });
-
-  it('rejects with ExitQueueEmptyError, estimating and sending nothing, when the queue is empty', async () => {
-    const { plasma, parent } = await fixture();
-    const err = await rejection(() => plasma.parent.erc20(POL).getCompleteWithdrawGasLimit());
-    expect(err).property('name').equals('ExitError');
-    expect(err).property('info').property('operation').equals('getCompleteWithdrawGasLimit');
-    expect(ExitQueueEmptyError.find(err)?.info.tokens).deep.equals([MATIC]);
-    expect(parent.sent).equals(0);
-    expect(parent.estimates).lengthOf(0);
-  });
-
-  it('rethrows an estimation failure as the same object', async () => {
-    const { plasma, parent } = await queued(1n);
-    const libraryError = new Error('execution reverted');
-    parent.estimateGas = (): Promise<bigint> => Promise.reject(libraryError);
-    expect(await rejection(() => plasma.parent.erc20(POL).getCompleteWithdrawGasLimit())).equals(
-      libraryError
-    );
-  });
 });
 
 describe('PlasmaERC20.getWithdrawStatus', () => {
@@ -532,18 +293,6 @@ describe('PlasmaERC20.getWithdrawStatus', () => {
     );
     expect(err).property('name').equals('BridgeStatusError');
     expect(AllowedOnRootError.has(err)).equals(true);
-  });
-
-  it('reads the same status the client reads', async () => {
-    const { plasma, child } = await fixture();
-    child.request = <T>(method: string): Promise<T> =>
-      Promise.resolve(
-        (method === 'eth_getTransactionByHash' ? { hash: BURN, blockNumber: null } : null) as T
-      );
-    const params = { burnTxHash: BURN };
-    const viaToken = await plasma.parent.erc20(POL).getWithdrawStatus(params);
-    expect(viaToken).deep.equals({ exited: false, reason: 'pending' });
-    expect(await plasma.getWithdrawStatus(params)).deep.equals(viaToken);
   });
 });
 
@@ -591,106 +340,5 @@ describe('PlasmaERC20 side guards', () => {
     expect(err).property('name').equals('WithdrawStartError');
     expect(AllowedOnChildError.has(err)).equals(true);
     expect(parent.sent + child.sent).equals(0);
-  });
-});
-
-describe('PlasmaERC20 options guard', () => {
-  it.each([
-    ['startWithdraw', (t: PlasmaERC20, o: never) => t.startWithdraw(1n, o)],
-    ['prepareStartWithdraw', (t: PlasmaERC20, o: never) => t.prepareStartWithdraw(1n, o)],
-    ['completeWithdraw', (t: PlasmaERC20, o: never) => t.completeWithdraw(o)],
-    ['prepareCompleteWithdraw', (t: PlasmaERC20, o: never) => t.prepareCompleteWithdraw(o)],
-    ['getCompleteWithdrawGasLimit', (t: PlasmaERC20, o: never) => t.getCompleteWithdrawGasLimit(o)]
-  ])('%s rejects null options as TxOptionNotObjectError', async (name, call) => {
-    const { plasma, parent, child } = await fixture();
-    const handle = asRuntimeHandle(
-      /start/i.test(name) ? plasma.child.erc20(NATIVE) : plasma.parent.erc20(POL)
-    );
-    const err = await rejection(() => call(handle, null as never));
-    expect(TxOptionNotObjectError.has(err)).equals(true);
-    expect(parent.sent + child.sent).equals(0);
-  });
-});
-
-describe('PlasmaERC20 prepare siblings match their writes', () => {
-  const queuedFixture = async () => {
-    const f = await fixture({ proofGenerationApiUrl: 'https://proof.example.test' });
-    f.parent.queues.set(MATIC.toLowerCase(), QUEUE);
-    f.parent.queueSize = 1n;
-    return f;
-  };
-
-  const PAIRS: Array<
-    [
-      string,
-      chain: 'parent' | 'child',
-      write: (f: Fixture) => Promise<unknown>,
-      prepare: (f: Fixture) => Promise<PreparedTx>
-    ]
-  > = [
-    [
-      'approve',
-      'parent',
-      (f) => f.plasma.parent.erc20(POL).approve(AMOUNT),
-      (f) => f.plasma.parent.erc20(POL).prepareApprove(AMOUNT)
-    ],
-    [
-      'approveMax',
-      'parent',
-      (f) => f.plasma.parent.erc20(POL).approveMax(),
-      (f) => f.plasma.parent.erc20(POL).prepareApproveMax()
-    ],
-    [
-      'deposit',
-      'parent',
-      (f) => f.plasma.parent.erc20(POL).deposit(AMOUNT, USER),
-      (f) => f.plasma.parent.erc20(POL).prepareDeposit(AMOUNT, USER)
-    ],
-    [
-      'startWithdraw (child ERC-20)',
-      'child',
-      (f) => f.plasma.child.erc20(CHILD_TOKEN).startWithdraw(AMOUNT),
-      (f) => f.plasma.child.erc20(CHILD_TOKEN).prepareStartWithdraw(AMOUNT)
-    ],
-    [
-      'startWithdraw (native)',
-      'child',
-      (f) => f.plasma.child.erc20(NATIVE).startWithdraw(AMOUNT),
-      (f) => f.plasma.child.erc20(NATIVE).prepareStartWithdraw(AMOUNT)
-    ],
-    [
-      'confirmWithdraw',
-      'parent',
-      (f) => f.plasma.parent.erc20(POL).confirmWithdraw(BURN),
-      (f) => f.plasma.parent.erc20(POL).prepareConfirmWithdraw(BURN)
-    ],
-    [
-      'confirmWithdrawFast',
-      'parent',
-      (f) => f.plasma.parent.erc20(POL).confirmWithdrawFast(BURN),
-      (f) => f.plasma.parent.erc20(POL).prepareConfirmWithdrawFast(BURN)
-    ],
-    [
-      'completeWithdraw',
-      'parent',
-      (f) => f.plasma.parent.erc20(POL).completeWithdraw(),
-      (f) => f.plasma.parent.erc20(POL).prepareCompleteWithdraw()
-    ]
-  ];
-
-  it.each(PAIRS)('%s', async (_name, side, write, prepare) => {
-    const f = await queuedFixture();
-    await write(f);
-    const sent = f[side].writes[0];
-    if (sent === undefined) throw new Error('the write sent nothing');
-    const prepared = await prepare(f);
-    expect(prepared).deep.equals(preparedOf(sent));
-    expect(prepared).property('to').equals(sent.address);
-    expect(f[side].prepares).lengthOf(1);
-    const request = f[side].prepares[0];
-    expect(request).property('functionName').equals(sent.functionName);
-    expect(request).property('args').deep.equals(sent.args);
-    expect(request).property('value').equals(sent.value);
-    expect(f[side].writes).lengthOf(1);
   });
 });

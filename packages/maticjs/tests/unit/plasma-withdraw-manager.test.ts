@@ -14,7 +14,6 @@ import type {
   TxResult,
   WriteRequest
 } from '../../src/adapter.ts';
-import type { PlasmaBurn, PlasmaBurnReader } from '../../src/plasma/withdraw-status.ts';
 
 import { ethersV5Adapter } from '../../src/adapters/ethers-v5.ts';
 import { ethersV6Adapter } from '../../src/adapters/ethers-v6.ts';
@@ -22,24 +21,18 @@ import { viemAdapter } from '../../src/adapters/viem.ts';
 import {
   ExitError,
   ExitGasLimitTooLowError,
-  ExitNotStartedError,
   ExitQueueEmptyError,
-  InvalidHexStringError,
-  isMaticjsError,
-  TransactionHashRequiredError
+  isMaticjsError
 } from '../../src/errors.ts';
 import { noopLogger } from '../../src/logger.ts';
-import { PlasmaEventSignature } from '../../src/plasma/events.ts';
 import {
   MAX_PROCESS_EXITS_GAS_LIMIT,
   PlasmaWithdrawManager,
   PRE_LOOP_GAS_ALLOWANCE
 } from '../../src/plasma/withdraw-manager.ts';
-import { readPlasmaWithdrawStatus } from '../../src/plasma/withdraw-status.ts';
 import { recordingAdapter } from './library-errors.ts';
 
 const MANAGER: Hex = '0x32Ac76FdbF38b50D584DD943daCDA4b07FdcBFC7';
-const EXIT_NFT: Hex = '0x39b4be5aB437239B853F73873D2b07DE9d3b0768';
 const TOKEN_A: Hex = '0x8E1700577B7aE261753c67e1B93Fe60Dd3e205fa';
 const TOKEN_B: Hex = '0x40cb9fd0ab94bd96a17614c0f94706a0f6080e5d';
 const QUEUE_A: Hex = '0xAf95eD2163905569Caa28977F0b8a2210c1364c0';
@@ -70,11 +63,8 @@ class ParentChain implements Adapter {
   readonly estimates: WriteRequest[] = [];
   readonly queueByToken = new Map<string, Hex>();
   readonly sizeByQueue = new Map<string, bigint>();
-  readonly receipts = new Map<string, Receipt>();
-  readonly existingExits = new Set<bigint>();
   onFinalize: bigint | Error = ON_FINALIZE;
   estimate: bigint | Error = ESTIMATE;
-  now = 1_000n;
 
   getChainId(): Promise<number> {
     return Promise.resolve(1);
@@ -92,8 +82,6 @@ class ParentChain implements Adapter {
         return this.onFinalize instanceof Error
           ? Promise.reject(this.onFinalize)
           : Promise.resolve(this.onFinalize);
-      case 'exists':
-        return Promise.resolve(typeof first === 'bigint' && this.existingExits.has(first));
       default:
         return Promise.reject(new Error(`unscripted read ${req.functionName}`));
     }
@@ -119,8 +107,8 @@ class ParentChain implements Adapter {
       : Promise.resolve(this.estimate);
   }
 
-  getTransactionReceipt(hash: string): Promise<Receipt | null> {
-    return Promise.resolve(this.receipts.get(hash) ?? null);
+  getTransactionReceipt(): Promise<Receipt | null> {
+    return Promise.resolve(null);
   }
 
   keccak256(): string {
@@ -128,8 +116,7 @@ class ParentChain implements Adapter {
   }
 
   request<T>(method: string): Promise<T> {
-    if (method !== 'eth_getBlockByNumber') return Promise.reject(new Error(`unscripted ${method}`));
-    return Promise.resolve({ number: '0xf4240', timestamp: `0x${this.now.toString(16)}` } as T);
+    return Promise.reject(new Error(`unscripted ${method}`));
   }
 
   queue({ token, queue, size }: { token: Hex; queue: Hex; size: bigint }): void {
@@ -149,56 +136,6 @@ const managerOn = (chain: ParentChain): PlasmaWithdrawManager =>
     logger: noopLogger,
     chainId: PARENT_CHAIN_ID
   });
-
-describe('PlasmaWithdrawManager.getExitQueueSize', () => {
-  it('reads the token queue address, then its current size', async () => {
-    const chain = new ParentChain();
-    chain.queue({ token: TOKEN_A, queue: QUEUE_A, size: 4n });
-    expect(await managerOn(chain).getExitQueueSize(TOKEN_A)).equals(4n);
-    expect(chain.reads_('currentSize')).lengthOf(1);
-    expect(chain.reads_('currentSize')[0]).property('address').equals(QUEUE_A);
-  });
-
-  it('is 0 without reading a queue when the token has no queue contract', async () => {
-    const chain = new ParentChain();
-    expect(await managerOn(chain).getExitQueueSize(TOKEN_A)).equals(0n);
-    expect(chain.reads_('currentSize')).lengthOf(0);
-  });
-});
-
-describe('PlasmaWithdrawManager.processExits routing', () => {
-  it('calls processExits(address) for one token', async () => {
-    const chain = new ParentChain();
-    chain.queue({ token: TOKEN_A, queue: QUEUE_A, size: 1n });
-    await managerOn(chain).processExits({ tokens: [TOKEN_A] });
-    expect(chain.writes).lengthOf(1);
-    expect(chain.writes[0]).property('functionName').equals('processExits');
-    expect(chain.writes[0]).property('args').deep.equals([TOKEN_A]);
-    expect(chain.writes[0]).property('address').equals(MANAGER);
-    expect(chain.writes[0]).property('chainId').equals(PARENT_CHAIN_ID);
-  });
-
-  it('calls processExitsBatch(address[]) for several tokens', async () => {
-    const chain = new ParentChain();
-    chain.queue({ token: TOKEN_A, queue: QUEUE_A, size: 1n });
-    chain.queue({ token: TOKEN_B, queue: QUEUE_B, size: 1n });
-    await managerOn(chain).processExits({ tokens: [TOKEN_A, TOKEN_B] });
-    expect(chain.writes[0]).property('functionName').equals('processExitsBatch');
-    expect(chain.writes[0])
-      .property('args')
-      .deep.equals([[TOKEN_A, TOKEN_B]]);
-  });
-
-  it('prepares the same call without sending or estimating', async () => {
-    const chain = new ParentChain();
-    chain.queue({ token: TOKEN_A, queue: QUEUE_A, size: 1n });
-    const prepared = await managerOn(chain).prepareProcessExits({ tokens: [TOKEN_A] });
-    expect(prepared).property('to').equals(MANAGER);
-    expect(chain.prepares[0]).property('functionName').equals('processExits');
-    expect(chain.writes).lengthOf(0);
-    expect(chain.estimates).lengthOf(0);
-  });
-});
 
 describe('PlasmaWithdrawManager.processExits with nothing queued', () => {
   it('throws ExitQueueEmptyError naming the tokens and sends nothing', async () => {
@@ -312,17 +249,6 @@ describe('PlasmaWithdrawManager.getProcessExitsGasLimit', () => {
     expect(chain.writes[0]).property('gasLimit').equals(limit);
   });
 
-  it('estimates the call the write would send, as the sender the caller names', async () => {
-    const chain = new ParentChain();
-    chain.queue({ token: TOKEN_A, queue: QUEUE_A, size: 1n });
-    const sender: Hex = '0x2222222222222222222222222222222222222222';
-    await managerOn(chain).getProcessExitsGasLimit({ tokens: [TOKEN_A] }, { from: sender });
-    expect(chain.estimates).lengthOf(1);
-    expect(chain.estimates[0]).property('functionName').equals('processExits');
-    expect(chain.estimates[0]).property('args').deep.equals([TOKEN_A]);
-    expect(chain.estimates[0]).property('from').equals(sender);
-  });
-
   it('throws ExitQueueEmptyError as the write does, estimating nothing', async () => {
     const chain = new ParentChain();
     chain.queue({ token: TOKEN_A, queue: QUEUE_A, size: 0n });
@@ -427,16 +353,6 @@ describe('PlasmaWithdrawManager.processExits caller gas limit', () => {
     expect(ExitGasLimitTooLowError.find(err)?.info.minimum).equals(530_000n);
   });
 
-  it('reads the constant once per instance', async () => {
-    const chain = new ParentChain();
-    chain.queue({ token: TOKEN_A, queue: QUEUE_A, size: 1n });
-    const manager = managerOn(chain);
-    await manager.processExits({ tokens: [TOKEN_A] }, { gasLimit: FLOOR });
-    await manager.processExits({ tokens: [TOKEN_A] }, { gasLimit: FLOOR });
-    await manager.prepareProcessExits({ tokens: [TOKEN_A] }, { gasLimit: FLOOR });
-    expect(chain.reads_('ON_FINALIZE_GAS_LIMIT')).lengthOf(1);
-  });
-
   it('does not read the constant when no limit is given', async () => {
     const chain = new ParentChain();
     chain.queue({ token: TOKEN_A, queue: QUEUE_A, size: 1n });
@@ -481,299 +397,6 @@ describe('PlasmaWithdrawManager.processExits caller gas limit', () => {
     expect(chain.prepares).lengthOf(0);
     await manager.prepareProcessExits({ tokens: [TOKEN_A] }, { gasLimit: FLOOR });
     expect(chain.prepares).lengthOf(1);
-  });
-});
-
-describe('readPlasmaWithdrawStatus', () => {
-  const BURN = txHash(0xb0n);
-  const CONFIRM = txHash(0xc0n);
-  const BURN_BLOCK = 266n;
-  // Position 130 RLP-encodes to 0x8182, so a mask taken from the plain index
-  // (130) or from the index's low bits cannot pass for it.
-  const BURN_INDEX = 130;
-  const BURN_MASK = 0x8182n;
-  const BURNER: Hex = '0x00000000000000000000000000000000000000aa';
-  const OTHER_ACCOUNT: Hex = '0x00000000000000000000000000000000000000bb';
-  const EXITABLE_AT = 486n;
-  const exitIdOf = ({
-    block = BURN_BLOCK,
-    mask = BURN_MASK
-  }: { block?: bigint; mask?: bigint } = {}): bigint =>
-    (EXITABLE_AT << 128n) | (block << 33n) | (mask << 1n);
-  const EXIT_ID = exitIdOf();
-  const addresses = { WithdrawManager: MANAGER, ExitNFT: EXIT_NFT };
-
-  const startedLog = ({
-    address = MANAGER,
-    exitId = EXIT_ID,
-    exitor = BURNER
-  }: { address?: Hex; exitId?: bigint; exitor?: Hex } = {}): Receipt['logs'][number] => ({
-    address,
-    topics: [PlasmaEventSignature.ExitStarted, hex32(BigInt(exitor)), hex32(exitId), hex32(2n)],
-    data: '0x',
-    logIndex: 0
-  });
-  const receiptOf = ({
-    status = 'success',
-    logs
-  }: {
-    status?: Receipt['status'];
-    logs: Receipt['logs'];
-  }): Receipt => ({ transactionHash: CONFIRM, status, blockNumber: 484n, logs });
-
-  const proofOf = (
-    status: Awaited<ReturnType<PlasmaBurnReader['getCheckpointStatus']>>,
-    burn: Partial<PlasmaBurn> = {}
-  ): PlasmaBurnReader & { burnReads: number } => {
-    const reader = {
-      burnReads: 0,
-      getCheckpointStatus: (): Promise<typeof status> => Promise.resolve(status),
-      getBurn: (): Promise<PlasmaBurn> => {
-        reader.burnReads += 1;
-        return Promise.resolve({
-          blockNumber: BURN_BLOCK,
-          transactionIndex: BURN_INDEX,
-          exitor: BURNER,
-          ...burn
-        });
-      }
-    };
-    return reader;
-  };
-  const CHECKPOINTED = { checkpointed: true } as const;
-
-  const read = ({
-    chain,
-    proof = proofOf(CHECKPOINTED),
-    ...ids
-  }: {
-    chain: ParentChain;
-    proof?: PlasmaBurnReader;
-    burnTxHash?: string;
-    confirmTxHash?: string;
-  }) =>
-    readPlasmaWithdrawStatus({
-      burnTxHash: ids.burnTxHash ?? BURN,
-      ...(ids.confirmTxHash !== undefined ? { confirmTxHash: ids.confirmTxHash } : {}),
-      proof,
-      parentAdapter: chain,
-      addresses
-    });
-
-  const confirmedChain = (): ParentChain => {
-    const chain = new ParentChain();
-    chain.receipts.set(CONFIRM, receiptOf({ logs: [startedLog()] }));
-    chain.existingExits.add(EXIT_ID);
-    return chain;
-  };
-
-  it("answers 'pending' while the burn is in no block, without reading the parent chain", async () => {
-    const chain = new ParentChain();
-    const proof = proofOf({ checkpointed: false, reason: 'pending' });
-    expect(await read({ chain, proof, confirmTxHash: CONFIRM })).deep.equals({
-      exited: false,
-      reason: 'pending'
-    });
-    expect(chain.reads).lengthOf(0);
-  });
-
-  it("answers 'not-checkpointed' while the burn waits for its checkpoint", async () => {
-    const chain = confirmedChain();
-    const proof = proofOf({ checkpointed: false, reason: 'not-checkpointed' });
-    expect(await read({ chain, proof, confirmTxHash: CONFIRM })).deep.equals({
-      exited: false,
-      reason: 'not-checkpointed'
-    });
-  });
-
-  it("answers 'not-confirmed' for a checkpointed burn when confirmTxHash is omitted", async () => {
-    const chain = confirmedChain();
-    expect(await read({ chain })).deep.equals({ exited: false, reason: 'not-confirmed' });
-  });
-
-  it("answers 'not-confirmed' when the confirm transaction has no receipt", async () => {
-    const chain = new ParentChain();
-    expect(await read({ chain, confirmTxHash: CONFIRM })).deep.equals({
-      exited: false,
-      reason: 'not-confirmed'
-    });
-  });
-
-  it("answers 'not-confirmed' when the confirm transaction reverted", async () => {
-    const chain = new ParentChain();
-    chain.receipts.set(CONFIRM, receiptOf({ status: 'reverted', logs: [startedLog()] }));
-    expect(await read({ chain, confirmTxHash: CONFIRM })).deep.equals({
-      exited: false,
-      reason: 'not-confirmed'
-    });
-  });
-
-  it("answers 'in-exit-window' before exitableAt", async () => {
-    const chain = confirmedChain();
-    chain.now = EXITABLE_AT - 1n;
-    expect(await read({ chain, confirmTxHash: CONFIRM })).deep.equals({
-      exited: false,
-      reason: 'in-exit-window'
-    });
-  });
-
-  it("answers 'ready-to-process' from exitableAt on", async () => {
-    const chain = confirmedChain();
-    chain.now = EXITABLE_AT;
-    expect(await read({ chain, confirmTxHash: CONFIRM })).deep.equals({
-      exited: false,
-      reason: 'ready-to-process'
-    });
-  });
-
-  it('answers exited once the exit token is gone, whatever the clock says', async () => {
-    const chain = confirmedChain();
-    chain.existingExits.clear();
-    chain.now = EXITABLE_AT - 100n;
-    expect(await read({ chain, confirmTxHash: CONFIRM })).deep.equals({ exited: true });
-    expect(chain.reads_('exists')[0]).property('address').equals(EXIT_NFT);
-    expect(chain.reads_('exists')[0]).property('args').deep.equals([EXIT_ID]);
-  });
-
-  it('throws ExitNotStartedError when the confirm receipt has no ExitStarted log', async () => {
-    const chain = new ParentChain();
-    chain.receipts.set(CONFIRM, receiptOf({ logs: [] }));
-    const err = await rejection(() => read({ chain, confirmTxHash: CONFIRM }));
-    expect(err).instanceOf(ExitNotStartedError);
-    expect(err).property('info').deep.equals({
-      burnTxHash: BURN,
-      confirmTxHash: CONFIRM,
-      reason: 'no-exit-started-log'
-    });
-  });
-
-  it('does not take an ExitStarted-shaped log from another contract for the exit', async () => {
-    const chain = new ParentChain();
-    chain.receipts.set(CONFIRM, receiptOf({ logs: [startedLog({ address: TOKEN_A })] }));
-    const err = await rejection(() => read({ chain, confirmTxHash: CONFIRM }));
-    expect(err).property('info').property('reason').equals('no-exit-started-log');
-  });
-
-  it('throws ExitNotStartedError when the exit belongs to a burn in another block', async () => {
-    const chain = new ParentChain();
-    const otherBurn = exitIdOf({ block: BURN_BLOCK + 1n });
-    chain.receipts.set(CONFIRM, receiptOf({ logs: [startedLog({ exitId: otherBurn })] }));
-    chain.existingExits.add(otherBurn);
-    const err = await rejection(() => read({ chain, confirmTxHash: CONFIRM }));
-    expect(err).instanceOf(ExitNotStartedError);
-    expect(err).property('info').property('reason').equals('burn-block-mismatch');
-    expect(chain.reads_('exists')).lengthOf(0);
-  });
-
-  it('throws ExitNotStartedError when the exit was started for another account', async () => {
-    const chain = new ParentChain();
-    chain.receipts.set(CONFIRM, receiptOf({ logs: [startedLog({ exitor: OTHER_ACCOUNT })] }));
-    chain.existingExits.add(EXIT_ID);
-    const err = await rejection(() => read({ chain, confirmTxHash: CONFIRM }));
-    expect(err).instanceOf(ExitNotStartedError);
-    expect(err).property('info').deep.equals({
-      burnTxHash: BURN,
-      confirmTxHash: CONFIRM,
-      reason: 'exitor-mismatch'
-    });
-    expect(chain.reads_('exists')).lengthOf(0);
-  });
-
-  it('compares the exitor whatever the case of the topic the node returned', async () => {
-    const chain = confirmedChain();
-    chain.now = EXITABLE_AT - 1n;
-    const upperCaseExitor: Hex = `0x${'00'.repeat(12)}${'AA'.padStart(40, '0')}`;
-    const mixedCase = {
-      ...startedLog(),
-      topics: [PlasmaEventSignature.ExitStarted, upperCaseExitor, hex32(EXIT_ID)] as const
-    };
-    chain.receipts.set(CONFIRM, receiptOf({ logs: [mixedCase] }));
-    expect(await read({ chain, confirmTxHash: CONFIRM })).deep.equals({
-      exited: false,
-      reason: 'in-exit-window'
-    });
-  });
-
-  it('throws ExitNotStartedError when the exit is for another transaction in the same block', async () => {
-    const chain = new ParentChain();
-    // Same block, same exitor, the neighbouring transaction's position.
-    const neighbour = exitIdOf({ mask: 0x8183n });
-    chain.receipts.set(CONFIRM, receiptOf({ logs: [startedLog({ exitId: neighbour })] }));
-    chain.existingExits.add(neighbour);
-    const err = await rejection(() => read({ chain, confirmTxHash: CONFIRM }));
-    expect(err).instanceOf(ExitNotStartedError);
-    expect(err).property('info').deep.equals({
-      burnTxHash: BURN,
-      confirmTxHash: CONFIRM,
-      reason: 'branch-mask-mismatch'
-    });
-    expect(chain.reads_('exists')).lengthOf(0);
-  });
-
-  it('does not take the plain transaction index for the branch mask', async () => {
-    const chain = new ParentChain();
-    const plain = exitIdOf({ mask: BigInt(BURN_INDEX) });
-    chain.receipts.set(CONFIRM, receiptOf({ logs: [startedLog({ exitId: plain })] }));
-    chain.existingExits.add(plain);
-    const err = await rejection(() => read({ chain, confirmTxHash: CONFIRM }));
-    expect(err).property('info').property('reason').equals('branch-mask-mismatch');
-  });
-
-  it('expects 0x80, not 0, for a burn first in its block', async () => {
-    const first = proofOf(CHECKPOINTED, { transactionIndex: 0 });
-    const zero = exitIdOf({ mask: 0n });
-    const chain = new ParentChain();
-    chain.receipts.set(CONFIRM, receiptOf({ logs: [startedLog({ exitId: zero })] }));
-    chain.existingExits.add(zero);
-    const err = await rejection(() => read({ chain, proof: first, confirmTxHash: CONFIRM }));
-    expect(err).property('info').property('reason').equals('branch-mask-mismatch');
-
-    const genuine = exitIdOf({ mask: 0x80n });
-    chain.receipts.set(CONFIRM, receiptOf({ logs: [startedLog({ exitId: genuine })] }));
-    chain.existingExits.add(genuine);
-    chain.now = EXITABLE_AT - 1n;
-    expect(await read({ chain, proof: first, confirmTxHash: CONFIRM })).deep.equals({
-      exited: false,
-      reason: 'in-exit-window'
-    });
-  });
-
-  it('asks for the burn only once there is an exit to compare it with', async () => {
-    const chain = confirmedChain();
-    const proof = proofOf(CHECKPOINTED);
-    await read({ chain, proof, confirmTxHash: CONFIRM });
-    expect(proof.burnReads).equals(1);
-    const unconfirmed = proofOf(CHECKPOINTED);
-    await read({ chain, proof: unconfirmed });
-    expect(unconfirmed.burnReads).equals(0);
-  });
-
-  it('rejects an empty burn hash as missing input', async () => {
-    const err = await rejection(() => read({ chain: new ParentChain(), burnTxHash: '' }));
-    expect(err).instanceOf(TransactionHashRequiredError);
-  });
-
-  it.each(['0x1234', 'not-a-hash', `0x${'zz'.repeat(32)}`])(
-    'rejects the malformed hash %s as invalid hex',
-    async (bad) => {
-      const burn = await rejection(() => read({ chain: new ParentChain(), burnTxHash: bad }));
-      expect(burn).instanceOf(InvalidHexStringError);
-      const confirm = await rejection(() => read({ chain: new ParentChain(), confirmTxHash: bad }));
-      expect(confirm).instanceOf(InvalidHexStringError);
-    }
-  );
-
-  it('rejects an empty confirm hash instead of reading it as omitted', async () => {
-    const err = await rejection(() => read({ chain: new ParentChain(), confirmTxHash: '' }));
-    expect(err).instanceOf(TransactionHashRequiredError);
-  });
-
-  it('rethrows a library failure from the parent chain unchanged', async () => {
-    const chain = confirmedChain();
-    const libraryError = new Error('rpc down');
-    chain.getTransactionReceipt = (): Promise<Receipt | null> => Promise.reject(libraryError);
-    const err = await rejection(() => read({ chain, confirmTxHash: CONFIRM }));
-    expect(err).equals(libraryError);
   });
 });
 

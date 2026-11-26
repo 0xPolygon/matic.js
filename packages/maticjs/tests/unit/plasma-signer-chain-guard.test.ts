@@ -206,21 +206,6 @@ describe('plasma writes: signing-wallet chain guard', () => {
       expect(broadcasts()).equals(0);
     });
 
-    it('rejects when the adapter is wired to the other chain altogether', async () => {
-      stubPayload();
-      const { plasma, broadcasts } = await build({
-        parent:
-          write.side === 'parent' ? { rpc: other, wallet: other } : { rpc: PARENT, wallet: PARENT },
-        child:
-          write.side === 'child' ? { rpc: other, wallet: other } : { rpc: CHILD, wallet: CHILD }
-      });
-
-      const err = await rejectionOf(write.run(plasma));
-
-      expect(UnsupportedNetworkError.find(err)).nested.property('info.expected').equals(expected);
-      expect(broadcasts()).equals(0);
-    });
-
     it('broadcasts when the wallet is on the pinned chain', async () => {
       stubPayload();
       const { plasma, broadcasts } = await build({

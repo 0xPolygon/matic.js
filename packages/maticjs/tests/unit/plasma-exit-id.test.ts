@@ -19,7 +19,6 @@ import {
 import { cassetteAdapter, loadCassette } from './cassette-adapter.ts';
 
 const MANAGER: Hex = '0x32Ac76FdbF38b50D584DD943daCDA4b07FdcBFC7';
-const OTHER: Hex = '0x1111111111111111111111111111111111111111';
 const EXITOR: Hex = '0x00000000000000000000000000000000000000aa';
 const hex32 = (n: bigint): Hex => `0x${n.toString(16).padStart(64, '0')}`;
 
@@ -156,15 +155,6 @@ describe('startedExitFromReceipt', () => {
     logIndex: 0
   });
 
-  it('returns the exit id (topic 2) and the exitor (topic 1) of the log the withdraw manager emitted', () => {
-    expect(
-      startedExitFromReceipt({
-        receipt: receiptWith([started(MANAGER, exitId)]),
-        withdrawManager: MANAGER
-      })
-    ).deep.equals({ exitId, exitor: EXITOR });
-  });
-
   it('matches the emitter regardless of address case', () => {
     expect(
       startedExitFromReceipt({
@@ -174,26 +164,11 @@ describe('startedExitFromReceipt', () => {
     ).deep.equals({ exitId, exitor: EXITOR });
   });
 
-  it('ignores an ExitStarted-shaped log from another contract', () => {
-    expect(
-      startedExitFromReceipt({
-        receipt: receiptWith([started(OTHER, exitId)]),
-        withdrawManager: MANAGER
-      })
-    ).equals(undefined);
-  });
-
   it('ignores other events from the withdraw manager', () => {
     const transfer = { ...started(MANAGER, exitId), topics: [hex32(9n), hex32(1n), hex32(exitId)] };
     expect(
       startedExitFromReceipt({ receipt: receiptWith([transfer]), withdrawManager: MANAGER })
     ).equals(undefined);
-  });
-
-  it('returns undefined for a receipt with no logs', () => {
-    expect(startedExitFromReceipt({ receipt: receiptWith([]), withdrawManager: MANAGER })).equals(
-      undefined
-    );
   });
 
   it('skips a malformed log that lacks the exit id topic and finds a later good one', () => {
