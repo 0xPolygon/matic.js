@@ -11,6 +11,7 @@ import type { MaticjsErrorName } from '../../src/errors.ts';
 import * as errors from '../../src/errors.ts';
 
 const {
+  AdapterResultMismatchError,
   AddressLookupError,
   AllowedOnChildError,
   AllowedOnRootError,
@@ -152,6 +153,10 @@ const FACTORIES: Record<MaticjsErrorName, () => Error> = {
   IndexOutOfBoundsError: () => new IndexOutOfBoundsError('m', { info: { index: 5, available: 1 } }),
   BridgeEventDecodeFailedError: () =>
     new BridgeEventDecodeFailedError('m', { info: { field: 'x', valueType: 'undefined' } }),
+  AdapterResultMismatchError: () =>
+    new AdapterResultMismatchError('m', {
+      info: { method: 'm', field: 'm.0', expectedType: 'bool', receivedType: 'string' }
+    }),
   NullSpenderAddressError: () =>
     new NullSpenderAddressError('m', { info: { tokenAddress: TOKEN } }),
   OnlyAllowedOnMainnetError: () => new OnlyAllowedOnMainnetError('m', { info: { chainId: 80002 } }),
@@ -215,9 +220,9 @@ const rejection = async (run: () => Promise<unknown>): Promise<unknown> => {
 };
 
 describe('error classes', () => {
-  it('there are exactly 57 named classes and MATICJS_ERROR_NAMES lists each once', () => {
-    expect(Object.keys(FACTORIES).length).equals(57);
-    expect(MATICJS_ERROR_NAMES.size).equals(57);
+  it('there are exactly 58 named classes and MATICJS_ERROR_NAMES lists each once', () => {
+    expect(Object.keys(FACTORIES).length).equals(58);
+    expect(MATICJS_ERROR_NAMES.size).equals(58);
     expect([...Object.keys(FACTORIES)].sort()).deep.equals([...NAMES].sort());
   });
 

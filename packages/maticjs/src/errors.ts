@@ -68,6 +68,7 @@ const CONDITION_NAMES = [
   'NegativeIndexError',
   'IndexOutOfBoundsError',
   'BridgeEventDecodeFailedError',
+  'AdapterResultMismatchError',
   'NullSpenderAddressError',
   'OnlyAllowedOnMainnetError',
   'PermitNotSupportedError',
@@ -479,6 +480,22 @@ export type BridgeEventDecodeFailedInfo = {
   argType?: TypeOfResult;
   a?: TypeOfResult;
   b?: TypeOfResult;
+};
+/**
+ * Where a contract read result did not match the ABI. `receivedType` is
+ * `typeof` the returned value; `length` and `minLength` appear only when the
+ * ABI declares an array or tuple of a size the result did not have.
+ */
+export type AdapterResultMismatchInfo = {
+  /** The contract method that was read. */
+  method: string;
+  /** The output, as `method.<output name>` or `method.<index>` (an array element adds `[i]`). */
+  field: string;
+  /** The ABI type the output declares, such as `bool`, `uint256` or `address[]`. */
+  expectedType: string;
+  receivedType: TypeOfResult;
+  length?: number;
+  minLength?: number;
 };
 export type NullSpenderAddressInfo = { tokenAddress: Hex };
 export type OnlyAllowedOnMainnetInfo = { chainId: number };
@@ -994,6 +1011,37 @@ export class BridgeEventDecodeFailedError extends VError {
   static readonly find = finderFor<BridgeEventDecodeFailedError>('BridgeEventDecodeFailedError');
   static readonly has = hasFor('BridgeEventDecodeFailedError');
   constructor(message: string, options?: ErrorOptions<BridgeEventDecodeFailedInfo>) {
+    super(message, options);
+    sealMessage({ error: this, constructorOpt: new.target });
+  }
+  override toJSON(): Record<string, unknown> {
+    return safeJSON({ error: this, json: super.toJSON() });
+  }
+}
+
+/**
+ * A contract read returned a value that does not match the contract's ABI.
+ *
+ * Thrown when the adapter's `read()` hands back a value of the wrong kind for
+ * an output the ABI declares: a string where it declares a `bool`, an array of
+ * the wrong length, a number outside the range of the declared integer type.
+ * `info` names the method, the output, the ABI type and the kind received.
+ *
+ * With a custom adapter, fix `read()` so it returns what viem or ethers
+ * produces for that output: a `bigint`, `number` or decimal string for an
+ * integer, a `0x` string for an address or bytes, a boolean for a `bool`, an
+ * array for a tuple or array. With the viem, ethers v5 or ethers v6 adapter
+ * the error should not occur on valid data; report it as an issue against
+ * `@polygonlabs/maticjs`.
+ *
+ * Never carries a `cause`: the SDK itself judged the value to be wrong.
+ */
+export class AdapterResultMismatchError extends VError {
+  override readonly name = 'AdapterResultMismatchError' as const;
+  declare readonly info: AdapterResultMismatchInfo;
+  static readonly find = finderFor<AdapterResultMismatchError>('AdapterResultMismatchError');
+  static readonly has = hasFor('AdapterResultMismatchError');
+  constructor(message: string, options: { info: AdapterResultMismatchInfo }) {
     super(message, options);
     sealMessage({ error: this, constructorOpt: new.target });
   }

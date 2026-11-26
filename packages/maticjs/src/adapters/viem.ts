@@ -25,6 +25,7 @@ import type {
 import type { Replacement, WaitOutcome } from '../internal/confirmation.js';
 
 import { UnsupportedNetworkError, Web3ClientNotInitializedError } from '../errors.js';
+import { markBuiltInAdapter } from '../internal/builtin-adapters.js';
 import { memoiseConfirmation } from '../internal/confirmation.js';
 import { bytesToHex, hexToBytes } from '../utils/bytes.js';
 
@@ -84,6 +85,7 @@ export class ViemAdapter implements Adapter {
   private chainId: number | undefined;
 
   constructor(config: ViemAdapterConfig) {
+    markBuiltInAdapter(this);
     this.publicClient = config.public;
     this.walletClient = config.wallet;
     this.account = config.account;

@@ -168,6 +168,14 @@ All of them run offline in the unit tier.
   rejects: a mistyped name, a wrong argument list or result type, a name typed
   as `string`. `caller-is-private` shows the clients build one caller per
   contract and expose none.
+- **Mismatch error** (`adapter-result-mismatch`) pins the
+  `AdapterResultMismatchError` a read rejects with when an adapter's result
+  does not match the ABI: its message for a custom adapter, its message for
+  the viem, ethers v5 and ethers v6 adapters, and its registration with the
+  SDK's error helpers.
+- **Integer arguments** (`integer-arguments`) pins that a non-integer ERC-721
+  index or permit `v` is rejected with `InvalidNumericValueError` before a
+  request is built.
 - **Gas swapper** (`gas-swapper-amount`) pins how the deposit amount reaches
   the adapter and the error a malformed one ends in.
 - **Integer calldata** (`bigint-argument-calldata`) checks that the integer
@@ -178,9 +186,15 @@ All of them run offline in the unit tier.
   covered by their ground-truth suites.
 - **Gate** (`contract-calls-gate`) runs `scripts/check-contract-calls.mjs`,
   which fails on a bare `Adapter.read`, on a method name that is not a literal,
-  on an `@internal` tag and on a `caller` member that is not `#caller`, and
-  feeds it a small program that breaks each rule to show that it fires. Run it
-  by hand with `pnpm run check:contract-calls`.
+  on an `@internal` tag, on a class member named `caller` or typed
+  `ContractCaller` that is not `#private`, and on a public caller signature
+  that takes its method name as a plain string. The test feeds it a small
+  program that breaks each rule to show that it fires. Run it by hand with
+  `pnpm run check:contract-calls`.
+- **Built-in adapter registry**: after a build, `pnpm run
+  check:builtin-adapter-registry` checks in the built package that the viem,
+  ethers v5 and ethers v6 adapters are recognised as built in, so a mismatch
+  from one of them gets the report-an-issue message.
 
 ## Adding a new test
 

@@ -66,6 +66,7 @@ import type {
 } from './abi-types.js';
 
 import { Eip1559NotSupportedError, TxOptionNotObjectError } from '../errors.js';
+import { isBuiltInAdapter } from './builtin-adapters.js';
 import { decodeAbiResult } from './decode.js';
 
 /**
@@ -291,7 +292,7 @@ export class ContractCaller<TAbi extends Abi> {
    * Eth-call style read. The value the adapter returns is checked against
    * the ABI's `outputs` and normalised to one SDK value, so the same read
    * gives the same result on viem, ethers v5 and ethers v6. A value that
-   * does not match the ABI rejects with `BridgeEventDecodeFailedError`.
+   * does not match the ABI rejects with `AdapterResultMismatchError`.
    */
   read<N extends ReadName<TAbi>>(
     method: N,
@@ -320,7 +321,12 @@ export class ContractCaller<TAbi extends Abi> {
       args,
       ...(options.blockTag !== undefined ? { blockTag: options.blockTag } : {})
     });
-    return decodeAbiResult({ abi: this.abi, method, raw });
+    return decodeAbiResult({
+      abi: this.abi,
+      method,
+      raw,
+      builtIn: isBuiltInAdapter(this.adapter)
+    });
   }
 
   /**

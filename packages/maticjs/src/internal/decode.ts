@@ -20,9 +20,11 @@
  * a validation library would add a runtime dependency to an SDK that keeps
  * its runtime dependencies few.
  *
- * A mismatch throws `BridgeEventDecodeFailedError` with no `cause`: the value
+ * A mismatch throws `AdapterResultMismatchError` with no `cause`: the value
  * is judged malformed by this code, so the failure is the SDK's own, not a
- * library error being wrapped.
+ * library error being wrapped. Its message says who has to act: a hand-written
+ * adapter is told what its `read()` must return, while a mismatch from one of
+ * the SDK's own adapters (`builtIn`) is reported as the SDK's bug.
  *
  * It also holds the check for an integer argument the SDK converts before a
  * call (a token index, a permit `v`): a value that is not a non-negative safe
@@ -31,10 +33,10 @@
  */
 
 import type { Hex } from '../adapter.js';
-import type { BridgeEventDecodeFailedInfo } from '../errors.js';
+import type { AdapterResultMismatchInfo } from '../errors.js';
 import type { Abi, AbiParameter } from './abi-types.js';
 
-import { BridgeEventDecodeFailedError, InvalidNumericValueError } from '../errors.js';
+import { AdapterResultMismatchError, InvalidNumericValueError } from '../errors.js';
 
 const DECIMAL = /^-?[0-9]+$/;
 const HEX_QUANTITY = /^0x[0-9a-fA-F]+$/;
@@ -44,27 +46,64 @@ const INTEGER_TYPE = /^(u?)int([0-9]*)$/;
 const FIXED_BYTES_TYPE = /^bytes([0-9]+)$/;
 const ARRAY_TYPE = /^(.*)\[([0-9]*)\]$/;
 
-/** The failure every check below ends in; `info` carries only keys the error already declares. */
-const reject = ({
-  message,
-  info
-}: {
-  message: string;
-  info: BridgeEventDecodeFailedInfo;
-}): never => {
-  throw new BridgeEventDecodeFailedError(message, { info });
+/** `a string`, `an object`, `null`: what a value is, in words, for a message. */
+const kindOf = (value: unknown): string => {
+  if (value === null) return 'null';
+  if (value === undefined) return 'undefined';
+  if (Array.isArray(value)) return 'an array';
+  const type = typeof value;
+  return `${/^[aeiou]/.test(type) ? 'an' : 'a'} ${type}`;
 };
 
-/** A value of the wrong kind: records `typeof` it, never the value itself. */
-const rejectValue = ({
-  message,
+/** `an array of 2 elements`, in words, for a message. */
+const arrayOf = (length: number): string =>
+  `an array of ${length} element${length === 1 ? '' : 's'}`;
+
+/**
+ * Where a field sits, in words. A field is `<method>.<output>` (an array
+ * element adds `[i]`), or the bare method name when the whole result is wrong.
+ */
+const describeField = (field: string): { method: string; target: string } => {
+  const dot = field.indexOf('.');
+  if (dot < 0) return { method: field, target: `the result of ${field}` };
+  const method = field.slice(0, dot);
+  return { method, target: `${method} output ${field.slice(dot + 1)}` };
+};
+
+/**
+ * The failure every check below ends in. `what` says what came back, `field`
+ * and `expectedType` where and against what, and `builtIn` decides whose
+ * problem the message calls it. `info` carries only the keys the error declares.
+ */
+const reject = ({
   field,
-  value
+  expectedType,
+  value,
+  what = kindOf(value),
+  builtIn,
+  size
 }: {
-  message: string;
   field: string;
+  expectedType: string;
   value: unknown;
-}): never => reject({ message, info: { field, valueType: typeof value } });
+  what?: string;
+  builtIn: boolean;
+  size?: { length: number; minLength: number };
+}): never => {
+  const { method, target } = describeField(field);
+  const returned = `returned ${what} for ${target} (the ABI declares ${expectedType})`;
+  const message = builtIn
+    ? `The built-in adapter ${returned}. This should not happen with valid data; report it as an issue against @polygonlabs/maticjs.`
+    : `Your adapter's read() ${returned}. read() must return the value viem or ethers produces for that output.`;
+  const info: AdapterResultMismatchInfo = {
+    method,
+    field,
+    expectedType,
+    receivedType: typeof value,
+    ...size
+  };
+  throw new AdapterResultMismatchError(message, { info });
+};
 
 /** Range of an ABI integer type, from its width (`uint` and `int` are 256 bits). */
 const integerRange = ({ type }: { type: string }): { min: bigint; max: bigint } | undefined => {
@@ -101,11 +140,13 @@ const decimalTextOf = (value: object): string | undefined => {
 export const decodeInteger = ({
   type,
   value,
-  field
+  field,
+  builtIn = false
 }: {
   type: string;
   value: unknown;
   field: string;
+  builtIn?: boolean;
 }): bigint => {
   const range = integerRange({ type });
   if (range === undefined) {
@@ -113,10 +154,17 @@ export const decodeInteger = ({
   }
   const parsed = parseInteger(value);
   if (parsed === undefined) {
-    return rejectValue({ message: `${field} is not an integer`, field, value });
+    const what =
+      typeof value === 'string'
+        ? 'a string that is not an integer'
+        : typeof value === 'number'
+          ? 'a number that is not a safe integer'
+          : kindOf(value);
+    return reject({ field, expectedType: type, value, what, builtIn });
   }
   if (parsed < range.min || parsed > range.max) {
-    return rejectValue({ message: `${field} is out of range for ${type}`, field, value });
+    const what = `${kindOf(value)} outside the range of ${type}`;
+    return reject({ field, expectedType: type, value, what, builtIn });
   }
   return parsed;
 };
@@ -158,24 +206,49 @@ export const decodeIntegerArgument = ({
 };
 
 /** One `address`: `0x` and 40 hex digits, exactly. */
-export const decodeAddress = ({ value, field }: { value: unknown; field: string }): Hex => {
+export const decodeAddress = ({
+  value,
+  field,
+  builtIn = false
+}: {
+  value: unknown;
+  field: string;
+  builtIn?: boolean;
+}): Hex => {
   if (typeof value === 'string' && ADDRESS.test(value)) {
     const hex: Hex = `0x${value.slice(2)}`;
     return hex;
   }
-  return rejectValue({ message: `${field} is not a 0x address`, field, value });
+  const what = typeof value === 'string' ? 'a string that is not a 0x address' : kindOf(value);
+  return reject({ field, expectedType: 'address', value, what, builtIn });
 };
 
 /** One `bool`: a boolean, never a string such as `'false'` that is truthy. */
-export const decodeBool = ({ value, field }: { value: unknown; field: string }): boolean => {
+export const decodeBool = ({
+  value,
+  field,
+  builtIn = false
+}: {
+  value: unknown;
+  field: string;
+  builtIn?: boolean;
+}): boolean => {
   if (typeof value === 'boolean') return value;
-  return rejectValue({ message: `${field} is not a boolean`, field, value });
+  return reject({ field, expectedType: 'bool', value, builtIn });
 };
 
 /** One `string`. */
-export const decodeString = ({ value, field }: { value: unknown; field: string }): string => {
+export const decodeString = ({
+  value,
+  field,
+  builtIn = false
+}: {
+  value: unknown;
+  field: string;
+  builtIn?: boolean;
+}): string => {
   if (typeof value === 'string') return value;
-  return rejectValue({ message: `${field} is not a string`, field, value });
+  return reject({ field, expectedType: 'string', value, builtIn });
 };
 
 /**
@@ -185,11 +258,13 @@ export const decodeString = ({ value, field }: { value: unknown; field: string }
 export const decodeBytes = ({
   type,
   value,
-  field
+  field,
+  builtIn = false
 }: {
   type: string;
   value: unknown;
   field: string;
+  builtIn?: boolean;
 }): Hex => {
   if (typeof value === 'string' && HEX_BYTES.test(value)) {
     const fixed = FIXED_BYTES_TYPE.exec(type);
@@ -199,7 +274,8 @@ export const decodeBytes = ({
       return hex;
     }
   }
-  return rejectValue({ message: `${field} is not ${type} hex`, field, value });
+  const what = typeof value === 'string' ? `a string that is not ${type} hex` : kindOf(value);
+  return reject({ field, expectedType: type, value, what, builtIn });
 };
 
 /**
@@ -211,11 +287,13 @@ export const decodeBytes = ({
 export const decodeAbiValue = ({
   type,
   value,
-  field
+  field,
+  builtIn = false
 }: {
   type: string;
   value: unknown;
   field: string;
+  builtIn?: boolean;
 }): unknown => {
   const array = ARRAY_TYPE.exec(type);
   if (array !== null) {
@@ -223,13 +301,15 @@ export const decodeAbiValue = ({
     // Checked before the value: an empty `tuple[]` has no element to trip over,
     // and would otherwise pass as if the type were understood.
     assertSupported({ type: elementType, field });
-    return decodeArray({ elementType, size, value, field });
+    return decodeArray({ type, elementType, size, value, field, builtIn });
   }
-  if (type === 'address') return decodeAddress({ value, field });
-  if (type === 'bool') return decodeBool({ value, field });
-  if (type === 'string') return decodeString({ value, field });
-  if (type === 'bytes' || FIXED_BYTES_TYPE.test(type)) return decodeBytes({ type, value, field });
-  if (INTEGER_TYPE.test(type)) return decodeInteger({ type, value, field });
+  if (type === 'address') return decodeAddress({ value, field, builtIn });
+  if (type === 'bool') return decodeBool({ value, field, builtIn });
+  if (type === 'string') return decodeString({ value, field, builtIn });
+  if (type === 'bytes' || FIXED_BYTES_TYPE.test(type)) {
+    return decodeBytes({ type, value, field, builtIn });
+  }
+  if (INTEGER_TYPE.test(type)) return decodeInteger({ type, value, field, builtIn });
   return unsupported({ type, field });
 };
 
@@ -251,27 +331,35 @@ const assertSupported = ({ type, field }: { type: string; field: string }): void
 };
 
 const decodeArray = ({
+  type,
   elementType,
   size,
   value,
-  field
+  field,
+  builtIn
 }: {
+  type: string;
   elementType: string;
   size: string;
   value: unknown;
   field: string;
+  builtIn: boolean;
 }): unknown[] => {
   if (!Array.isArray(value)) {
-    return rejectValue({ message: `${field} is not an array`, field, value });
+    return reject({ field, expectedType: type, value, builtIn });
   }
   if (size !== '' && value.length !== Number(size)) {
     return reject({
-      message: `${field} has ${value.length} elements, expected exactly ${size}`,
-      info: { field, length: value.length, minLength: Number(size) }
+      field,
+      expectedType: type,
+      value,
+      what: arrayOf(value.length),
+      builtIn,
+      size: { length: value.length, minLength: Number(size) }
     });
   }
   return value.map((element: unknown, index) =>
-    decodeAbiValue({ type: elementType, value: element, field: `${field}[${index}]` })
+    decodeAbiValue({ type: elementType, value: element, field: `${field}[${index}]`, builtIn })
   );
 };
 
@@ -317,11 +405,13 @@ const fieldOf = ({
 export const decodeAbiResult = ({
   abi,
   method,
-  raw
+  raw,
+  builtIn = false
 }: {
   abi: Abi;
   method: string;
   raw: unknown;
+  builtIn?: boolean;
 }): unknown => {
   // First match: the only overloaded names the SDK has are writes.
   const outputs = abi.map((entry) => outputsOf({ entry, method })).find((o) => o !== undefined);
@@ -334,29 +424,32 @@ export const decodeAbiResult = ({
     return decodeAbiValue({
       type: only.type,
       value: raw,
-      field: fieldOf({ method, output: only, index: 0 })
+      field: fieldOf({ method, output: only, index: 0 }),
+      builtIn
     });
   }
+  const tuple = `(${outputs.map((output) => output.type).join(',')})`;
   if (!Array.isArray(raw)) {
-    return rejectValue({
-      message: `${method} did not decode to a tuple`,
-      field: method,
-      value: raw
-    });
+    return reject({ field: method, expectedType: tuple, value: raw, builtIn });
   }
   // A longer array is accepted: the extra trailing entries are ignored,
   // matching what earlier releases accepted.
   if (raw.length < outputs.length) {
     return reject({
-      message: `${method} did not decode to a tuple of at least ${outputs.length} fields`,
-      info: { field: method, length: raw.length, minLength: outputs.length }
+      field: method,
+      expectedType: tuple,
+      value: raw,
+      what: arrayOf(raw.length),
+      builtIn,
+      size: { length: raw.length, minLength: outputs.length }
     });
   }
   return outputs.map((output, index) =>
     decodeAbiValue({
       type: output.type,
       value: raw[index],
-      field: fieldOf({ method, output, index })
+      field: fieldOf({ method, output, index }),
+      builtIn
     })
   );
 };

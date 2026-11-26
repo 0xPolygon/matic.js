@@ -83,6 +83,7 @@ export {
   NegativeIndexError,
   IndexOutOfBoundsError,
   BridgeEventDecodeFailedError,
+  AdapterResultMismatchError,
   NullSpenderAddressError,
   OnlyAllowedOnMainnetError,
   PermitNotSupportedError,
@@ -109,6 +110,7 @@ export {
   rootCause
 } from './errors.js';
 export type {
+  AdapterResultMismatchInfo,
   BatchSizeLimitExceededInfo,
   BridgeEventDecodeFailedInfo,
   BufferTypeRequiredInfo,

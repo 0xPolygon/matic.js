@@ -6,7 +6,7 @@ import type { ContractCallerOptions } from '../../src/internal/contract-caller.t
 import type { RequestRow } from './contract-call-harness.ts';
 
 import { ChildERC20ABI, StakeManagerABI } from '../../src/abi/index.ts';
-import { BridgeEventDecodeFailedError, TxOptionNotObjectError } from '../../src/errors.ts';
+import { AdapterResultMismatchError, TxOptionNotObjectError } from '../../src/errors.ts';
 import { ContractCaller } from '../../src/internal/contract-caller.ts';
 import { noopLogger } from '../../src/logger.ts';
 import { OTHER, RecordingAdapter, RequestLog, rowsOf, USER } from './contract-call-harness.ts';
@@ -265,13 +265,13 @@ describe('a read is validated against the ABI', () => {
     }
   });
 
-  it('rejects a malformed result with BridgeEventDecodeFailedError naming the field and no cause', async () => {
+  it('rejects a malformed result with AdapterResultMismatchError naming the field and no cause', async () => {
     const { caller } = world({ answers: { balanceOf: 'not a number' } });
     const err = await outcome(() => caller.read('balanceOf', [USER]));
-    expect(err).instanceOf(BridgeEventDecodeFailedError);
-    if (!(err instanceof BridgeEventDecodeFailedError)) return;
+    expect(err).instanceOf(AdapterResultMismatchError);
+    if (!(err instanceof AdapterResultMismatchError)) return;
     expect(err.info).property('field', 'balanceOf.0');
-    expect(err.info).property('valueType', 'string');
+    expect(err.info).property('receivedType', 'string');
     expect(err.cause).equal(undefined);
   });
 
@@ -285,7 +285,7 @@ describe('a read is validated against the ABI', () => {
       logger: noopLogger
     });
     const err = await outcome(() => caller.read('locked', []));
-    expect(err).instanceOf(BridgeEventDecodeFailedError);
+    expect(err).instanceOf(AdapterResultMismatchError);
   });
 
   it('decodes a multi-output read to a positional tuple', async () => {
@@ -329,7 +329,7 @@ describe('a read is validated against the ABI', () => {
     // @ts-expect-error not a function of the token ABI
     const err = await outcome(() => caller.read('missingMethod', []));
     expect(err).instanceOf(Error);
-    expect(err).not.instanceOf(BridgeEventDecodeFailedError);
+    expect(err).not.instanceOf(AdapterResultMismatchError);
     expect(err).property('message').include('missingMethod');
   });
 });

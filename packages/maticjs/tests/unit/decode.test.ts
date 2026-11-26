@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { BridgeEventDecodeFailedError } from '../../src/errors.ts';
+import { AdapterResultMismatchError } from '../../src/errors.ts';
 import {
   decodeAbiResult,
   decodeAbiValue,
@@ -15,7 +15,7 @@ import {
  * The decoder is the one place a contract read becomes an SDK value, so each
  * rule is pinned by an accept row and a reject row: what the three libraries
  * return for a well-formed result must come out as the same SDK value, and
- * anything else must fail with `BridgeEventDecodeFailedError` naming the
+ * anything else must fail with `AdapterResultMismatchError` naming the
  * field.
  */
 
@@ -40,10 +40,10 @@ const caught = (fn: () => unknown): unknown => {
   throw new Error('expected the decode to throw');
 };
 
-const rejected = (fn: () => unknown): BridgeEventDecodeFailedError => {
+const rejected = (fn: () => unknown): AdapterResultMismatchError => {
   const err = caught(fn);
-  expect(err).instanceOf(BridgeEventDecodeFailedError);
-  if (!(err instanceof BridgeEventDecodeFailedError)) throw new Error('unreachable');
+  expect(err).instanceOf(AdapterResultMismatchError);
+  if (!(err instanceof AdapterResultMismatchError)) throw new Error('unreachable');
   // The value is judged malformed by this code, so there is no library error to wrap.
   expect(err.cause).equal(undefined);
   return err;
@@ -106,13 +106,13 @@ describe('decodeInteger', () => {
   it.each(rejects)('rejects %s', (_name, type, value, valueType) => {
     const err = rejected(() => decodeInteger({ type, value, field: 'm.0' }));
     expect(err.info).property('field', 'm.0');
-    expect(err.info).property('valueType', valueType);
+    expect(err.info).property('receivedType', valueType);
   });
 
   it('treats a type that is not an integer as a programming error, not bad data', () => {
     const err = caught(() => decodeInteger({ type: 'address', value: 1n, field: 'm.0' }));
     expect(err).instanceOf(Error);
-    expect(err).not.instanceOf(BridgeEventDecodeFailedError);
+    expect(err).not.instanceOf(AdapterResultMismatchError);
   });
 });
 
@@ -140,7 +140,7 @@ describe('decodeAddress', () => {
   ])('rejects %s', (_name, value, valueType) => {
     const err = rejected(() => decodeAddress({ value, field: 'm.0' }));
     expect(err.info).property('field', 'm.0');
-    expect(err.info).property('valueType', valueType);
+    expect(err.info).property('receivedType', valueType);
   });
 });
 
@@ -161,7 +161,7 @@ describe('decodeBool', () => {
   ])('rejects %s', (_name, value, valueType) => {
     const err = rejected(() => decodeBool({ value, field: 'm.0' }));
     expect(err.info).property('field', 'm.0');
-    expect(err.info).property('valueType', valueType);
+    expect(err.info).property('receivedType', valueType);
   });
 });
 
@@ -179,7 +179,7 @@ describe('decodeString', () => {
   ])('rejects %s', (_name, value, valueType) => {
     const err = rejected(() => decodeString({ value, field: 'm.0' }));
     expect(err.info).property('field', 'm.0');
-    expect(err.info).property('valueType', valueType);
+    expect(err.info).property('receivedType', valueType);
   });
 });
 
@@ -208,7 +208,7 @@ describe('decodeBytes', () => {
   ])('rejects %s', (_name, type, value, valueType) => {
     const err = rejected(() => decodeBytes({ type, value, field: 'm.0' }));
     expect(err.info).property('field', 'm.0');
-    expect(err.info).property('valueType', valueType);
+    expect(err.info).property('receivedType', valueType);
   });
 });
 
@@ -236,7 +236,7 @@ describe('decodeAbiValue arrays', () => {
       decodeAbiValue({ type: 'uint256[]', value: [1n, 'abc'], field: 'm.0' })
     );
     expect(err.info).property('field', 'm.0[1]');
-    expect(err.info).property('valueType', 'string');
+    expect(err.info).property('receivedType', 'string');
   });
 
   it.each<[string, unknown, string]>([
@@ -247,7 +247,7 @@ describe('decodeAbiValue arrays', () => {
   ])('rejects %s where an array is expected', (_name, value, valueType) => {
     const err = rejected(() => decodeAbiValue({ type: 'uint256[]', value, field: 'm.0' }));
     expect(err.info).property('field', 'm.0');
-    expect(err.info).property('valueType', valueType);
+    expect(err.info).property('receivedType', valueType);
   });
 
   describe('fixed-size arrays', () => {
@@ -318,7 +318,7 @@ describe('decodeAbiValue types it does not know', () => {
     (type) => {
       const err = caught(() => decodeAbiValue({ type, value: [], field: 'm.0' }));
       expect(err).instanceOf(Error);
-      expect(err).not.instanceOf(BridgeEventDecodeFailedError);
+      expect(err).not.instanceOf(AdapterResultMismatchError);
     }
   );
 });
@@ -468,7 +468,7 @@ describe('decodeAbiResult', () => {
     ])('given %s', (_name, raw) => {
       const err = rejected(() => decodeAbiResult({ abi, method: 'headerBlocks', raw }));
       expect(err.info).property('field', 'headerBlocks');
-      expect(err.info).property('valueType', typeof raw);
+      expect(err.info).property('receivedType', typeof raw);
     });
 
     it.each([0, 4])('given an array of %i elements', (length) => {
@@ -484,12 +484,12 @@ describe('decodeAbiResult', () => {
   it('fails a method the ABI does not carry as a programming error, not as bad data', () => {
     const err = caught(() => decodeAbiResult({ abi, method: 'absent', raw: 1n }));
     expect(err).instanceOf(Error);
-    expect(err).not.instanceOf(BridgeEventDecodeFailedError);
+    expect(err).not.instanceOf(AdapterResultMismatchError);
     expect(err).property('message').include('absent');
   });
 
   it('fails an output type it does not know as a programming error', () => {
     const err = caught(() => decodeAbiResult({ abi, method: 'withTuple', raw: [] }));
-    expect(err).not.instanceOf(BridgeEventDecodeFailedError);
+    expect(err).not.instanceOf(AdapterResultMismatchError);
   });
 });
