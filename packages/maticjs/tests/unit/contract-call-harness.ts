@@ -104,8 +104,8 @@ export class RecordingAdapter implements Adapter {
 
   read(req: ReadRequest): Promise<unknown> {
     this.config.log.entries.push({ side: this.config.side, kind: 'read', req });
-    // `in`, not `!== undefined`: an answer of `undefined` is a shape a node can
-    // produce and a table row can ask for.
+    // `in`, not `!== undefined`: an answer of `undefined` is a value a custom
+    // adapter can return and a table row can ask for.
     const scripted = this.config.answers;
     if (scripted !== undefined && req.functionName in scripted) {
       return answer(scripted[req.functionName], req);

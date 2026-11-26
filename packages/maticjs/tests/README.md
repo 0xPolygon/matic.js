@@ -170,8 +170,9 @@ turn it green.
   ethers v5 and ethers v6 adapters over a stub JSON-RPC transport. The three
   must send the same bytes and the public method must return the same value.
 - **Result shapes** (`contract-result-shapes-pos`, `-staking` and `-plasma`)
-  record, for every read, what it returns or throws for each shape a node can
-  answer, well formed or not.
+  record, for every read, what it returns or throws for each value an adapter
+  can hand back: the shapes the three libraries return, and malformed values
+  a custom adapter could return.
 - **Decoder** (`decode`) pins each rule of `src/internal/decode.ts` with an
   accept row and a reject row. `abi-decode-agreement` checks every function of
   every vendored ABI: all three libraries decode a result to the same value,
