@@ -76,7 +76,7 @@
     "prepublishOnly": "pnpm run build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:pack": "node scripts/pack-smoke.mjs",
+    "test:pack": "node scripts/pack-smoke.mjs && node scripts/check-builtin-adapter-registry.mjs",
     "check:contract-calls": "node scripts/check-contract-calls.mjs",
     "check:builtin-adapter-registry": "node scripts/check-builtin-adapter-registry.mjs",
     "check:error-ownership": "node scripts/check-error-ownership.mjs"

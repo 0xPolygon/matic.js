@@ -195,8 +195,8 @@ All of them run offline in the unit tier.
   that takes its method name as a plain string. The test feeds it a small
   program that breaks each rule to show that it fires. Run it by hand with
   `pnpm run check:contract-calls`.
-- **Built-in adapter registry**: after a build, `pnpm run
-  check:builtin-adapter-registry` checks in the built package that the viem,
+- **Built-in adapter registry**: `pnpm run test:pack` (and, after a build,
+  `pnpm run check:builtin-adapter-registry` on its own) checks in the built package that the viem,
   ethers v5 and ethers v6 adapters are recognised as built in, so a mismatch
   from one of them gets the report-an-issue message.
 
