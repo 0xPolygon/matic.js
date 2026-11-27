@@ -14,8 +14,8 @@
  * while meta stays the source of truth: this script is the only writer, and
  * CI gates drift via the `codegen-drift-check` script (regenerate, then
  * `git diff --exit-code`), invoked by the shared codegen-drift-check
- * workflow. A meta release surfaces as a Renovate bump that reruns the
- * suite, so the ABIs cannot silently diverge from their source.
+ * workflow. A meta release is picked up by the meta sync workflow, which
+ * reruns this script, so the ABIs cannot silently diverge from their source.
  *
  * The bridge ABIs are byte-identical across networks (only addresses
  * differ, resolved separately via the address index), so each is read from
