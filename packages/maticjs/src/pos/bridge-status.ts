@@ -1,17 +1,11 @@
 import type { Hex } from '../adapter.js';
 
-/**
- * Why a burn is not checkpointed yet: `'pending'` means the tx is in no block
- * so there is nothing to checkpoint, `'not-checkpointed'` means it is mined
- * and waiting for the checkpoint to cover its block. A caller polling for the
- * checkpoint needs to tell these apart, and neither is a failure.
- */
-export type CheckpointNotReachedReason = 'pending' | 'not-checkpointed';
-
-/** Whether the block holding a burn tx is covered by a checkpoint on the parent chain. */
-export type CheckpointStatus =
-  | { readonly checkpointed: true }
-  | { readonly checkpointed: false; readonly reason: CheckpointNotReachedReason };
+// Defined in the module the proof builder and the Plasma bridge also import;
+// re-exported so every existing import of these names keeps working.
+export type {
+  CheckpointNotReachedReason,
+  CheckpointStatus
+} from '../internal/checkpoint-status.js';
 
 /**
  * Why a deposit has not been delivered to the child chain. `'pending'`: the
@@ -27,6 +21,13 @@ export type CheckpointStatus =
  * @see POSClient.replayDeposit
  */
 export type DepositNotDeliveredReason = 'pending' | 'not-synced' | 'delivery-failed';
+
+/**
+ * What a state receiver stores for a failed delivery: the full
+ * `(receiver, data)` (`'payload'`, recorded before the Uburu fork) or only its
+ * keccak256 hash (`'hash'`, recorded since). It decides which replay call is made.
+ */
+export type FailedStateSyncRecord = 'payload' | 'hash';
 
 /**
  * Whether a deposit's state-sync has been applied on the child chain.
@@ -69,7 +70,7 @@ export type DepositStatus =
        * with `replayFailedStateSyncWithData(stateId, receiver, data)`. You do
        * not pass either; the SDK picks.
        */
-      readonly record: 'payload' | 'hash';
+      readonly record: FailedStateSyncRecord;
       /**
        * True when the failed record the state receiver holds is this
        * deposit's own: its stored hash (or the hash of its stored payload)

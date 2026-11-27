@@ -1,7 +1,7 @@
 {
   "name": "@polygonlabs/maticjs",
   "version": "4.0.0",
-  "description": "TypeScript SDK for the Polygon PoS bridge and staking — supports viem, ethers v5, and ethers v6",
+  "description": "TypeScript SDK for the Polygon PoS and Plasma bridges and staking — supports viem, ethers v5, and ethers v6",
   "type": "module",
   "sideEffects": false,
   "exports": {
@@ -41,6 +41,18 @@
       "import": "./dist/staking/index.js",
       "default": "./dist/staking/index.js"
     },
+    "./plasma": {
+      "@polygonlabs/source": "./src/plasma/index.ts",
+      "types": "./dist/plasma/index.d.ts",
+      "import": "./dist/plasma/index.js",
+      "default": "./dist/plasma/index.js"
+    },
+    "./plasma/abi": {
+      "@polygonlabs/source": "./src/abi/plasma/index.ts",
+      "types": "./dist/plasma/abi/index.d.ts",
+      "import": "./dist/plasma/abi/index.js",
+      "default": "./dist/plasma/abi/index.js"
+    },
     "./package.json": "./package.json"
   },
   "main": "./dist/index.js",
@@ -74,7 +86,8 @@
     "ethereum",
     "viem",
     "ethers",
-    "staking"
+    "staking",
+    "plasma"
   ],
   "author": "Polygon Labs",
   "license": "MIT",
@@ -110,6 +123,16 @@
         "types": "./dist/staking/index.d.ts",
         "import": "./dist/staking/index.js",
         "default": "./dist/staking/index.js"
+      },
+      "./plasma": {
+        "types": "./dist/plasma/index.d.ts",
+        "import": "./dist/plasma/index.js",
+        "default": "./dist/plasma/index.js"
+      },
+      "./plasma/abi": {
+        "types": "./dist/plasma/abi/index.d.ts",
+        "import": "./dist/plasma/abi/index.js",
+        "default": "./dist/plasma/abi/index.js"
       },
       "./package.json": "./package.json"
     }

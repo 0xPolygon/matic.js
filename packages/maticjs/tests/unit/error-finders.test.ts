@@ -17,8 +17,13 @@ import {
   BurnTxNotCheckpointedError,
   DepositError,
   ExitError,
+  ExitGasLimitTooLowError,
+  ExitNotStartedError,
+  ExitQueueEmptyError,
   HttpRequestFailedError,
   isMaticjsError,
+  NativeBurnValueMismatchError,
+  ChildBurnValueNotAllowedError,
   NegativeIndexError,
   rootCause,
   TransactionNotFoundError,
@@ -53,6 +58,52 @@ describe('find / has', () => {
     expect(found?.info.receipt.status).equals('reverted');
     expect(TransactionRevertedError.has(outer)).equals(true);
     expect(ExitError.find(outer)).equals(outer);
+  });
+
+  it('locate the Plasma exit conditions under an operation error, with typed info', () => {
+    const queueEmpty = new ExitQueueEmptyError('nothing queued', { info: { tokens: [HASH] } });
+    const notStarted = new ExitNotStartedError('not this burn', {
+      info: { burnTxHash: HASH, confirmTxHash: HASH, reason: 'burn-block-mismatch' }
+    });
+
+    const emptyOuter = new ExitError({ info: OP, cause: queueEmpty });
+    expect(ExitQueueEmptyError.find(emptyOuter)?.info.tokens).deep.equals([HASH]);
+    expect(ExitQueueEmptyError.has(emptyOuter)).equals(true);
+    expect(ExitNotStartedError.has(emptyOuter)).equals(false);
+
+    const startedOuter = new ExitError({ info: OP, cause: notStarted });
+    expect(ExitNotStartedError.find(startedOuter)?.info.reason).equals('burn-block-mismatch');
+    expect(ExitNotStartedError.has(startedOuter)).equals(true);
+    expect(ExitQueueEmptyError.find(startedOuter)).equals(null);
+  });
+
+  it('locates the exit gas floor condition under an operation error, with typed info', () => {
+    const tooLow = new ExitGasLimitTooLowError('too low', {
+      info: { gasLimit: 1n, minimum: 330_000n }
+    });
+    const outer = new ExitError({ info: OP, cause: tooLow });
+    expect(ExitGasLimitTooLowError.find(outer)?.info.minimum).equals(330_000n);
+    expect(ExitGasLimitTooLowError.has(outer)).equals(true);
+    expect(ExitQueueEmptyError.has(outer)).equals(false);
+  });
+
+  it('locates the native burn value condition under an operation error, with typed info', () => {
+    const mismatch = new NativeBurnValueMismatchError('mismatch', {
+      info: { amount: 5n, value: 3n }
+    });
+    const outer = new ExitError({ info: OP, cause: mismatch });
+    expect(NativeBurnValueMismatchError.find(outer)?.info.amount).equals(5n);
+    expect(NativeBurnValueMismatchError.find(outer)?.info.value).equals(3n);
+    expect(NativeBurnValueMismatchError.has(outer)).equals(true);
+    expect(ExitQueueEmptyError.has(outer)).equals(false);
+  });
+
+  it('locates the child burn value condition under an operation error, with typed info', () => {
+    const refused = new ChildBurnValueNotAllowedError('refused', { info: { value: 3n } });
+    const outer = new ExitError({ info: OP, cause: refused });
+    expect(ChildBurnValueNotAllowedError.find(outer)?.info.value).equals(3n);
+    expect(ChildBurnValueNotAllowedError.has(outer)).equals(true);
+    expect(NativeBurnValueMismatchError.has(outer)).equals(false);
   });
 
   it('return null / false when the class is not in the chain', () => {

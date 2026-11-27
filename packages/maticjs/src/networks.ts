@@ -32,11 +32,20 @@ export const ADDRESS_INDEX_PATH: Record<Network, string> = {
  * compose with viem's typed contract calls without an extra cast.
  */
 export interface NetworkAddresses {
+  /**
+   * The PoS bridge's own entry point for deposits and exits. The Plasma
+   * bridge does not use it. It is not `RootChain`, despite the name.
+   */
   RootChainManager: `0x${string}`;
   ERC20Predicate: `0x${string}`;
   ERC721Predicate: `0x${string}`;
   ERC1155Predicate: `0x${string}`;
   EtherPredicate: `0x${string}`;
+  /**
+   * The checkpoint contract. It stores the checkpoint headers that every exit
+   * proof is checked against, for the PoS bridge and the Plasma bridge alike.
+   * It is not `RootChainManager`.
+   */
   RootChain: `0x${string}`;
   GasSwapper?: `0x${string}`;
   /**

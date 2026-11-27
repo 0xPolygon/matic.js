@@ -22,6 +22,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import type { Adapter, Hex, ReadRequest, Receipt, WriteRequest } from '../../src/adapter.ts';
+import type { PlasmaAddresses } from '../../src/plasma/addresses.ts';
 import type { CheckpointStatus, DepositStatus } from '../../src/pos/bridge-status.ts';
 import type { WithdrawStatus } from '../../src/pos/withdraw-status.ts';
 
@@ -33,11 +34,16 @@ import {
   TransactionNotFoundError
 } from '../../src/errors.ts';
 import { encodeAbiParameters } from '../../src/internal/abi-encode.ts';
+import { createBridgeChildClient } from '../../src/internal/bridge-child-client.ts';
+import { ExitProofBuilder } from '../../src/internal/exit-proof.ts';
 import { noopLogger } from '../../src/logger.ts';
+import { PlasmaEventSignature } from '../../src/plasma/events.ts';
+import { PlasmaClient } from '../../src/plasma/plasma-client.ts';
 import { POSClient } from '../../src/pos-client.ts';
 import { ERC20 } from '../../src/pos/erc20.ts';
 import { ERC721 } from '../../src/pos/erc721.ts';
 import { ERC1155 } from '../../src/pos/erc1155.ts';
+import { RootChain } from '../../src/pos/root_chain.ts';
 import { RootChainManager } from '../../src/pos/root_chain_manager.ts';
 import { StakeManager } from '../../src/staking/stake-manager.ts';
 import { BufferUtil } from '../../src/utils/buffer-utils.ts';
@@ -64,6 +70,29 @@ const DEPOSIT_FAILED_LEGACY_FOREIGN = hex32(0xb7);
 const DEPOSIT_PAYLOAD: Hex = `0x${'ab'.repeat(40)}`;
 
 const LAST_CHILD_BLOCK = 100;
+
+/** The Plasma burn the scripted chain has checkpointed sits in this child block. */
+const PLASMA_BURN_BLOCK = LAST_CHILD_BLOCK - 50;
+const PLASMA_EXITABLE_AT = 1_000n;
+/**
+ * The scripted burn is first in its block, whose receipt path is the RLP of
+ * index 0, `0x80`; the account it burned for (topic 2 of its Withdraw log) is
+ * the exitor the confirm names (topic 1 of ExitStarted), address 1.
+ */
+const PLASMA_BRANCH_MASK = 0x80n;
+const PLASMA_EXIT_ID =
+  (PLASMA_EXITABLE_AT << 128n) | (BigInt(PLASMA_BURN_BLOCK) << 33n) | (PLASMA_BRANCH_MASK << 1n);
+const PLASMA_MANAGER: Hex = '0x3333333333333333333333333333333333333333';
+const CONFIRM = hex32(0xc1);
+const PLASMA_ADDRESSES: PlasmaAddresses = {
+  RootChain: ADDR,
+  DepositManager: ADDR,
+  WithdrawManager: PLASMA_MANAGER,
+  PlasmaERC20Predicate: PREDICATE,
+  ExitNFT: '0x4444444444444444444444444444444444444444',
+  MaticToken: ADDR,
+  PolToken: ADDR
+};
 
 /** A child-chain receipt carrying a burn log for every transfer signature. */
 function rawReceipt(hash: string, blockNumber: number): Record<string, unknown> {
@@ -93,7 +122,8 @@ function rawReceipt(hash: string, blockNumber: number): Record<string, unknown> 
       log([LogEventSignature.Erc20Transfer, hex32(1), ZERO_TOPIC, hex32(7)], 0),
       log([LogEventSignature.Erc20Transfer, hex32(1), ZERO_TOPIC, hex32(8)], 3),
       log([LogEventSignature.Erc1155Transfer, hex32(1), hex32(1), ZERO_TOPIC], 1),
-      log([LogEventSignature.Erc1155BatchTransfer, hex32(1), hex32(1), ZERO_TOPIC], 2)
+      log([LogEventSignature.Erc1155BatchTransfer, hex32(1), hex32(1), ZERO_TOPIC], 2),
+      log([PlasmaEventSignature.Erc20Withdraw, hex32(1), hex32(1)], 4)
     ]
   };
 }
@@ -113,12 +143,17 @@ class ScriptedChain implements Adapter {
   /** tx hash -> block number (null while pending). */
   readonly txs = new Map<string, number | null>();
   readonly parentReceipts = new Map<string, Receipt>();
+  /** Plasma exit ids whose exit token still exists on the parent chain. */
+  readonly existingExits = new Set<bigint>();
+  /** Timestamp of the parent chain's latest block, in seconds. */
+  parentNow = 0n;
 
   constructor() {
     this.txs.set(PENDING, null);
     this.txs.set(MINED_UNCHECKPOINTED, LAST_CHILD_BLOCK + 50);
     this.txs.set(MINED_CHECKPOINTED, LAST_CHILD_BLOCK - 50);
     this.txs.set(DEPOSIT_PENDING, null);
+    this.parentReceipts.set(CONFIRM, plasmaConfirmReceipt());
     this.parentReceipts.set(DEPOSIT_UNSYNCED, depositReceipt(DEPOSIT_UNSYNCED, 5));
     this.parentReceipts.set(DEPOSIT_SYNCED, depositReceipt(DEPOSIT_SYNCED, 0));
     this.parentReceipts.set(DEPOSIT_FAILED, depositReceipt(DEPOSIT_FAILED, 3));
@@ -160,6 +195,8 @@ class ScriptedChain implements Adapter {
         return Promise.resolve(this.failedHashes.get(BigInt(String(req.args?.[0]))) ?? hex32(0));
       case 'failedStateSyncs':
         return Promise.resolve(this.failedPayloads.get(BigInt(String(req.args?.[0]))) ?? '0x');
+      case 'exists':
+        return Promise.resolve(this.existingExits.has(BigInt(String(req.args?.[0]))));
       default:
         return Promise.resolve(false);
     }
@@ -183,6 +220,9 @@ class ScriptedChain implements Adapter {
     const hash = String(params[0]);
     const block = this.txs.get(hash);
     const answer = ((): unknown => {
+      if (method === 'eth_getBlockByNumber' && params[0] === 'latest') {
+        return { number: hexNum(1_000_000), timestamp: hexNum(Number(this.parentNow)) };
+      }
       if (method === 'eth_getTransactionByHash') {
         return block === undefined
           ? null
@@ -197,6 +237,28 @@ class ScriptedChain implements Adapter {
     // generic over the caller's expected shape.
     return Promise.resolve(answer as T);
   }
+}
+
+/** The parent-chain receipt of the transaction that confirmed the Plasma burn. */
+function plasmaConfirmReceipt(): Receipt {
+  return {
+    transactionHash: CONFIRM,
+    status: 'success',
+    blockNumber: 1n,
+    logs: [
+      {
+        address: PLASMA_MANAGER,
+        topics: [
+          PlasmaEventSignature.ExitStarted,
+          hex32(1),
+          `0x${PLASMA_EXIT_ID.toString(16).padStart(64, '0')}`,
+          hex32(2)
+        ],
+        data: '0x',
+        logIndex: 0
+      }
+    ]
+  };
 }
 
 function depositReceipt(hash: Hex, stateId: number): Receipt {
@@ -457,6 +519,61 @@ const depositEntry: StatusEntry = {
   ]
 };
 
+/** A Plasma client on the scripted chain; the parent and the child are the one chain. */
+const plasmaOn = (chain: ScriptedChain): Promise<PlasmaClient> =>
+  PlasmaClient.init({ network: 'amoy', parent: chain, child: chain, addresses: PLASMA_ADDRESSES });
+
+/** One case per reason a Plasma burn can be waiting on, plus the exited answer. */
+const plasmaStatusEntry = (
+  read: (
+    plasma: PlasmaClient,
+    params: { burnTxHash: string; confirmTxHash?: string }
+  ) => Promise<unknown>
+): StatusEntry => {
+  const run =
+    (params: { burnTxHash: string; confirmTxHash?: string }) =>
+    async ({ chain }: Ctx): Promise<unknown> =>
+      read(await plasmaOn(chain), params);
+  const confirmed = { burnTxHash: MINED_CHECKPOINTED, confirmTxHash: CONFIRM };
+  const waiting = (now: bigint) => (chain: ScriptedChain) => {
+    chain.existingExits.add(PLASMA_EXIT_ID);
+    chain.parentNow = now;
+  };
+  return {
+    reasonType: 'PlasmaWithdrawNotExitedReason',
+    cases: [
+      {
+        reason: 'pending',
+        run: run({ burnTxHash: PENDING }),
+        expected: { exited: false, reason: 'pending' }
+      },
+      {
+        reason: 'not-checkpointed',
+        run: run({ burnTxHash: MINED_UNCHECKPOINTED }),
+        expected: { exited: false, reason: 'not-checkpointed' }
+      },
+      {
+        reason: 'not-confirmed',
+        run: run({ burnTxHash: MINED_CHECKPOINTED }),
+        expected: { exited: false, reason: 'not-confirmed' }
+      },
+      {
+        reason: 'in-exit-window',
+        run: run(confirmed),
+        script: waiting(PLASMA_EXITABLE_AT - 1n),
+        expected: { exited: false, reason: 'in-exit-window' }
+      },
+      {
+        reason: 'ready-to-process',
+        run: run(confirmed),
+        script: waiting(PLASMA_EXITABLE_AT),
+        expected: { exited: false, reason: 'ready-to-process' }
+      },
+      { reason: null, run: run(confirmed), expected: { exited: true } }
+    ]
+  };
+};
+
 /** One entry per `get*Status` method in `src`; the scan below keeps this in step. */
 const STATUS_READS: Record<string, StatusEntry> = {
   'POSClient.getWithdrawStatus': withdrawEntry(
@@ -509,6 +626,20 @@ const STATUS_READS: Record<string, StatusEntry> = {
       run: ({ pos }: Ctx) => bridgeOf(pos).getCheckpointStatus(hashOfCheckpointCase(c))
     }))
   },
+  'ExitProofBuilder.getCheckpointStatus': {
+    reasonType: 'CheckpointNotReachedReason',
+    cases: checkpointEntry.cases.map((c) => ({
+      ...c,
+      run: ({ chain }: Ctx) =>
+        exitProofBuilderOn(chain).getCheckpointStatus(hashOfCheckpointCase(c))
+    }))
+  },
+  'PlasmaClient.getWithdrawStatus': plasmaStatusEntry((plasma, params) =>
+    plasma.getWithdrawStatus(params)
+  ),
+  'PlasmaERC20.getWithdrawStatus': plasmaStatusEntry((plasma, params) =>
+    plasma.parent.erc20(ADDR).getWithdrawStatus(params)
+  ),
   'POSBridgeHelpers.getDepositStatus': {
     reasonType: 'DepositNotDeliveredReason',
     cases: depositEntry.cases.map((c) => ({
@@ -517,6 +648,20 @@ const STATUS_READS: Record<string, StatusEntry> = {
     }))
   }
 };
+
+/** An `ExitProofBuilder` wired straight onto the scripted chain, with no client around it. */
+function exitProofBuilderOn(chain: ScriptedChain): ExitProofBuilder {
+  return new ExitProofBuilder({
+    rootChainCaller: new RootChain({
+      adapter: chain,
+      getAddress: () => Promise.resolve(ADDR),
+      logger: noopLogger
+    }).caller,
+    childClient: createBridgeChildClient(chain),
+    logger: noopLogger,
+    proofConcurrency: 1
+  });
+}
 
 function hashOfCheckpointCase(c: Case): string {
   if (c.reason === 'pending') return PENDING;
@@ -570,17 +715,41 @@ function methodsInSource(pattern: RegExp): Declared[] {
   return found.sort((a, b) => a.name.localeCompare(b.name));
 }
 
-/** The literal members of each exported `*Reason` union, read from the source. */
+/**
+ * The literal members of each exported `*Reason` union, read from the source.
+ * A member that names another `*Reason` alias (`CheckpointNotReachedReason |
+ * 'not-exited'`) is followed to that alias's own literals, so a composed
+ * union yields the same full set as the written-out one. An alias the scan
+ * cannot find throws rather than silently shrinking the set.
+ */
 function reasonUnions(): Map<string, string[]> {
-  const unions = new Map<string, string[]>();
-  for (const file of ['withdraw-status.ts', 'bridge-status.ts']) {
-    const text = readFileSync(join(SRC, 'pos', file), 'utf8');
+  const declared = new Map<string, { literals: string[]; aliases: string[] }>();
+  for (const file of [
+    'internal/checkpoint-status.ts',
+    'pos/withdraw-status.ts',
+    'pos/bridge-status.ts',
+    'plasma/withdraw-status.ts'
+  ]) {
+    const text = readFileSync(join(SRC, file), 'utf8');
     for (const m of text.matchAll(/export type (\w+Reason) =\s*([^;]+);/g)) {
-      const literals = [...(m[2] ?? '').matchAll(/'([^']+)'/g)].map((l) => l[1] ?? '');
-      unions.set(m[1] ?? '', literals);
+      const body = m[2] ?? '';
+      declared.set(m[1] ?? '', {
+        literals: [...body.matchAll(/'([^']+)'/g)].map((l) => l[1] ?? ''),
+        aliases: [...body.matchAll(/\b(\w+Reason)\b/g)].map((a) => a[1] ?? '')
+      });
     }
   }
-  return unions;
+  const resolve = (name: string, seen: readonly string[]): string[] => {
+    const entry = declared.get(name);
+    if (entry === undefined) throw new Error(`reason union ${name} not found in src`);
+    if (seen.includes(name)) throw new Error(`reason union ${name} refers to itself`);
+    const literals = new Set(entry.literals);
+    for (const alias of entry.aliases) {
+      for (const literal of resolve(alias, [...seen, name])) literals.add(literal);
+    }
+    return [...literals];
+  };
+  return new Map([...declared.keys()].map((name) => [name, resolve(name, [])]));
 }
 
 const IS_OR_HAS = /^(?:is|has)[A-Z]\w*$/;
@@ -628,7 +797,7 @@ describe('get*Status methods answer with a reason and do not throw', () => {
     const unions = reasonUnions();
     for (const [name, entry] of Object.entries(STATUS_READS)) {
       const declared = unions.get(entry.reasonType);
-      expect(declared, `${name}: ${entry.reasonType} not found in src/pos`).not.equal(undefined);
+      expect(declared, `${name}: ${entry.reasonType} not found in src`).not.equal(undefined);
       const reached = new Set(entry.cases.map((c) => c.reason).filter((r) => r !== null));
       expect([...reached].sort(), name).deep.equal([...(declared ?? [])].sort());
       expect(

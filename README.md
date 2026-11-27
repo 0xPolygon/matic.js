@@ -4,9 +4,10 @@
 [![CI](https://github.com/0xPolygon/matic.js/actions/workflows/ci-trigger.yml/badge.svg?branch=master)](https://github.com/0xPolygon/matic.js/actions/workflows/ci-trigger.yml)
 [![License: MIT](https://img.shields.io/npm/l/@polygonlabs/maticjs.svg)](LICENSE)
 
-TypeScript SDK for the Polygon PoS bridge and PoS staking. Drives ERC-20,
-ERC-721, ERC-1155 and native-ETH deposits, child-chain withdrawals, and
-exit proofs against `RootChainManager`, and — from
+TypeScript SDK for the Polygon PoS bridge, the Plasma bridge and PoS staking.
+Drives ERC-20, ERC-721, ERC-1155 and native-ETH deposits, child-chain
+withdrawals, and exit proofs against `RootChainManager`; ERC-20 Plasma
+deposits and withdrawals from `@polygonlabs/maticjs/plasma`; and — from
 `@polygonlabs/maticjs/staking` — validator and delegator staking against
 `StakeManager` and the per-validator `ValidatorShare` contracts. Works with
 `viem`, `ethers v5`, and `ethers v6` — pick whichever you already have; the
@@ -119,7 +120,7 @@ pnpm --filter @polygonlabs/maticjs run build
 pnpm --filter @polygonlabs/maticjs run test
 ```
 
-The end-to-end tier runs the SDK's bridge and staking writes against a local
+The end-to-end tier runs the SDK's bridge, Plasma and staking writes against a local
 Polygon PoS devnet. It is opt-in and not part of `pnpm test`: boot the devnet,
 then run `pnpm run e2e`. See [`packages/e2e/README.md`](packages/e2e/README.md).
 

@@ -64,6 +64,8 @@ export type {
   Web3ClientNotInitializedInfo
 } from '../errors.js';
 
+export type { ReplacementReason } from '../internal/confirmation.js';
+
 export type {
   ResolvedStakingAddresses,
   StakingAddresses,

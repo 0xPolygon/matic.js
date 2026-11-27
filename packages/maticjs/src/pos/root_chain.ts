@@ -14,7 +14,7 @@
 import type { BlockTag, Hex, Adapter } from '../adapter.js';
 import type { Logger } from '../logger.js';
 
-import { RootChainABI } from '../abi/index.js';
+import { RootChainABI } from '../abi/RootChain.js';
 import { CheckpointReadError, withOperation } from '../errors.js';
 import { ContractCaller } from '../internal/contract-caller.js';
 import { findCheckpointSlot, parseHeaderBlocksResult } from './find_checkpoint_slot.js';
