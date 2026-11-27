@@ -1,6 +1,6 @@
 {
   "name": "@polygonlabs/maticjs-test-app",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "private": true,
   "type": "module",
   "description": "Browser smoke test for @polygonlabs/maticjs. Bundles the SDK through Vite and exercises its public surface in a real browser via Playwright to catch any reliance on Node built-ins, polyfills, or non-browser-safe APIs.",

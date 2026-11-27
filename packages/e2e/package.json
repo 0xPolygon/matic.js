@@ -1,6 +1,6 @@
 {
   "name": "@polygonlabs/maticjs-e2e",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "private": true,
   "type": "module",
   "description": "End-to-end tests for @polygonlabs/maticjs against a local Polygon PoS devnet (kurtosis-pos).",
