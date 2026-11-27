@@ -26,8 +26,20 @@ import {
   branchMaskOf,
   burnBlockOf,
   exitableAtOf,
-  startedExitFromReceipt
+  startedExitsFromReceipt
 } from './exit-id.js';
+
+/** The ways an exit a confirm started can fail to be the asked burn's exit. */
+type ExitMismatchReason = 'burn-block-mismatch' | 'exitor-mismatch' | 'branch-mask-mismatch';
+
+const MISMATCH_MESSAGES: Record<ExitMismatchReason, string> = {
+  'burn-block-mismatch':
+    'confirmTxHash started an exit for a burn in a different block, so it is not this burn’s confirm. Pass the transaction confirmWithdraw returned for this burn.',
+  'exitor-mismatch':
+    'confirmTxHash started an exit for a different account than the one that burned, so it is not this burn’s confirm. Pass the transaction confirmWithdraw returned for this burn.',
+  'branch-mask-mismatch':
+    'confirmTxHash started an exit for a different transaction in the burn’s block, so it is not this burn’s confirm. Pass the transaction confirmWithdraw returned for this burn.'
+};
 
 /**
  * Why a burn has not been exited yet.
@@ -154,9 +166,9 @@ const readParentHead = async (adapter: Adapter): Promise<{ number: bigint; times
  * invalid input (an empty or malformed hash), a burn the node does not know,
  * the chain clients' own errors, and `ExitNotStartedError` when
  * `confirmTxHash` is not this burn's confirm: its receipt has no
- * `ExitStarted` log from the withdraw manager, or the exit it started
- * belongs to a burn in another block, to another account, or to another
- * transaction in the burn's block.
+ * `ExitStarted` log from the withdraw manager, or none of the exits it
+ * started belongs to this burn (each is for a burn in another block, for
+ * another account, or for another transaction in the burn's block).
  *
  * `confirmTxHash` is how the exit is found. When it is omitted the read
  * answers `'not-confirmed'` for a checkpointed burn, because nothing on
@@ -187,37 +199,45 @@ export const readPlasmaWithdrawStatus = async ({
     return { exited: false, reason: 'not-confirmed' };
   }
 
-  const started = startedExitFromReceipt({ receipt, withdrawManager: addresses.WithdrawManager });
-  if (started === undefined) {
+  const started = startedExitsFromReceipt({ receipt, withdrawManager: addresses.WithdrawManager });
+  if (started.length === 0) {
     throw new ExitNotStartedError(
       'confirmTxHash did not start an exit: its receipt has no ExitStarted log from the withdraw manager. Pass the transaction confirmWithdraw returned for this burn.',
       { info: { burnTxHash, confirmTxHash, reason: 'no-exit-started-log' } }
     );
   }
-  const { exitId, exitor } = started;
 
   // The exit id carries the burn block and the receipt's position in it, and
   // the log carries who the exit is for. Two burns can share a block, so the
   // block alone would let one burn's confirm answer for the other; the
-  // position and the exitor tell them apart.
+  // position and the exitor tell them apart. A batcher can confirm several
+  // burns in one transaction, so the receipt may hold several exits and the
+  // one that belongs to this burn is the one that passes all three checks.
+  // When none does, the error names the failure of the exit that came
+  // closest, so a caller who passed the wrong hash still learns why.
   const burn = await proof.getBurn(burnTxHash);
-  if (burnBlockOf(exitId) !== burn.blockNumber) {
-    throw new ExitNotStartedError(
-      'confirmTxHash started an exit for a burn in a different block, so it is not this burn’s confirm. Pass the transaction confirmWithdraw returned for this burn.',
-      { info: { burnTxHash, confirmTxHash, reason: 'burn-block-mismatch' } }
-    );
+  const expectedMask = branchMaskForTransactionIndex(burn.transactionIndex);
+  let exitId: bigint | undefined;
+  let closest: { passed: number; reason: ExitMismatchReason } | undefined;
+  for (const candidate of started) {
+    const checks: Array<[ExitMismatchReason, boolean]> = [
+      ['burn-block-mismatch', burnBlockOf(candidate.exitId) === burn.blockNumber],
+      ['exitor-mismatch', candidate.exitor === burn.exitor],
+      ['branch-mask-mismatch', branchMaskOf(candidate.exitId) === expectedMask]
+    ];
+    const failed = checks.find(([, ok]) => !ok);
+    if (failed === undefined) {
+      exitId = candidate.exitId;
+      break;
+    }
+    const passed = checks.filter(([, ok]) => ok).length;
+    if (closest === undefined || passed > closest.passed) closest = { passed, reason: failed[0] };
   }
-  if (exitor !== burn.exitor) {
-    throw new ExitNotStartedError(
-      'confirmTxHash started an exit for a different account than the one that burned, so it is not this burn’s confirm. Pass the transaction confirmWithdraw returned for this burn.',
-      { info: { burnTxHash, confirmTxHash, reason: 'exitor-mismatch' } }
-    );
-  }
-  if (branchMaskOf(exitId) !== branchMaskForTransactionIndex(burn.transactionIndex)) {
-    throw new ExitNotStartedError(
-      'confirmTxHash started an exit for a different transaction in the burn’s block, so it is not this burn’s confirm. Pass the transaction confirmWithdraw returned for this burn.',
-      { info: { burnTxHash, confirmTxHash, reason: 'branch-mask-mismatch' } }
-    );
+  if (exitId === undefined) {
+    const reason = closest?.reason ?? 'burn-block-mismatch';
+    throw new ExitNotStartedError(MISMATCH_MESSAGES[reason], {
+      info: { burnTxHash, confirmTxHash, reason }
+    });
   }
 
   // "The exit token does not exist" is true of a processed exit and equally
