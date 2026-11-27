@@ -720,6 +720,122 @@ describe.each(surfaces)('%s: the status matrix', { timeout: 10_000 }, (_name, re
         ).deep.equals({ exited: false, reason: 'ready-to-process' });
       });
     });
+
+    describe('one confirm transaction that confirms several burns', () => {
+      const SECOND_BURNER_BURN = hex32(0xa8n);
+      const confirmWith = (world: World, logs: Receipt['logs']): void => {
+        world.parent.receipts.set(CONFIRM, confirmReceipt({ logs }));
+      };
+
+      it('answers each of two burns in the same block from its own exit, in either log order', async () => {
+        for (const order of [
+          [EXIT_ID, NEIGHBOUR_EXIT_ID],
+          [NEIGHBOUR_EXIT_ID, EXIT_ID]
+        ]) {
+          const world = queuedExit(EXITABLE_AT);
+          confirmWith(
+            world,
+            order.map((exitId) => exitStarted({ exitId }))
+          );
+          world.parent.existing.add(NEIGHBOUR_EXIT_ID);
+          const plasma = await clientOn(world);
+
+          expect(
+            await read(plasma, { burnTxHash: MINED_CHECKPOINTED, confirmTxHash: CONFIRM })
+          ).deep.equals({ exited: false, reason: 'ready-to-process' });
+          expect(
+            await read(plasma, { burnTxHash: SAME_BLOCK_NEIGHBOUR, confirmTxHash: CONFIRM })
+          ).deep.equals({ exited: false, reason: 'ready-to-process' });
+        }
+      });
+
+      it('reads the exit token of the matching exit, not of the first log', async () => {
+        const world = queuedExit(EXITABLE_AT);
+        confirmWith(world, [exitStarted(), exitStarted({ exitId: NEIGHBOUR_EXIT_ID })]);
+        // Only the second burn's exit was processed; the first is still queued.
+        world.parent.existing.add(EXIT_ID);
+        const plasma = await clientOn(world);
+
+        expect(
+          await read(plasma, { burnTxHash: SAME_BLOCK_NEIGHBOUR, confirmTxHash: CONFIRM })
+        ).deep.equals({ exited: true });
+        expect(world.parent.existenceReads).deep.equals([NEIGHBOUR_EXIT_ID]);
+      });
+
+      it('tells two burns by different accounts apart, including at the same position', async () => {
+        const world = queuedExit(EXITABLE_AT);
+        world.child.burns.set(SECOND_BURNER_BURN, {
+          block: BURN_BLOCK,
+          index: BURN_INDEX,
+          burner: OTHER_ACCOUNT
+        });
+        // Same id from two exitors is the case only the exitor can separate.
+        confirmWith(world, [exitStarted(), exitStarted({ exitor: OTHER_ACCOUNT })]);
+        const plasma = await clientOn(world);
+
+        expect(
+          await read(plasma, { burnTxHash: SECOND_BURNER_BURN, confirmTxHash: CONFIRM })
+        ).deep.equals({ exited: false, reason: 'ready-to-process' });
+        expect(
+          await read(plasma, { burnTxHash: MINED_CHECKPOINTED, confirmTxHash: CONFIRM })
+        ).deep.equals({ exited: false, reason: 'ready-to-process' });
+
+        world.child.burns.set(SECOND_BURNER_BURN, {
+          block: BURN_BLOCK,
+          index: NEIGHBOUR_INDEX,
+          burner: OTHER_ACCOUNT
+        });
+        confirmWith(world, [
+          exitStarted(),
+          exitStarted({ exitId: NEIGHBOUR_EXIT_ID, exitor: OTHER_ACCOUNT })
+        ]);
+        world.parent.existing.add(NEIGHBOUR_EXIT_ID);
+        expect(
+          await read(plasma, { burnTxHash: SECOND_BURNER_BURN, confirmTxHash: CONFIRM })
+        ).deep.equals({ exited: false, reason: 'ready-to-process' });
+      });
+
+      it('reports the closest reason when none of several exits is the burn’s', async () => {
+        const world = queuedExit(EXITABLE_AT);
+        const otherBlockAndMask = exitIdOf({ block: BURN_BLOCK + 1n, mask: NEIGHBOUR_MASK });
+        // The first exit passes only the exitor check; the second passes the
+        // block and the exitor and misses only the position.
+        confirmWith(world, [
+          exitStarted({ exitId: otherBlockAndMask }),
+          exitStarted({ exitId: NEIGHBOUR_EXIT_ID })
+        ]);
+        const plasma = await clientOn(world);
+
+        const err = await rejection(
+          read(plasma, { burnTxHash: MINED_CHECKPOINTED, confirmTxHash: CONFIRM })
+        );
+
+        expect(err).property('name').equals('BridgeStatusError');
+        expect(ExitNotStartedError.find(err))
+          .nested.property('info.reason')
+          .equals('branch-mask-mismatch');
+        expect(world.parent.existenceReads).lengthOf(0);
+      });
+
+      it('breaks a tie between equally close exits by log order', async () => {
+        const world = queuedExit(EXITABLE_AT);
+        // Both pass one check: the first only the exitor, the second only the block.
+        const wrongBlockAndMask = exitIdOf({ block: BURN_BLOCK + 1n, mask: NEIGHBOUR_MASK });
+        confirmWith(world, [
+          exitStarted({ exitId: wrongBlockAndMask }),
+          exitStarted({ exitId: NEIGHBOUR_EXIT_ID, exitor: OTHER_ACCOUNT })
+        ]);
+        const plasma = await clientOn(world);
+
+        const err = await rejection(
+          read(plasma, { burnTxHash: MINED_CHECKPOINTED, confirmTxHash: CONFIRM })
+        );
+
+        expect(ExitNotStartedError.find(err))
+          .nested.property('info.reason')
+          .equals('burn-block-mismatch');
+      });
+    });
   });
 });
 

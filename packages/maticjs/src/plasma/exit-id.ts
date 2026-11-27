@@ -67,30 +67,35 @@ export interface StartedExit {
 }
 
 /**
- * The exit announced by the `ExitStarted` log that `withdrawManager` emitted
- * in `receipt`, or `undefined` when the receipt has no such log. The emitter
- * is checked as well as the topic, so a log of the same shape from another
- * contract cannot be mistaken for the exit. The exitor is the event's first
- * indexed argument (topic 1) and the exit id its second (topic 2). When a
- * receipt carries several such logs the first one wins.
+ * Every exit announced by an `ExitStarted` log that `withdrawManager` emitted
+ * in `receipt`, in log order; empty when the receipt has no such log. The
+ * emitter is checked as well as the topic, so a log of the same shape from
+ * another contract cannot be mistaken for an exit. The exitor is the event's
+ * first indexed argument (topic 1) and the exit id its second (topic 2).
+ *
+ * All of them are returned, not the first, because one transaction can
+ * confirm several burns (a Safe or batcher sending several confirms at once)
+ * and so emit several logs: the caller picks the exit that belongs to the
+ * burn it is asking about.
  */
-export const startedExitFromReceipt = ({
+export const startedExitsFromReceipt = ({
   receipt,
   withdrawManager
 }: {
   receipt: Pick<Receipt, 'logs'>;
   withdrawManager: Hex;
-}): StartedExit | undefined => {
+}): StartedExit[] => {
   const manager = withdrawManager.toLowerCase();
+  const exits: StartedExit[] = [];
   for (const log of receipt.logs) {
     if (log.address.toLowerCase() !== manager) continue;
     if (log.topics[0]?.toLowerCase() !== PlasmaEventSignature.ExitStarted) continue;
     const exitor = log.topics[1];
     const exitId = log.topics[2];
     if (exitor === undefined || exitId === undefined) continue;
-    return { exitId: BigInt(exitId), exitor: addressOfTopic(exitor) };
+    exits.push({ exitId: BigInt(exitId), exitor: addressOfTopic(exitor) });
   }
-  return undefined;
+  return exits;
 };
 
 /** The address in an indexed-address topic: its low 20 bytes, lower-cased. */

@@ -14,7 +14,7 @@ import {
   branchMaskOf,
   burnBlockOf,
   exitableAtOf,
-  startedExitFromReceipt
+  startedExitsFromReceipt
 } from '../../src/plasma/exit-id.ts';
 import { cassetteAdapter, loadCassette } from './cassette-adapter.ts';
 
@@ -146,7 +146,7 @@ describe('addressOfTopic', () => {
   });
 });
 
-describe('startedExitFromReceipt', () => {
+describe('startedExitsFromReceipt', () => {
   const exitId = buildExitId({ exitableAt: 486n, block: 266n, mask: 0n });
   const started = (address: Hex, id: bigint): Receipt['logs'][number] => ({
     address,
@@ -157,18 +157,18 @@ describe('startedExitFromReceipt', () => {
 
   it('matches the emitter regardless of address case', () => {
     expect(
-      startedExitFromReceipt({
+      startedExitsFromReceipt({
         receipt: receiptWith([started(MANAGER, exitId)]),
         withdrawManager: MANAGER.toLowerCase() as Hex
       })
-    ).deep.equals({ exitId, exitor: EXITOR });
+    ).deep.equals([{ exitId, exitor: EXITOR }]);
   });
 
   it('ignores other events from the withdraw manager', () => {
     const transfer = { ...started(MANAGER, exitId), topics: [hex32(9n), hex32(1n), hex32(exitId)] };
     expect(
-      startedExitFromReceipt({ receipt: receiptWith([transfer]), withdrawManager: MANAGER })
-    ).equals(undefined);
+      startedExitsFromReceipt({ receipt: receiptWith([transfer]), withdrawManager: MANAGER })
+    ).deep.equals([]);
   });
 
   it('skips a malformed log that lacks the exit id topic and finds a later good one', () => {
@@ -177,10 +177,24 @@ describe('startedExitFromReceipt', () => {
       topics: [PlasmaEventSignature.ExitStarted, hex32(1n)]
     };
     expect(
-      startedExitFromReceipt({
+      startedExitsFromReceipt({
         receipt: receiptWith([short, started(MANAGER, exitId)]),
         withdrawManager: MANAGER
       })
-    ).deep.equals({ exitId, exitor: EXITOR });
+    ).deep.equals([{ exitId, exitor: EXITOR }]);
+  });
+
+  it('returns every exit of the manager in log order, for a transaction that confirms several burns', () => {
+    const second = buildExitId({ exitableAt: 486n, block: 266n, mask: 1n });
+    const foreign = started('0x9999999999999999999999999999999999999999', 7n);
+    expect(
+      startedExitsFromReceipt({
+        receipt: receiptWith([started(MANAGER, exitId), foreign, started(MANAGER, second)]),
+        withdrawManager: MANAGER
+      })
+    ).deep.equals([
+      { exitId, exitor: EXITOR },
+      { exitId: second, exitor: EXITOR }
+    ]);
   });
 });
