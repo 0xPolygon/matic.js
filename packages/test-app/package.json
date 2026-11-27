@@ -13,14 +13,14 @@
   },
   "dependencies": {
     "@polygonlabs/maticjs": "workspace:*",
-    "ethereum-cryptography": "^2.2.1",
-    "viem": "^2.0.0"
+    "ethereum-cryptography": "^3.2.0",
+    "viem": "^2.57.19"
   },
   "devDependencies": {
-    "@playwright/test": "^1.48.0",
-    "@tsconfig/node20": "^20.0.0",
-    "@tsconfig/strictest": "^2.0.5",
-    "typescript": "^5.9.3",
-    "vite": "^6.0.0"
+    "@playwright/test": "^1.65.0",
+    "@tsconfig/node20": "^20.1.11",
+    "@tsconfig/strictest": "^2.0.9",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.8"
   }
 }
