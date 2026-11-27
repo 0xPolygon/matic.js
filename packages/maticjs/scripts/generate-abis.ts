@@ -29,6 +29,8 @@ import { writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { renderAbiFile } from './abi-file-format.mjs';
+
 // Local `<Name>ABI` binding → meta subpath module (each exports `abi`).
 const ABIS: Record<string, string> = {
   RootChainManager: '@polygonlabs/meta/abi/mainnet/v1/pos/RootChainManager',
@@ -49,16 +51,11 @@ const ABIS: Record<string, string> = {
 
 const abiDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'src', 'abi');
 
-const header = (specifier: string): string =>
-  `// GENERATED FROM \`${specifier}\` — DO NOT EDIT.\n` +
-  `// Regenerate with \`pnpm run codegen\`. See scripts/generate-abis.ts.\n\n`;
-
 const indexLines: string[] = [];
 
 for (const [name, specifier] of Object.entries(ABIS)) {
   const mod = (await import(specifier)) as { abi: readonly unknown[] };
-  const body = `${header(specifier)}export const ${name}ABI = ${JSON.stringify(mod.abi, null, 2)} as const;\n`;
-  writeFileSync(join(abiDir, `${name}.ts`), body);
+  writeFileSync(join(abiDir, `${name}.ts`), renderAbiFile({ specifier, name, abi: mod.abi }));
   indexLines.push(`export { ${name}ABI } from './${name}.js';`);
 }
 

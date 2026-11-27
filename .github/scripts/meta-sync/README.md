@@ -8,10 +8,15 @@ whole bump instead and opens a draft pull request for a person to review.
 
 ## What runs where
 
-The work is split in two jobs so that the code that runs a freshly published
-package never holds a credential.
+The work is split in two jobs. `prepare` runs a freshly published package's
+code, so it holds no secret and no repository write permission. That code
+still controls the runner and can use the job's read-only token and the
+Actions runtime token (artifact upload, cache writes), so everything it
+produces, including the pull request body and changeset text, is untrusted
+and `open-pr` validates it before the App token is minted.
 
-- `prepare` has `contents: read` and no secret. It runs `prepare.mjs`, which
+- `prepare` has `contents: read`, no secret, no repository write permission
+  and no restored cache. It runs `prepare.mjs`, which
   installs the new meta release, regenerates the ABIs, diffs them with
   `packages/maticjs/scripts/abi-diff.mjs`, and writes an artifact: a manifest,
   the pull request body and the changed files. The artifact is uploaded with
@@ -20,7 +25,7 @@ package never holds a credential.
 - `open-pr` runs only when `prepare` found a bump (`changed=true`) that is
   also relevant, or when `open_when=any` (see below). It
   installs nothing, mints the App token last, and runs `open-pr.cjs`, which
-  makes API calls only. A day with no newer meta release ends green without
+  makes API calls only, from the checkout of the workflow run's own commit. A day with no newer meta release ends green without
   touching the App secrets; a day with one needs `META_SYNC_BOT_APP_ID` and
   `META_SYNC_BOT_APP_PRIVATE_KEY`, and fails with a message naming them when
   either is missing.
@@ -29,6 +34,42 @@ The commit is made with the GraphQL `createCommitOnBranch` mutation because
 the organisation requires signed commits on every branch: GitHub signs the
 commit as the App, so no key lives in the workflow. The App token (unlike
 the default one) also lets the pull request start the normal checks.
+
+## Trust boundary
+
+`prepare` runs a package that was published minutes ago, including its code
+(codegen imports the package's modules), so that code controls the runner.
+Everything `prepare` produces is therefore untrusted: its job outputs and
+every byte of the artifact (manifest, pull request body, files). `open-pr`
+holds the App token and treats all of that as hostile:
+
+- It checks out the commit the run started on, never a ref `prepare` named,
+  so the scripts that validate the artifact are the ones that were reviewed.
+- Before any write, the artifact's base must equal that commit and the live
+  head of the default branch. A run that finds the default branch has moved
+  stops with a message and writes nothing; start a new run (dispatch from
+  `master`, or wait for the next scheduled run), because re-running reuses
+  the old commit and fails again.
+- It validates contents, not just paths (`checks.mjs`): `package.json` must be
+  the base with only the meta version replaced, the lockfile may differ only
+  in the three meta entries (integrity-only, empty snapshot), each ABI file
+  must be exactly what `generate-abis.ts` writes (both use
+  `packages/maticjs/scripts/abi-file-format.mjs`), naming the same meta
+  module in its header as the base file, and free of `__proto__` keys, and the title, labels and
+  changeset must be the fixed shapes `prepare.mjs` emits, with a stable
+  target and no `major`. Anything else fails the run before the first write.
+
+The `meta-sync` environment adds a human gate. Only `open-pr` names it, so the
+App secrets live there and are invisible to `prepare` and to any other job.
+It is configured to deploy from `master` only, with a required reviewer, so
+every run that would open a pull request waits for an approval, and a
+`workflow_dispatch` from any other branch cannot reach the App at all.
+
+To prove it after merge, dispatch the workflow from `master` with `dry_run`
+and `open_when=any`: the `open-pr` job should wait for approval, and after it
+the dry-run branch and draft pull request should appear. Dispatching the same
+workflow from another branch should leave `open-pr` blocked by the branch
+rule.
 
 ## When a bump opens a pull request
 
@@ -61,8 +102,8 @@ dispatches the workflow with `open_when=any`.
 ## Path allowlist
 
 Only these paths may change; `prepare.mjs --help` prints the same list and
-both scripts check it independently, so a compromised release can reach the
-pull request only as ABI data, the manifest entry and the lockfile:
+both scripts check it independently, and the content checks above then pin
+each file to its legitimate shape:
 
 - `packages/maticjs/package.json`
 - `pnpm-lock.yaml`
@@ -74,13 +115,13 @@ pull request only as ABI data, the manifest entry and the lockfile:
 "Bot-only" means the branch is at most one commit ahead of `master` and every
 commit is authored by the App.
 
-| Branch and pull request                                       | Action                                                                       |
-| ------------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| No branch                                                     | Create it at the base commit, commit, open a draft pull request, add labels. |
-| Bot-only, and it already holds exactly this update            | Nothing.                                                                     |
-| Bot-only, anything differs (newer release, or `master` moved) | Move the branch to the new base, commit again, update the title and body.    |
-| Not bot-only (a person pushed to it)                          | Nothing, with a warning naming it.                                           |
-| Pull request closed                                           | Nothing, with a warning. Reopening is a human decision.                      |
+| Branch and pull request                                       | Action                                                                                                                                                       |
+| ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| No branch                                                     | Create it at the base commit, commit, open a draft pull request, add labels.                                                                                 |
+| Bot-only, and it already holds exactly this update            | Nothing.                                                                                                                                                     |
+| Bot-only, anything differs (newer release, or `master` moved) | Move the branch to the new base, commit again, update the title and body. The move fails, writing nothing, if the branch was pushed to since it was checked. |
+| Not bot-only (a person pushed to it)                          | Nothing, with a warning naming it.                                                                                                                           |
+| Pull request closed                                           | Nothing, with a warning. Reopening is a human decision.                                                                                                      |
 
 The script never merges, approves, marks ready, deletes a branch or comments.
 

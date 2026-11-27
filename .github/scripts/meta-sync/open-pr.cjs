@@ -9,6 +9,13 @@
  * nothing from the installed packages and re-validates every path itself
  * rather than trusting the artifact.
  *
+ * Trust: the artifact is attacker-controlled, so before any write this
+ * script requires its base to be both the commit this run checked out and
+ * the live head of the default branch, then validates the contents of every
+ * file (see checks.mjs), not just the paths. Base files are read from this
+ * run's own checkout, which is why the job must not check out a ref the
+ * artifact chose.
+ *
  * It never merges, approves, marks ready, deletes a branch or comments. A
  * branch a person has touched, or a pull request a person closed, is left
  * alone: those are human decisions.
@@ -17,8 +24,9 @@
  * META_SYNC_APP_SLUG (the App's slug, to recognise its own commits).
  */
 const { createHash } = require('node:crypto');
-const { readFileSync } = require('node:fs');
+const { lstatSync, readFileSync } = require('node:fs');
 const { join } = require('node:path');
+const { pathToFileURL } = require('node:url');
 
 // Deliberately a second copy of the list in prepare.mjs: each side checks
 // the artifact independently, so a mistake in one cannot widen the other.
@@ -32,10 +40,26 @@ const ALLOWLIST = [
 
 const BRANCHES = new Set(['automation/meta-sync', 'automation/meta-sync-dryrun']);
 
+// A symlink in the artifact would make readFileSync follow it to a file on
+// the runner, so only regular files are read.
+const readRegular = (path) => {
+  if (!lstatSync(path).isFile()) throw new Error(`${path} is not a regular file`);
+  return readFileSync(path);
+};
+
+const readBaseText = (path) => {
+  try {
+    return readFileSync(path, 'utf8');
+  } catch (err) {
+    if (err.code === 'ENOENT') return null;
+    throw err;
+  }
+};
+
 const isAllowed = (path) => ALLOWLIST.some((re) => re.test(path));
 
 const readManifest = (out) => {
-  const manifest = JSON.parse(readFileSync(join(out, 'manifest.json'), 'utf8'));
+  const manifest = JSON.parse(readRegular(join(out, 'manifest.json')).toString('utf8'));
   const { changed, deleted, branch, baseSha, title, labels } = manifest;
   if (!Array.isArray(changed) || !Array.isArray(deleted) || !Array.isArray(labels)) {
     throw new Error('manifest.json is malformed');
@@ -65,10 +89,42 @@ module.exports = async ({ github, context, core }) => {
   const botLogin = `${slug}[bot]`;
   const manifest = readManifest(out);
   const { branch, baseSha, title, labels, changed, deleted } = manifest;
-  const body = readFileSync(join(out, 'pr-body.md'), 'utf8');
+  const body = readRegular(join(out, 'pr-body.md')).toString('utf8');
   const defaultBranch = context.payload.repository?.default_branch ?? 'master';
 
-  const files = changed.map((path) => ({ path, buffer: readFileSync(join(out, 'files', path)) }));
+  // Nothing below may write until the base is proven: the live head is read
+  // now, and every check runs before the first createRef or commit.
+  const { checkArtifact, checkBase } = await import(
+    pathToFileURL(join(__dirname, 'checks.mjs')).href
+  );
+  const { data: live } = await github.rest.git.getRef({
+    owner,
+    repo,
+    ref: `heads/${defaultBranch}`
+  });
+  // Read each file once: the bytes that are checked are the bytes committed.
+  const files = changed.map((path) => ({ path, buffer: readRegular(join(out, 'files', path)) }));
+  const bufferOf = new Map(files.map(({ path, buffer }) => [path, buffer]));
+  try {
+    checkBase({ baseSha, contextSha: context.sha, liveHead: live.object.sha });
+    checkArtifact({
+      manifest,
+      readNew: (path) => {
+        const buffer = bufferOf.get(path);
+        const text = buffer.toString('utf8');
+        // Invalid UTF-8 would be decoded lossily for the checks and
+        // committed raw, so it is refused.
+        if (!Buffer.from(text, 'utf8').equals(buffer))
+          throw new Error(`${path} is not valid UTF-8`);
+        return text;
+      },
+      readBase: readBaseText
+    });
+  } catch (err) {
+    core.setFailed(`Meta sync wrote nothing: ${err.message}`);
+    return;
+  }
+
   const wanted = new Map([
     ...files.map(({ path, buffer }) => [path, blobSha(buffer)]),
     ...deleted.map((path) => [path, null])
@@ -148,7 +204,7 @@ module.exports = async ({ github, context, core }) => {
   const { data: compare } = await github.rest.repos.compareCommitsWithBasehead({
     owner,
     repo,
-    basehead: `${defaultBranch}...${branch}`
+    basehead: `${defaultBranch}...${head.object.sha}`
   });
   const botOnly =
     compare.ahead_by <= 1 && compare.commits.every((c) => c.author?.login === botLogin);
@@ -171,7 +227,7 @@ module.exports = async ({ github, context, core }) => {
 
   let upToDate = false;
   if (compare.ahead_by === 1 && compare.commits[0].parents[0]?.sha === baseSha) {
-    const { data: tip } = await github.rest.repos.getCommit({ owner, repo, ref: branch });
+    const { data: tip } = await github.rest.repos.getCommit({ owner, repo, ref: head.object.sha });
     const have = new Map(
       (tip.files ?? []).map((f) => [f.filename, f.status === 'removed' ? null : f.sha])
     );
@@ -184,13 +240,36 @@ module.exports = async ({ github, context, core }) => {
     return;
   }
   if (!upToDate) {
-    await github.rest.git.updateRef({
-      owner,
-      repo,
-      ref: `heads/${branch}`,
-      sha: baseSha,
-      force: true
-    });
+    // The bot-only comparison above was made against `head`. A force update
+    // that ignored where the branch is now would discard a commit a person
+    // pushed after it, so the move is refused unless the branch still points
+    // at the commit that was read and checked.
+    const { data: repository } = await github.rest.repos.get({ owner, repo });
+    try {
+      await github.graphql(
+        `mutation ($input: UpdateRefsInput!) {
+          updateRefs(input: $input) { clientMutationId }
+        }`,
+        {
+          input: {
+            repositoryId: repository.node_id,
+            refUpdates: [
+              {
+                name: `refs/heads/${branch}`,
+                beforeOid: head.object.sha,
+                afterOid: baseSha,
+                force: true
+              }
+            ]
+          }
+        }
+      );
+    } catch (err) {
+      core.setFailed(
+        `Meta sync wrote nothing: branch ${branch} no longer points at the commit that was checked (${err.message}). Start a new run.`
+      );
+      return;
+    }
     await commit();
   }
   if (!open) {

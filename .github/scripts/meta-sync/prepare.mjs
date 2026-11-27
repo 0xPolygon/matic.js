@@ -7,8 +7,9 @@
  * runner and on a laptop, so a bump can be rehearsed locally before the
  * workflow ever touches the repository. Why it does no git or network
  * writes: it runs package code (codegen imports the freshly installed
- * package) in a job that must hold no credential. Everything it produces is
- * data that `open-pr.cjs` validates again before committing it.
+ * package) in a job that holds no secret and no repository write permission.
+ * That code still controls the runner, so everything it produces is
+ * untrusted data that `open-pr.cjs` validates again before committing it.
  *
  * It MUTATES the tree it runs in. Run it in a throwaway worktree.
  */
@@ -34,10 +35,10 @@ const PACKAGE_DIR = 'packages/maticjs';
 const ABI_DIR = `${PACKAGE_DIR}/src/abi`;
 const HAND_FILE = `${ABI_DIR}/failed-state-sync.ts`;
 
-// The only paths a meta bump may touch. A compromised release can therefore
-// reach the pull request only as ABI data, the manifest line and the
-// lockfile, all of which a person reviews in a draft. `open-pr.cjs` keeps
-// its own copy of this list on purpose: each side checks independently.
+// The only paths a meta bump may touch. A compromised release controls this
+// job, so this check protects against mistakes, not against it: `open-pr.cjs`
+// keeps its own copy of the list on purpose and checks the artifact
+// independently before anything is committed.
 const SEGMENT = '[A-Za-z0-9_-][A-Za-z0-9._-]*';
 export const ALLOWLIST = [
   /^packages\/maticjs\/package\.json$/,

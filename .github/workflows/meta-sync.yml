@@ -30,10 +30,13 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # This job installs and runs the newly published package, so it holds no
-  # credential and no secret: a malicious release can write only to this
-  # runner, and what it hands on is an allowlisted artifact that the next
-  # job re-checks.
+  # This job installs and runs the newly published package, including its
+  # code. It holds no secret and no repository write permission and restores
+  # no cache, but that code controls the runner and can still use the job's
+  # read-only token and the Actions runtime token (artifact upload, cache
+  # writes). Nothing it produces, including the pull request body and
+  # changeset text, is trusted: the next job validates it down to file
+  # contents before the App token is minted.
   prepare:
     name: prepare
     runs-on: ubuntu-latest
@@ -42,8 +45,6 @@ jobs:
     outputs:
       changed: ${{ steps.prepare.outputs.changed }}
       relevant: ${{ steps.prepare.outputs.relevant }}
-      base_sha: ${{ steps.prepare.outputs.base_sha }}
-      target: ${{ steps.prepare.outputs.target }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
@@ -54,7 +55,6 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version-file: .nvmrc
-          cache: pnpm
 
       - run: pnpm install --frozen-lockfile --ignore-scripts
 
@@ -73,22 +73,26 @@ jobs:
           include-hidden-files: true
           if-no-files-found: error
 
-  # This job holds the App token, so it installs nothing and runs no package
-  # code: it only calls the API, and the artifact it reads is validated
-  # against an allowlist before anything is committed. A day with nothing new,
-  # or a bump nothing in the SDK depends on, never reaches it, so the App
-  # secrets are required only for a bump worth a pull request.
+  # This job holds the App token, so it installs nothing and runs nothing
+  # the artifact or `prepare` chose: it checks out this run's own commit,
+  # requires the artifact to be built on that commit and on the live head of
+  # the default branch, validates every file's contents, and only then calls
+  # the API. It names the `meta-sync` environment because environment secrets
+  # reach only a job that names one: that gates the App on the environment's
+  # branch rule and required reviewer. A day with nothing new, or a bump
+  # nothing in the SDK depends on, never reaches it.
   open-pr:
     name: open-pr
     needs: prepare
     if: needs.prepare.outputs.changed == 'true' && (inputs.open_when == 'any' || needs.prepare.outputs.relevant == 'true')
     runs-on: ubuntu-latest
+    environment: meta-sync
     permissions:
       contents: read
-    env:
-      HAS_APP: ${{ secrets.META_SYNC_BOT_APP_ID != '' && secrets.META_SYNC_BOT_APP_PRIVATE_KEY != '' }}
     steps:
       - name: Require the App credentials
+        env:
+          HAS_APP: ${{ secrets.META_SYNC_BOT_APP_ID != '' && secrets.META_SYNC_BOT_APP_PRIVATE_KEY != '' }}
         run: |
           if [ "$HAS_APP" != "true" ]; then
             echo "::error::Secrets META_SYNC_BOT_APP_ID and META_SYNC_BOT_APP_PRIVATE_KEY must both be set to open the meta sync pull request."
@@ -97,7 +101,6 @@ jobs:
 
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
-          ref: ${{ needs.prepare.outputs.base_sha }}
           persist-credentials: false
 
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
