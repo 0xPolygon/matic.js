@@ -11,13 +11,13 @@
  */
 
 import type { Adapter, Hex, PreparedTx, TxResult } from '../adapter.js';
+import type { WriteArgs, WriteName } from '../internal/abi-types.js';
 import type { Logger } from '../logger.js';
 import type { TxOptions } from '../types.js';
 
 import { StakeManagerABI } from '../abi/StakeManager.js';
 import {
   AddressLookupError,
-  BridgeEventDecodeFailedError,
   StakingReadError,
   StakingWriteError,
   withOperation
@@ -60,51 +60,6 @@ export function pinChainId(options: TxOptions | undefined, l1ChainId: number): T
  * over-provisions there; unused gas is refunded.
  */
 export const UNSTAKE_GAS_HEADROOM = 250_000n;
-
-/**
- * Coerce one decoded integer to `bigint`. viem and ethers v6 return
- * `bigint`; ethers v5 returns a `BigNumber`, whose string form is a
- * decimal quantity.
- */
-export function toBigInt(value: unknown, field: string): bigint {
-  if (typeof value === 'bigint') return value;
-  if (typeof value === 'number' || typeof value === 'string') return BigInt(value);
-  if (typeof value === 'object' && value !== null) return BigInt(String(value));
-  throw new BridgeEventDecodeFailedError(`${field} is not a numeric value`, {
-    info: {
-      field,
-      valueType: typeof value
-    }
-  });
-}
-
-/** Narrow one decoded address to `Hex`. */
-export function toHexAddress(value: unknown, field: string): Hex {
-  if (typeof value === 'string' && value.startsWith('0x')) {
-    const hex: Hex = `0x${value.slice(2)}`;
-    return hex;
-  }
-  throw new BridgeEventDecodeFailedError(`${field} is not a 0x address`, {
-    info: {
-      field,
-      valueType: typeof value
-    }
-  });
-}
-
-/**
- * Return a multi-output read as a positional array. All three
- * adapters decode multi-output functions positionally (viem as a plain
- * array, ethers as a `Result`, which extends `Array`), so fields are
- * read by index in ABI output order.
- */
-export function toTuple(value: unknown, minLength: number, field: string): readonly unknown[] {
-  if (Array.isArray(value) && value.length >= minLength) return value;
-  throw new BridgeEventDecodeFailedError(
-    `${field} did not decode to a tuple of at least ${minLength} fields`,
-    { info: { field, minLength } }
-  );
-}
 
 /** One entry of StakeManager's `validators(uint256)` mapping. */
 export interface ValidatorInfo {
@@ -169,7 +124,7 @@ export interface UpdateSignerParams {
   signerPubkey: Hex;
 }
 
-function stakeForArgs(p: StakeForParams): readonly unknown[] {
+function stakeForArgs(p: StakeForParams): readonly [Hex, bigint, bigint, boolean, Hex] {
   return [p.user, p.amount, p.heimdallFee, p.acceptDelegation, p.signerPubkey];
 }
 
@@ -182,12 +137,12 @@ function stakeForArgs(p: StakeForParams): readonly unknown[] {
  * node or library error is rethrown unchanged.
  */
 export class StakeManager {
-  private readonly caller: ContractCaller;
+  readonly #caller: ContractCaller<typeof StakeManagerABI>;
   private readonly l1ChainId: number;
 
   constructor(config: StakingContractConfig) {
     this.l1ChainId = config.l1ChainId;
-    this.caller = new ContractCaller({
+    this.#caller = new ContractCaller({
       adapter: config.adapter,
       getAddress: config.getAddress,
       abi: StakeManagerABI,
@@ -201,33 +156,25 @@ export class StakeManager {
     return withOperation({
       error: AddressLookupError,
       info: { operation: 'getAddress', mode: 'read' },
-      run: () => this.caller.getContractAddress()
+      run: () => this.#caller.getContractAddress()
     });
   }
 
-  private async write(
-    method: string,
-    args: readonly unknown[],
+  private async write<N extends WriteName<typeof StakeManagerABI>>(
+    method: N,
+    args: WriteArgs<typeof StakeManagerABI, N>,
     options?: TxOptions,
     gasHeadroom?: bigint
   ): Promise<TxResult> {
-    return this.caller.write(method, args, pinChainId(options, this.l1ChainId), { gasHeadroom });
+    return this.#caller.write(method, args, pinChainId(options, this.l1ChainId), { gasHeadroom });
   }
 
-  private async prepare(
-    method: string,
-    args: readonly unknown[],
+  private async prepare<N extends WriteName<typeof StakeManagerABI>>(
+    method: N,
+    args: WriteArgs<typeof StakeManagerABI, N>,
     options?: TxOptions
   ): Promise<PreparedTx> {
-    return this.caller.prepareWrite(method, args, pinChainId(options, this.l1ChainId));
-  }
-
-  private async readBigInt(
-    method: string,
-    args: readonly unknown[],
-    options?: TxOptions
-  ): Promise<bigint> {
-    return toBigInt(await this.caller.read<unknown>(method, args, options), method);
+    return this.#caller.prepareWrite(method, args, pinChainId(options, this.l1ChainId));
   }
 
   // --- writes -------------------------------------------------------
@@ -471,22 +418,21 @@ export class StakeManager {
       error: StakingReadError,
       info: { operation: 'getValidator', mode: 'read', method: 'validators' },
       run: async () => {
-        const raw = await this.caller.read<unknown>('validators', [params.validatorId], options);
-        const t = toTuple(raw, 13, 'validators');
+        const t = await this.#caller.read('validators', [params.validatorId], options);
         return {
-          amount: toBigInt(t[0], 'validators.amount'),
-          reward: toBigInt(t[1], 'validators.reward'),
-          activationEpoch: toBigInt(t[2], 'validators.activationEpoch'),
-          deactivationEpoch: toBigInt(t[3], 'validators.deactivationEpoch'),
-          jailTime: toBigInt(t[4], 'validators.jailTime'),
-          signer: toHexAddress(t[5], 'validators.signer'),
-          contractAddress: toHexAddress(t[6], 'validators.contractAddress'),
-          status: toBigInt(t[7], 'validators.status'),
-          commissionRate: toBigInt(t[8], 'validators.commissionRate'),
-          lastCommissionUpdate: toBigInt(t[9], 'validators.lastCommissionUpdate'),
-          delegatorsReward: toBigInt(t[10], 'validators.delegatorsReward'),
-          delegatedAmount: toBigInt(t[11], 'validators.delegatedAmount'),
-          initialRewardPerStake: toBigInt(t[12], 'validators.initialRewardPerStake')
+          amount: t[0],
+          reward: t[1],
+          activationEpoch: t[2],
+          deactivationEpoch: t[3],
+          jailTime: t[4],
+          signer: t[5],
+          contractAddress: t[6],
+          status: t[7],
+          commissionRate: t[8],
+          lastCommissionUpdate: t[9],
+          delegatorsReward: t[10],
+          delegatedAmount: t[11],
+          initialRewardPerStake: t[12]
         };
       }
     });
@@ -497,14 +443,7 @@ export class StakeManager {
     return withOperation({
       error: StakingReadError,
       info: { operation: 'getValidatorContract', mode: 'read', method: 'getValidatorContract' },
-      run: async () => {
-        const raw = await this.caller.read<unknown>(
-          'getValidatorContract',
-          [params.validatorId],
-          options
-        );
-        return toHexAddress(raw, 'getValidatorContract');
-      }
+      run: () => this.#caller.read('getValidatorContract', [params.validatorId], options)
     });
   }
 
@@ -516,7 +455,7 @@ export class StakeManager {
     return withOperation({
       error: StakingReadError,
       info: { operation: 'getValidatorId', mode: 'read', method: 'getValidatorId' },
-      run: () => this.readBigInt('getValidatorId', [params.user], options)
+      run: () => this.#caller.read('getValidatorId', [params.user], options)
     });
   }
 
@@ -525,7 +464,7 @@ export class StakeManager {
     return withOperation({
       error: StakingReadError,
       info: { operation: 'getDelegatedAmount', mode: 'read', method: 'delegatedAmount' },
-      run: () => this.readBigInt('delegatedAmount', [params.validatorId], options)
+      run: () => this.#caller.read('delegatedAmount', [params.validatorId], options)
     });
   }
 
@@ -534,7 +473,7 @@ export class StakeManager {
     return withOperation({
       error: StakingReadError,
       info: { operation: 'getValidatorStake', mode: 'read', method: 'validatorStake' },
-      run: () => this.readBigInt('validatorStake', [params.validatorId], options)
+      run: () => this.#caller.read('validatorStake', [params.validatorId], options)
     });
   }
 
@@ -543,7 +482,7 @@ export class StakeManager {
     return withOperation({
       error: StakingReadError,
       info: { operation: 'getMinDeposit', mode: 'read', method: 'minDeposit' },
-      run: () => this.readBigInt('minDeposit', [], options)
+      run: () => this.#caller.read('minDeposit', [], options)
     });
   }
 
@@ -552,7 +491,7 @@ export class StakeManager {
     return withOperation({
       error: StakingReadError,
       info: { operation: 'getMinHeimdallFee', mode: 'read', method: 'minHeimdallFee' },
-      run: () => this.readBigInt('minHeimdallFee', [], options)
+      run: () => this.#caller.read('minHeimdallFee', [], options)
     });
   }
 
@@ -561,7 +500,7 @@ export class StakeManager {
     return withOperation({
       error: StakingReadError,
       info: { operation: 'getWithdrawalDelay', mode: 'read', method: 'WITHDRAWAL_DELAY' },
-      run: () => this.readBigInt('WITHDRAWAL_DELAY', [], options)
+      run: () => this.#caller.read('WITHDRAWAL_DELAY', [], options)
     });
   }
 
@@ -570,7 +509,7 @@ export class StakeManager {
     return withOperation({
       error: StakingReadError,
       info: { operation: 'getCheckpointReward', mode: 'read', method: 'CHECKPOINT_REWARD' },
-      run: () => this.readBigInt('CHECKPOINT_REWARD', [], options)
+      run: () => this.#caller.read('CHECKPOINT_REWARD', [], options)
     });
   }
 
@@ -579,18 +518,7 @@ export class StakeManager {
     return withOperation({
       error: StakingReadError,
       info: { operation: 'isLocked', mode: 'read', method: 'locked' },
-      run: async () => {
-        const raw = await this.caller.read<unknown>('locked', [], options);
-        if (typeof raw !== 'boolean') {
-          throw new BridgeEventDecodeFailedError('locked is not a boolean', {
-            info: {
-              field: 'locked',
-              valueType: typeof raw
-            }
-          });
-        }
-        return raw;
-      }
+      run: () => this.#caller.read('locked', [], options)
     });
   }
 
@@ -599,7 +527,7 @@ export class StakeManager {
     return withOperation({
       error: StakingReadError,
       info: { operation: 'getCurrentEpoch', mode: 'read', method: 'currentEpoch' },
-      run: () => this.readBigInt('currentEpoch', [], options)
+      run: () => this.#caller.read('currentEpoch', [], options)
     });
   }
 
@@ -608,7 +536,7 @@ export class StakeManager {
     return withOperation({
       error: StakingReadError,
       info: { operation: 'getTotalStaked', mode: 'read', method: 'currentValidatorSetTotalStake' },
-      run: () => this.readBigInt('currentValidatorSetTotalStake', [], options)
+      run: () => this.#caller.read('currentValidatorSetTotalStake', [], options)
     });
   }
 }

@@ -13,7 +13,7 @@ import type { Network, NetworkAddresses } from '../../src/networks.ts';
 import type { TxOptions } from '../../src/types.ts';
 
 import { MAX_AMOUNT } from '../../src/constant.ts';
-import { BridgeEventDecodeFailedError } from '../../src/errors.ts';
+import { AdapterResultMismatchError } from '../../src/errors.ts';
 import { StakingClient } from '../../src/staking/staking-client.ts';
 
 /**
@@ -130,7 +130,7 @@ const WRITES: readonly WriteCase[] = [
     name: 'validatorShare.delegateWithPermit',
     to: SHARE,
     functionName: 'buyVoucherWithPermit',
-    args: [PERMIT.amount, PERMIT.minSharesToMint, PERMIT.deadline, 27, R, S],
+    args: [PERMIT.amount, PERMIT.minSharesToMint, PERMIT.deadline, 27n, R, S],
     write: (c, o) => c.validatorShare(SHARE).delegateWithPermit(PERMIT, o),
     prepare: (c, o) => c.validatorShare(SHARE).prepareDelegateWithPermit(PERMIT, o)
   },
@@ -544,7 +544,7 @@ describe('staking read routing', () => {
     expect(adapter.reads[0]).property('blockTag').equals('safe');
   });
 
-  it('a malformed tuple fails with StakingReadError caused by BridgeEventDecodeFailedError', async () => {
+  it('a malformed tuple fails with StakingReadError caused by AdapterResultMismatchError', async () => {
     const { adapter, client } = await setup();
     adapter.readResult = [1n];
     const err = await client
@@ -556,6 +556,6 @@ describe('staking read routing', () => {
       );
     expect(err).property('name').equals('StakingReadError');
     expect(err).nested.property('info.operation').equals('getTotalStake');
-    expect(BridgeEventDecodeFailedError.has(err)).equals(true);
+    expect(AdapterResultMismatchError.has(err)).equals(true);
   });
 });

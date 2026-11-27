@@ -29,7 +29,7 @@ import type {
 import type { IBlockWithTransaction, ITransactionReceipt } from '../../src/interfaces/index.ts';
 import type { BridgeChildClient } from '../../src/internal/pos-bridge-helpers.ts';
 
-import { RootChainABI } from '../../src/abi/index.ts';
+import { RootChainABI, RootChainManagerABI } from '../../src/abi/index.ts';
 import { LogEventSignature } from '../../src/constant.ts';
 import { ContractCaller } from '../../src/internal/contract-caller.ts';
 import { POSBridgeHelpers } from '../../src/internal/pos-bridge-helpers.ts';
@@ -81,6 +81,11 @@ class FakeAdapter implements Adapter {
   }
 }
 
+/** A `headerBlocks` answer in the ABI's output order: root, start, end, createdAt, proposer. */
+function wellFormedHeaderBlock({ start, end }: { start: bigint; end: bigint }): unknown[] {
+  return ['0x' + '00'.repeat(32), start, end, 0n, '0x0000000000000000000000000000000000000000'];
+}
+
 /** Minimal child-bridge-client fake; only the methods a test path hits. */
 function fakeChildClient(over: Partial<BridgeChildClient> = {}): BridgeChildClient {
   return {
@@ -95,14 +100,14 @@ function fakeChildClient(over: Partial<BridgeChildClient> = {}): BridgeChildClie
 }
 
 function makeHelpers(opts: {
-  rootCaller: ContractCaller;
+  rootCaller: ContractCaller<typeof RootChainABI>;
   childClient?: BridgeChildClient;
   childAdapter?: Adapter;
   parentAdapter?: Adapter;
   rootChainDefaultBlock?: 'safe' | 'latest';
 }): POSBridgeHelpers {
   return new POSBridgeHelpers({
-    rootChainManagerCaller: opts.rootCaller,
+    rootChainManagerCaller: callerOn(RootChainManagerABI, opts.parentAdapter ?? new FakeAdapter()),
     rootChainCaller: opts.rootCaller,
     childClient: opts.childClient ?? fakeChildClient(),
     childAdapter: opts.childAdapter ?? new FakeAdapter(),
@@ -116,14 +121,21 @@ function makeHelpers(opts: {
   });
 }
 
-function rootCallerOn(adapter: Adapter): ContractCaller {
+function callerOn<TAbi extends readonly unknown[]>(
+  abi: TAbi,
+  adapter: Adapter
+): ContractCaller<TAbi> {
   return new ContractCaller({
     adapter,
     getAddress: () => Promise.resolve('0x1111111111111111111111111111111111111111'),
-    abi: RootChainABI,
+    abi,
     isParent: true,
     logger: noopLogger
   });
+}
+
+function rootCallerOn(adapter: Adapter): ContractCaller<typeof RootChainABI> {
+  return callerOn(RootChainABI, adapter);
 }
 
 afterEach(() => {
@@ -204,7 +216,7 @@ describe('POSBridgeHelpers.buildExitPayloads — local multi-index enumeration',
     const adapter = new FakeAdapter({
       getLastChildBlock: 1_000_000n,
       currentHeaderBlock: 10000n,
-      headerBlocks: { start: 1n, end: 1000n }
+      headerBlocks: wellFormedHeaderBlock({ start: 1n, end: 1000n })
     });
 
     // Stub the proof-construction boundary (needs an archive node).
@@ -367,10 +379,10 @@ describe('POSBridgeHelpers — fast path falls back to local construction on pro
     const adapter = new FakeAdapter({
       getLastChildBlock: 1_000_000n,
       currentHeaderBlock: 10000n,
-      headerBlocks: { start: 1n, end: 1000n }
+      headerBlocks: wellFormedHeaderBlock({ start: 1n, end: 1000n })
     });
     return new POSBridgeHelpers({
-      rootChainManagerCaller: rootCallerOn(adapter),
+      rootChainManagerCaller: callerOn(RootChainManagerABI, adapter),
       rootChainCaller: rootCallerOn(adapter),
       childClient: fakeChildClient({
         getTransaction: () => Promise.resolve({ blockNumber: 100 }),

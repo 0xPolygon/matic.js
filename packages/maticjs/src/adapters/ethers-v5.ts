@@ -20,6 +20,7 @@ import {
   UnsupportedNetworkError,
   Web3ClientNotInitializedError
 } from '../errors.js';
+import { markBuiltInAdapter } from '../internal/builtin-adapters.js';
 import { memoiseConfirmation } from '../internal/confirmation.js';
 import { bytesToHex, hexToBytes } from '../utils/bytes.js';
 
@@ -85,6 +86,7 @@ export class EthersV5Adapter implements Adapter {
   private chainId: number | undefined;
 
   constructor(config: EthersV5AdapterConfig) {
+    markBuiltInAdapter(this);
     this.provider = config.provider;
     this.signer = config.signer;
   }

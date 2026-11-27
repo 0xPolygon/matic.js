@@ -89,7 +89,7 @@ export interface ERC20Config {
 // belong; ERC20 only owns ERC20-specific deposit shapes.
 
 export class ERC20 {
-  private readonly caller: ContractCaller;
+  readonly #caller: ContractCaller<typeof ChildERC20ABI>;
   readonly tokenAddress: Hex;
   readonly isParent: boolean;
   private readonly bridge: POSBridgeHelpers;
@@ -109,7 +109,7 @@ export class ERC20 {
     this.gasSwapper = config.gasSwapper;
     this.parentAdapter = config.parentAdapter;
     this.encodeParameters = config.encodeParameters;
-    this.caller = new ContractCaller({
+    this.#caller = new ContractCaller({
       adapter: config.adapter,
       getAddress: () => Promise.resolve(config.tokenAddress),
       abi: ChildERC20ABI,
@@ -130,10 +130,7 @@ export class ERC20 {
         tokenAddress: this.tokenAddress,
         method: 'balanceOf'
       },
-      run: async () => {
-        const v = await this.caller.read<bigint | string>('balanceOf', [userAddress], options);
-        return BigInt(v);
-      }
+      run: () => this.#caller.read('balanceOf', [userAddress], options)
     });
   }
 
@@ -169,12 +166,7 @@ export class ERC20 {
         }
         const spender =
           options.spenderAddress ?? (await this.bridge.getPredicateAddress(this.tokenAddress));
-        const v = await this.caller.read<bigint | string>(
-          'allowance',
-          [userAddress, spender],
-          options
-        );
-        return BigInt(v);
+        return this.#caller.read('allowance', [userAddress, spender], options);
       }
     });
   }
@@ -206,7 +198,7 @@ export class ERC20 {
         }
         const spender =
           options.spenderAddress ?? (await this.bridge.getPredicateAddress(this.tokenAddress));
-        return this.caller.write('approve', [spender, amount], options);
+        return this.#caller.write('approve', [spender, amount], options);
       }
     });
   }
@@ -234,7 +226,7 @@ export class ERC20 {
         }
         const spender =
           options.spenderAddress ?? (await this.bridge.getPredicateAddress(this.tokenAddress));
-        return this.caller.prepareWrite('approve', [spender, amount], options);
+        return this.#caller.prepareWrite('approve', [spender, amount], options);
       }
     });
   }
@@ -398,7 +390,7 @@ export class ERC20 {
       },
       run: () => {
         this.requireChild('startWithdraw');
-        return this.caller.write('withdraw', [amount], options);
+        return this.#caller.write('withdraw', [amount], options);
       }
     });
   }
@@ -418,7 +410,7 @@ export class ERC20 {
       },
       run: () => {
         this.requireChild('startWithdraw');
-        return this.caller.prepareWrite('withdraw', [amount], options);
+        return this.#caller.prepareWrite('withdraw', [amount], options);
       }
     });
   }
@@ -553,7 +545,7 @@ export class ERC20 {
         tokenAddress: this.tokenAddress,
         method: 'transfer'
       },
-      run: () => this.caller.write('transfer', [to, amount], options)
+      run: () => this.#caller.write('transfer', [to, amount], options)
     });
   }
 
@@ -571,7 +563,7 @@ export class ERC20 {
         tokenAddress: this.tokenAddress,
         method: 'transfer'
       },
-      run: () => this.caller.prepareWrite('transfer', [to, amount], options)
+      run: () => this.#caller.prepareWrite('transfer', [to, amount], options)
     });
   }
 

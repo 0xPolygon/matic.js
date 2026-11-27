@@ -114,3 +114,43 @@ registries must list every `is*` / `has*` method (each resolves `false` when
 unmet and declares a boolean return type) and every `get*Status` method (a
 case per reason value, returned without throwing), so a new one without a
 test fails CI.
+
+## Contract calls are typed against the ABI (mandatory)
+
+- **Call a contract only through a `ContractCaller` built with the contract's
+  `as const` ABI** (`packages/maticjs/src/internal/contract-caller.ts`). It
+  accepts only that ABI's function names, each with its own argument list and
+  result type. Do not call `Adapter.read` anywhere else in `src`.
+- **Write the method name as a string literal at the call.** A helper that
+  forwards a name takes it as a type parameter bound to the ABI, never as
+  `string`.
+- **Validate a value read from a contract before any other code sees it.**
+  `src/internal/decode.ts` checks it against the ABI, and it comes out the same
+  on viem, ethers v5 and ethers v6. No other module converts or checks such a
+  value. A value that does not match fails with an SDK error that names the
+  method and field.
+- **Keep what is not public API unreachable.** Use a `#private` field and pass
+  the value in through construction. Do not mark a public member `@internal`
+  instead.
+
+Why:
+
+- A mistyped method name, a missing argument or a result of the wrong shape is
+  otherwise found in a consumer's production code.
+- The three libraries return different values for the same call.
+- A member documented as internal but still typed and reachable is public in
+  practice.
+
+### Enforcement
+
+The compiler rejects a method name, argument list or result type that the ABI
+does not have. `packages/maticjs/scripts/check-contract-calls.mjs` fails on a
+bare `Adapter.read`, on a method name that is neither a literal nor a name a
+helper forwards as a type parameter, on an `@internal` tag and on a class member
+named `caller`, or typed `ContractCaller` under any name, that is not `#private`,
+and on a public `ContractCaller` `read`, `write`, `prepareWrite` or `estimateGas`
+signature whose method parameter is typed `string`. Its allowlist lives in that
+script and nowhere else. `tests/unit/contract-calls-gate.test.ts` runs it in CI, and
+`pnpm --filter @polygonlabs/maticjs run check:contract-calls` runs it by hand.
+`tests/unit/abi-decode-agreement.test.ts` checks every vendored ABI function on
+all three libraries. Neither may be weakened to make a change pass.

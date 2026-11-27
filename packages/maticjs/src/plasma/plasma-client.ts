@@ -14,6 +14,7 @@
  * `RootChain`, which checkpoint reads need.
  */
 import type { Adapter, BlockTag, Hex, PreparedTx, TxResult } from '../adapter.js';
+import type { Abi } from '../internal/abi-types.js';
 import type { ContractCallerOptions } from '../internal/contract-caller.js';
 import type { Logger } from '../logger.js';
 import type { Network } from '../networks.js';
@@ -28,6 +29,7 @@ import type { PlasmaBurnReader, PlasmaWithdrawStatus } from './withdraw-status.j
 
 import { PlasmaDepositManagerABI } from '../abi/plasma/DepositManager.js';
 import { PlasmaERC20PredicateABI } from '../abi/plasma/ERC20Predicate.js';
+import { RootChainABI } from '../abi/RootChain.js';
 import {
   AddressLookupError,
   BridgeStatusError,
@@ -44,7 +46,6 @@ import { ExitProofBuilder, getLogIndex } from '../internal/exit-proof.js';
 import { ProofApiClient } from '../internal/proof-api-client.js';
 import { noopLogger } from '../logger.js';
 import { L1_CHAIN_ID, L2_CHAIN_ID } from '../networks.js';
-import { RootChain } from '../pos/root_chain.js';
 import { createPlasmaAddressSource } from './addresses.js';
 import { PlasmaERC20 } from './erc20.js';
 import { PlasmaEventSignature } from './events.js';
@@ -275,21 +276,20 @@ export class PlasmaClient {
     const l1ChainId = declared?.parent ?? L1_CHAIN_ID[network];
     const l2ChainId = declared?.child ?? L2_CHAIN_ID[network];
 
-    const rootChain = new RootChain({
+    const rootChainCaller = new ContractCaller({
       adapter: parentAdapter,
-      chainId: l1ChainId,
       getAddress: addressOf('RootChain'),
+      abi: RootChainABI,
+      isParent: true,
       logger,
-      ...(config.rootChainDefaultBlock !== undefined
-        ? { defaultBlock: config.rootChainDefaultBlock }
-        : {})
+      chainId: l1ChainId
     });
     const proofApiClient =
       config.proofGenerationApiUrl !== undefined
         ? new ProofApiClient({ baseUrl: config.proofGenerationApiUrl, network })
         : undefined;
     const exitProof = new ExitProofBuilder({
-      rootChainCaller: rootChain.caller,
+      rootChainCaller,
       childClient: createBridgeChildClient(childAdapter),
       ...(proofApiClient !== undefined ? { proofApiClient } : {}),
       ...(config.rootChainDefaultBlock !== undefined
@@ -300,13 +300,13 @@ export class PlasmaClient {
     });
     const burnReader = burnReaderOver(exitProof);
 
-    const parentCaller = ({
+    const parentCaller = <TAbi extends Abi>({
       getAddress,
       abi
     }: {
       getAddress: () => Promise<Hex>;
-      abi: readonly unknown[];
-    }): ContractCaller =>
+      abi: TAbi;
+    }): ContractCaller<TAbi> =>
       new ContractCaller({
         adapter: parentAdapter,
         getAddress,
@@ -331,7 +331,8 @@ export class PlasmaClient {
         ...(confirmTxHash !== undefined ? { confirmTxHash } : {}),
         proof: burnReader,
         parentAdapter,
-        addresses: await resolve()
+        addresses: await resolve(),
+        logger
       });
 
     const bridge: PlasmaBridgeServices = {

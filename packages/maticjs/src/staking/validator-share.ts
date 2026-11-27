@@ -6,13 +6,15 @@
  */
 
 import type { Hex, PreparedTx, TxResult } from '../adapter.js';
+import type { WriteArgs, WriteName } from '../internal/abi-types.js';
 import type { TxOptions } from '../types.js';
 import type { StakingContractConfig } from './stake-manager.js';
 
 import { ValidatorShareABI } from '../abi/ValidatorShare.js';
 import { StakingReadError, StakingWriteError, withOperation } from '../errors.js';
 import { ContractCaller } from '../internal/contract-caller.js';
-import { pinChainId, toBigInt, toTuple } from './stake-manager.js';
+import { decodeIntegerArgument } from '../internal/decode.js';
+import { pinChainId } from './stake-manager.js';
 
 /**
  * One unbonding request: shares burned and the epoch the request was made
@@ -67,14 +69,14 @@ export interface ClaimUndelegatedParams {
 export class ValidatorShare {
   /** The ValidatorShare proxy this instance is bound to. */
   readonly address: Hex;
-  private readonly caller: ContractCaller;
+  readonly #caller: ContractCaller<typeof ValidatorShareABI>;
   private readonly l1ChainId: number;
 
   constructor(config: Omit<StakingContractConfig, 'getAddress'> & { address: Hex }) {
     const address = config.address;
     this.address = address;
     this.l1ChainId = config.l1ChainId;
-    this.caller = new ContractCaller({
+    this.#caller = new ContractCaller({
       adapter: config.adapter,
       getAddress: () => Promise.resolve(address),
       abi: ValidatorShareABI,
@@ -83,40 +85,20 @@ export class ValidatorShare {
     });
   }
 
-  private async write(
-    method: string,
-    args: readonly unknown[],
+  private async write<N extends WriteName<typeof ValidatorShareABI>>(
+    method: N,
+    args: WriteArgs<typeof ValidatorShareABI, N>,
     options?: TxOptions
   ): Promise<TxResult> {
-    return this.caller.write(method, args, pinChainId(options, this.l1ChainId));
+    return this.#caller.write(method, args, pinChainId(options, this.l1ChainId));
   }
 
-  private async prepare(
-    method: string,
-    args: readonly unknown[],
+  private async prepare<N extends WriteName<typeof ValidatorShareABI>>(
+    method: N,
+    args: WriteArgs<typeof ValidatorShareABI, N>,
     options?: TxOptions
   ): Promise<PreparedTx> {
-    return this.caller.prepareWrite(method, args, pinChainId(options, this.l1ChainId));
-  }
-
-  private async readBigInt(
-    method: string,
-    args: readonly unknown[],
-    options?: TxOptions
-  ): Promise<bigint> {
-    return toBigInt(await this.caller.read<unknown>(method, args, options), method);
-  }
-
-  private async readUnbond(
-    method: string,
-    args: readonly unknown[],
-    options?: TxOptions
-  ): Promise<Unbond> {
-    const t = toTuple(await this.caller.read<unknown>(method, args, options), 2, method);
-    return {
-      shares: toBigInt(t[0], `${method}.shares`),
-      withdrawEpoch: toBigInt(t[1], `${method}.withdrawEpoch`)
-    };
+    return this.#caller.prepareWrite(method, args, pinChainId(options, this.l1ChainId));
   }
 
   // --- writes -------------------------------------------------------
@@ -342,7 +324,7 @@ export class ValidatorShare {
         contractAddress: this.address,
         method: 'exchangeRate'
       },
-      run: () => this.readBigInt('exchangeRate', [], options)
+      run: () => this.#caller.read('exchangeRate', [], options)
     });
   }
 
@@ -356,7 +338,7 @@ export class ValidatorShare {
         contractAddress: this.address,
         method: 'getLiquidRewards'
       },
-      run: () => this.readBigInt('getLiquidRewards', [params.user], options)
+      run: () => this.#caller.read('getLiquidRewards', [params.user], options)
     });
   }
 
@@ -370,7 +352,7 @@ export class ValidatorShare {
         contractAddress: this.address,
         method: 'minAmount'
       },
-      run: () => this.readBigInt('minAmount', [], options)
+      run: () => this.#caller.read('minAmount', [], options)
     });
   }
 
@@ -384,7 +366,7 @@ export class ValidatorShare {
         contractAddress: this.address,
         method: 'balanceOf'
       },
-      run: () => this.readBigInt('balanceOf', [params.user], options)
+      run: () => this.#caller.read('balanceOf', [params.user], options)
     });
   }
 
@@ -399,15 +381,8 @@ export class ValidatorShare {
         method: 'getTotalStake'
       },
       run: async () => {
-        const t = toTuple(
-          await this.caller.read<unknown>('getTotalStake', [params.user], options),
-          2,
-          'getTotalStake'
-        );
-        return {
-          stake: toBigInt(t[0], 'getTotalStake.stake'),
-          rate: toBigInt(t[1], 'getTotalStake.rate')
-        };
+        const [stake, rate] = await this.#caller.read('getTotalStake', [params.user], options);
+        return { stake, rate };
       }
     });
   }
@@ -422,7 +397,10 @@ export class ValidatorShare {
         contractAddress: this.address,
         method: 'unbonds'
       },
-      run: () => this.readUnbond('unbonds', [params.user], options)
+      run: async () => {
+        const [shares, withdrawEpoch] = await this.#caller.read('unbonds', [params.user], options);
+        return { shares, withdrawEpoch };
+      }
     });
   }
 
@@ -436,7 +414,14 @@ export class ValidatorShare {
         contractAddress: this.address,
         method: 'unbonds_new'
       },
-      run: () => this.readUnbond('unbonds_new', [params.user, params.nonce], options)
+      run: async () => {
+        const [shares, withdrawEpoch] = await this.#caller.read(
+          'unbonds_new',
+          [params.user, params.nonce],
+          options
+        );
+        return { shares, withdrawEpoch };
+      }
     });
   }
 
@@ -450,7 +435,7 @@ export class ValidatorShare {
         contractAddress: this.address,
         method: 'unbondNonces'
       },
-      run: () => this.readBigInt('unbondNonces', [params.user], options)
+      run: () => this.#caller.read('unbondNonces', [params.user], options)
     });
   }
 
@@ -464,11 +449,20 @@ export class ValidatorShare {
         contractAddress: this.address,
         method: 'validatorId'
       },
-      run: () => this.readBigInt('validatorId', [], options)
+      run: () => this.#caller.read('validatorId', [], options)
     });
   }
 }
 
-function permitArgs(p: DelegateWithPermitParams): readonly unknown[] {
-  return [p.amount, p.minSharesToMint, p.deadline, p.v, p.r, p.s];
+function permitArgs(
+  p: DelegateWithPermitParams
+): readonly [bigint, bigint, bigint, bigint, Hex, Hex] {
+  return [
+    p.amount,
+    p.minSharesToMint,
+    p.deadline,
+    decodeIntegerArgument({ value: p.v, field: 'v' }),
+    p.r,
+    p.s
+  ];
 }

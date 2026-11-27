@@ -11,6 +11,7 @@ import type {
   CheckpointNotReachedReason,
   CheckpointStatus
 } from '../internal/checkpoint-status.js';
+import type { Logger } from '../logger.js';
 import type { PlasmaAddresses } from './addresses.js';
 
 import { PlasmaExitNFTABI } from '../abi/plasma/ExitNFT.js';
@@ -20,6 +21,8 @@ import {
   InvalidNumericValueError,
   TransactionHashRequiredError
 } from '../errors.js';
+import { ContractCaller } from '../internal/contract-caller.js';
+import { noopLogger } from '../logger.js';
 import { PlasmaEventSignature } from './events.js';
 import {
   branchMaskForTransactionIndex,
@@ -179,13 +182,15 @@ export const readPlasmaWithdrawStatus = async ({
   confirmTxHash,
   proof,
   parentAdapter,
-  addresses
+  addresses,
+  logger = noopLogger
 }: {
   burnTxHash: string;
   confirmTxHash?: string;
   proof: PlasmaBurnReader;
   parentAdapter: Adapter;
   addresses: Pick<PlasmaAddresses, 'WithdrawManager' | 'ExitNFT'>;
+  logger?: Logger;
 }): Promise<PlasmaWithdrawStatus> => {
   requireHash({ name: 'burnTxHash', value: burnTxHash });
   if (confirmTxHash !== undefined) requireHash({ name: 'confirmTxHash', value: confirmTxHash });
@@ -253,13 +258,14 @@ export const readPlasmaWithdrawStatus = async ({
   // the answer.
   if (head.number < receipt.blockNumber) return { exited: false, reason: 'in-exit-window' };
 
-  const exists = await parentAdapter.read({
-    address: addresses.ExitNFT,
+  const exitNft = new ContractCaller({
+    adapter: parentAdapter,
+    getAddress: () => Promise.resolve(addresses.ExitNFT),
     abi: PlasmaExitNFTABI,
-    functionName: 'exists',
-    args: [exitId],
-    blockTag: head.number
+    isParent: true,
+    logger
   });
+  const exists = await exitNft.read('exists', [exitId], { blockTag: head.number });
   // A burn exit has no inputs and so cannot be challenged: an exit token
   // that no longer exists was processed.
   if (exists === false) return { exited: true };

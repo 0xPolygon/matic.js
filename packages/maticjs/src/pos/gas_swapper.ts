@@ -12,8 +12,10 @@ import type { ContractCallerOptions } from '../internal/contract-caller.js';
 import type { Logger } from '../logger.js';
 
 import { GasSwapperABI } from '../abi/GasSwapper.js';
-import { DepositError, withOperation } from '../errors.js';
+import { DepositError, InvalidHexStringError, withOperation } from '../errors.js';
 import { ContractCaller } from '../internal/contract-caller.js';
+import { BufferUtil } from '../utils/buffer-utils.js';
+import { bytesToHex } from '../utils/bytes.js';
 
 export interface GasSwapperConfig {
   adapter: Adapter;
@@ -24,17 +26,32 @@ export interface GasSwapperConfig {
   chainId?: number;
 }
 
+/**
+ * The number a hex `depositAmount` stands for. The contract takes a `uint256`
+ * and the adapter takes an integer, so the hex the callers build
+ * (`encodeParameters([amount], ['uint256'])`) is read here, once, instead of
+ * being left for each web3 library to read in its own way. A value that is
+ * not `0x`-prefixed hex, or has no digits, is rejected as the SDK's own
+ * malformed-hex error rather than a bare `SyntaxError` from `BigInt`.
+ */
+function amountOf(depositAmount: string): bigint {
+  const bytes = BufferUtil.toBuffer(depositAmount);
+  if (bytes.length === 0) {
+    throw new InvalidHexStringError(
+      'depositAmount must be 0x-prefixed hex with at least one digit',
+      {
+        info: { value: depositAmount }
+      }
+    );
+  }
+  return BigInt(`0x${bytesToHex(bytes)}`);
+}
+
 export class GasSwapper {
-  /**
-   * @internal — wiring hook for POSClient's construction of the bridge
-   * helpers. ContractCaller is not part of the public API contract and
-   * may change shape in any release; consumers should treat this
-   * member as non-existent.
-   */
-  readonly caller: ContractCaller;
+  readonly #caller: ContractCaller<typeof GasSwapperABI>;
 
   constructor(config: GasSwapperConfig) {
-    this.caller = new ContractCaller({
+    this.#caller = new ContractCaller({
       adapter: config.adapter,
       getAddress: config.getAddress,
       abi: GasSwapperABI,
@@ -44,8 +61,6 @@ export class GasSwapper {
       chainId: config.chainId
     });
   }
-
-  /** Underlying caller — exposed for advanced consumers. */
 
   /**
    * Single-call deposit + ETH→token swap. Used by the `*WithGas`
@@ -64,9 +79,9 @@ export class GasSwapper {
       error: DepositError,
       info: { operation: 'depositWithGas', mode: 'write', tokenAddress, method: 'swapAndBridge' },
       run: () =>
-        this.caller.write(
+        this.#caller.write(
           'swapAndBridge',
-          [tokenAddress, depositAmount, userAddress, swapCallData],
+          [tokenAddress, amountOf(depositAmount), userAddress, swapCallData],
           options
         )
     });
@@ -89,9 +104,9 @@ export class GasSwapper {
         method: 'swapAndBridge'
       },
       run: () =>
-        this.caller.prepareWrite(
+        this.#caller.prepareWrite(
           'swapAndBridge',
-          [tokenAddress, depositAmount, userAddress, swapCallData],
+          [tokenAddress, amountOf(depositAmount), userAddress, swapCallData],
           options
         )
     });

@@ -33,6 +33,7 @@ import {
   withOperation
 } from '../errors.js';
 import { ContractCaller } from '../internal/contract-caller.js';
+import { decodeIntegerArgument } from '../internal/decode.js';
 
 export interface ERC721Config {
   tokenAddress: Hex;
@@ -51,7 +52,7 @@ export interface ERC721Config {
 const MAX_BATCH_SIZE = 20;
 
 export class ERC721 {
-  private readonly caller: ContractCaller;
+  readonly #caller: ContractCaller<typeof ChildERC721ABI>;
   readonly tokenAddress: Hex;
   readonly isParent: boolean;
   private readonly bridge: POSBridgeHelpers;
@@ -67,7 +68,7 @@ export class ERC721 {
     this.bridge = config.bridge;
     this.rootChainManager = config.rootChainManager;
     this.encodeParameters = config.encodeParameters;
-    this.caller = new ContractCaller({
+    this.#caller = new ContractCaller({
       adapter: config.adapter,
       getAddress: () => Promise.resolve(config.tokenAddress),
       abi: ChildERC721ABI,
@@ -89,7 +90,7 @@ export class ERC721 {
         method: 'balanceOf'
       },
       run: async () => {
-        const v = await this.caller.read<bigint | string>('balanceOf', [userAddress], options);
+        const v = await this.#caller.read('balanceOf', [userAddress], options);
         return Number(v);
       }
     });
@@ -114,14 +115,12 @@ export class ERC721 {
         method: 'tokenOfOwnerByIndex',
         index
       },
-      run: async () => {
-        const v = await this.caller.read<bigint | string>(
+      run: () =>
+        this.#caller.read(
           'tokenOfOwnerByIndex',
-          [userAddress, index],
+          [userAddress, decodeIntegerArgument({ value: index, field: 'index' })],
           options
-        );
-        return BigInt(v);
-      }
+        )
     });
   }
 
@@ -162,7 +161,7 @@ export class ERC721 {
       run: async () => {
         this.requireParent('isApproved');
         const [approved, predicate] = await Promise.all([
-          this.caller.read<string>('getApproved', [tokenId], options),
+          this.#caller.read('getApproved', [tokenId], options),
           this.bridge.getPredicateAddress(this.tokenAddress)
         ]);
         return approved.toLowerCase() === predicate.toLowerCase();
@@ -183,7 +182,7 @@ export class ERC721 {
       run: async () => {
         this.requireParent('isApprovedAll');
         const predicate = await this.bridge.getPredicateAddress(this.tokenAddress);
-        return this.caller.read<boolean>('isApprovedForAll', [userAddress, predicate], options);
+        return this.#caller.read('isApprovedForAll', [userAddress, predicate], options);
       }
     });
   }
@@ -201,7 +200,7 @@ export class ERC721 {
       run: async () => {
         this.requireParent('approve');
         const predicate = await this.bridge.getPredicateAddress(this.tokenAddress);
-        return this.caller.write('approve', [predicate, tokenId], options);
+        return this.#caller.write('approve', [predicate, tokenId], options);
       }
     });
   }
@@ -219,7 +218,7 @@ export class ERC721 {
       run: async () => {
         this.requireParent('approve');
         const predicate = await this.bridge.getPredicateAddress(this.tokenAddress);
-        return this.caller.prepareWrite('approve', [predicate, tokenId], options);
+        return this.#caller.prepareWrite('approve', [predicate, tokenId], options);
       }
     });
   }
@@ -237,7 +236,7 @@ export class ERC721 {
       run: async () => {
         this.requireParent('approveAll');
         const predicate = await this.bridge.getPredicateAddress(this.tokenAddress);
-        return this.caller.write('setApprovalForAll', [predicate, true], options);
+        return this.#caller.write('setApprovalForAll', [predicate, true], options);
       }
     });
   }
@@ -255,7 +254,7 @@ export class ERC721 {
       run: async () => {
         this.requireParent('approveAll');
         const predicate = await this.bridge.getPredicateAddress(this.tokenAddress);
-        return this.caller.prepareWrite('setApprovalForAll', [predicate, true], options);
+        return this.#caller.prepareWrite('setApprovalForAll', [predicate, true], options);
       }
     });
   }
@@ -352,7 +351,7 @@ export class ERC721 {
       },
       run: () => {
         this.requireChild('startWithdraw');
-        return this.caller.write('withdraw', [tokenId], options);
+        return this.#caller.write('withdraw', [tokenId], options);
       }
     });
   }
@@ -372,7 +371,7 @@ export class ERC721 {
       },
       run: () => {
         this.requireChild('startWithdraw');
-        return this.caller.prepareWrite('withdraw', [tokenId], options);
+        return this.#caller.prepareWrite('withdraw', [tokenId], options);
       }
     });
   }
@@ -393,7 +392,7 @@ export class ERC721 {
       },
       run: () => {
         this.requireChild('startWithdrawWithMetaData');
-        return this.caller.write('withdrawWithMetadata', [tokenId], options);
+        return this.#caller.write('withdrawWithMetadata', [tokenId], options);
       }
     });
   }
@@ -413,7 +412,7 @@ export class ERC721 {
       },
       run: () => {
         this.requireChild('startWithdrawWithMetaData');
-        return this.caller.prepareWrite('withdrawWithMetadata', [tokenId], options);
+        return this.#caller.prepareWrite('withdrawWithMetadata', [tokenId], options);
       }
     });
   }
@@ -434,7 +433,7 @@ export class ERC721 {
       run: () => {
         this.requireChild('startWithdrawMany');
         this.validateBatch(tokenIds);
-        return this.caller.write('withdrawBatch', [tokenIds], options);
+        return this.#caller.write('withdrawBatch', [tokenIds], options);
       }
     });
   }
@@ -455,7 +454,7 @@ export class ERC721 {
       run: () => {
         this.requireChild('startWithdrawMany');
         this.validateBatch(tokenIds);
-        return this.caller.prepareWrite('withdrawBatch', [tokenIds], options);
+        return this.#caller.prepareWrite('withdrawBatch', [tokenIds], options);
       }
     });
   }
@@ -709,7 +708,7 @@ export class ERC721 {
         tokenAddress: this.tokenAddress,
         method: 'transferFrom'
       },
-      run: () => this.caller.write('transferFrom', [from, to, tokenId], options)
+      run: () => this.#caller.write('transferFrom', [from, to, tokenId], options)
     });
   }
 
@@ -728,7 +727,7 @@ export class ERC721 {
         tokenAddress: this.tokenAddress,
         method: 'transferFrom'
       },
-      run: () => this.caller.prepareWrite('transferFrom', [from, to, tokenId], options)
+      run: () => this.#caller.prepareWrite('transferFrom', [from, to, tokenId], options)
     });
   }
 

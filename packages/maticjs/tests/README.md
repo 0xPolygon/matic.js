@@ -152,6 +152,54 @@ pnpm run e2e
 See [`../../e2e/README.md`](../../e2e/README.md) for booting the devnet
 and running one file.
 
+## Contract-call tests
+
+Every contract call goes through the typed `ContractCaller`. The compiler checks
+method names, argument lists and result types; these suites pin what it cannot.
+All of them run offline in the unit tier.
+
+- **Decoder** (`decode`) pins each rule of `src/internal/decode.ts` with an
+  accept row and a reject row. `abi-decode-agreement` checks every function of
+  every vendored ABI: all three libraries decode a result to the same value,
+  with the run-time kind the type mapping in `src/internal/abi-types.ts` names.
+  It fails loudly on an ABI type the mapping does not support.
+- **Caller** (`contract-caller-typed`, `contract-caller-types`) pins the
+  request each call shape sends and, at compile time, what the compiler
+  rejects: a mistyped name, a wrong argument list or result type, a name typed
+  as `string`. `caller-is-private` shows the clients build one caller per
+  contract and expose none.
+- **Argument order** (`contract-argument-order`) pins that the public methods
+  whose parameters share a type (two addresses, two amounts) send them in the
+  order the contract's ABI names its inputs, which the compiler cannot see. Each
+  row gives every parameter a distinct value, so a swap fails exactly its row.
+- **Mismatch error** (`adapter-result-mismatch`) pins the
+  `AdapterResultMismatchError` a read rejects with when an adapter's result
+  does not match the ABI: its message for a custom adapter, its message for
+  the viem, ethers v5 and ethers v6 adapters, and its registration with the
+  SDK's error helpers.
+- **Integer arguments** (`integer-arguments`) pins that a non-integer ERC-721
+  index or permit `v` is rejected with `InvalidNumericValueError` before a
+  request is built.
+- **Gas swapper** (`gas-swapper-amount`) pins how the deposit amount reaches
+  the adapter and the error a malformed one ends in.
+- **Integer calldata** (`bigint-argument-calldata`) checks that the integer
+  arguments that became `bigint` (a checkpoint id, an ERC-721 index, the gas
+  swapper amount) put on the wire what viem's `encodeFunctionData` produces
+  from the plain value, on viem, ethers v5 and ethers v6. The expected bytes
+  are derived in the test, not recorded. The staking and Plasma writes are
+  covered by their ground-truth suites.
+- **Gate** (`contract-calls-gate`) runs `scripts/check-contract-calls.mjs`,
+  which fails on a bare `Adapter.read`, on a method name that is not a literal,
+  on an `@internal` tag, on a class member named `caller` or typed
+  `ContractCaller` that is not `#private`, and on a public caller signature
+  that takes its method name as a plain string. The test feeds it a small
+  program that breaks each rule to show that it fires. Run it by hand with
+  `pnpm run check:contract-calls`.
+- **Built-in adapter registry**: `pnpm run test:pack` (and, after a build,
+  `pnpm run check:builtin-adapter-registry` on its own) checks in the built package that the viem,
+  ethers v5 and ethers v6 adapters are recognised as built in, so a mismatch
+  from one of them gets the report-an-issue message.
+
 ## Adding a new test
 
 - **Unit (no network) tests** live under `tests/unit/`. They never need

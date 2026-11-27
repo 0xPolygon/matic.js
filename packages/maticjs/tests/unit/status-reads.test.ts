@@ -26,6 +26,7 @@ import type { PlasmaAddresses } from '../../src/plasma/addresses.ts';
 import type { CheckpointStatus, DepositStatus } from '../../src/pos/bridge-status.ts';
 import type { WithdrawStatus } from '../../src/pos/withdraw-status.ts';
 
+import { RootChainABI } from '../../src/abi/index.ts';
 import { LogEventSignature } from '../../src/constant.ts';
 import {
   BurnTxNotCheckpointedError,
@@ -35,6 +36,7 @@ import {
 } from '../../src/errors.ts';
 import { encodeAbiParameters } from '../../src/internal/abi-encode.ts';
 import { createBridgeChildClient } from '../../src/internal/bridge-child-client.ts';
+import { ContractCaller } from '../../src/internal/contract-caller.ts';
 import { ExitProofBuilder } from '../../src/internal/exit-proof.ts';
 import { noopLogger } from '../../src/logger.ts';
 import { PlasmaEventSignature } from '../../src/plasma/events.ts';
@@ -43,7 +45,6 @@ import { POSClient } from '../../src/pos-client.ts';
 import { ERC20 } from '../../src/pos/erc20.ts';
 import { ERC721 } from '../../src/pos/erc721.ts';
 import { ERC1155 } from '../../src/pos/erc1155.ts';
-import { RootChain } from '../../src/pos/root_chain.ts';
 import { RootChainManager } from '../../src/pos/root_chain_manager.ts';
 import { StakeManager } from '../../src/staking/stake-manager.ts';
 import { BufferUtil } from '../../src/utils/buffer-utils.ts';
@@ -652,11 +653,13 @@ const STATUS_READS: Record<string, StatusEntry> = {
 /** An `ExitProofBuilder` wired straight onto the scripted chain, with no client around it. */
 function exitProofBuilderOn(chain: ScriptedChain): ExitProofBuilder {
   return new ExitProofBuilder({
-    rootChainCaller: new RootChain({
+    rootChainCaller: new ContractCaller({
       adapter: chain,
       getAddress: () => Promise.resolve(ADDR),
+      abi: RootChainABI,
+      isParent: true,
       logger: noopLogger
-    }).caller,
+    }),
     childClient: createBridgeChildClient(chain),
     logger: noopLogger,
     proofConcurrency: 1

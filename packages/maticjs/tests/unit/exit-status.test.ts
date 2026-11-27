@@ -39,7 +39,7 @@ import type {
 import type { BridgeChildClient } from '../../src/internal/pos-bridge-helpers.ts';
 import type { WithdrawStatus } from '../../src/pos/withdraw-status.ts';
 
-import { RootChainManagerABI } from '../../src/abi/index.ts';
+import { RootChainABI, RootChainManagerABI } from '../../src/abi/index.ts';
 import { LogEventSignature } from '../../src/constant.ts';
 import {
   BatchSizeLimitExceededError,
@@ -83,7 +83,16 @@ class ParentAdapter implements Adapter {
     if (req.functionName === 'getLastChildBlock') return this.lastChildBlock;
     // Checkpoint lookup for the exit-payload path.
     if (req.functionName === 'currentHeaderBlock') return 10_000n;
-    if (req.functionName === 'headerBlocks') return { start: 4_999_000n, end: 5_000_100n };
+    if (req.functionName === 'headerBlocks') {
+      // positional, in the ABI's output order: root, start, end, createdAt, proposer
+      return [
+        '0x' + '00'.repeat(32),
+        4_999_000n,
+        5_000_100n,
+        0n,
+        '0x0000000000000000000000000000000000000000'
+      ];
+    }
     if (req.functionName !== 'processedExits') return undefined;
     this.inFlight++;
     this.maxInFlight = Math.max(this.maxInFlight, this.inFlight);
@@ -147,16 +156,17 @@ function helpersOn(
   child: BridgeChildClient,
   proofConcurrency = 4
 ): POSBridgeHelpers {
-  const caller = new ContractCaller({
-    adapter: parent,
-    getAddress: () => Promise.resolve(CONTRACT),
-    abi: RootChainManagerABI,
-    isParent: true,
-    logger: noopLogger
-  });
+  const callerFor = <TAbi extends readonly unknown[]>(abi: TAbi): ContractCaller<TAbi> =>
+    new ContractCaller({
+      adapter: parent,
+      getAddress: () => Promise.resolve(CONTRACT),
+      abi,
+      isParent: true,
+      logger: noopLogger
+    });
   return new POSBridgeHelpers({
-    rootChainManagerCaller: caller,
-    rootChainCaller: caller,
+    rootChainManagerCaller: callerFor(RootChainManagerABI),
+    rootChainCaller: callerFor(RootChainABI),
     childClient: child,
     childAdapter: parent,
     parentAdapter: parent,

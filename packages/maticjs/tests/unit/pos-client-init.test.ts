@@ -183,7 +183,7 @@ describe('POSClient.init', { timeout: 60_000 }, () => {
         // serves stale and triggers a background refresh.
         await new Promise<void>((resolve) => setTimeout(resolve, 100));
         // Force one client touch that goes through the fetcher.
-        await client.rootChainManager.caller.getContractAddress();
+        await client.rootChainManager.prepareExit('0x');
         // Drain microtasks so the background refresh has propagated.
         for (let i = 0; i < 10; i++) await Promise.resolve();
         expect(calls).greaterThan(1);

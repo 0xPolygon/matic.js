@@ -9,6 +9,7 @@
  */
 import type { Adapter, Hex, PreparedTx, TxResult } from '../adapter.js';
 import type { OperationInfo } from '../errors.js';
+import type { WriteCall } from '../internal/abi-types.js';
 import type { ContractCallerOptions } from '../internal/contract-caller.js';
 import type { Logger } from '../logger.js';
 
@@ -83,13 +84,13 @@ export interface PlasmaWithdrawManagerConfig {
 export class PlasmaWithdrawManager {
   private readonly adapter: Adapter;
   private readonly logger: Logger;
-  private readonly caller: ContractCaller;
+  readonly #caller: ContractCaller<typeof PlasmaWithdrawManagerABI>;
   private onFinalizeGasLimit: Promise<bigint> | undefined;
 
   constructor(config: PlasmaWithdrawManagerConfig) {
     this.adapter = config.adapter;
     this.logger = config.logger;
-    this.caller = new ContractCaller({
+    this.#caller = new ContractCaller({
       adapter: config.adapter,
       getAddress: config.getWithdrawManagerAddress,
       abi: PlasmaWithdrawManagerABI,
@@ -109,7 +110,7 @@ export class PlasmaWithdrawManager {
    * withdraw manager keeps for it. A token with no queue contract has none.
    */
   async getExitQueueSize(token: Hex): Promise<bigint> {
-    const queue = await this.caller.read<Hex>('exitsQueues', [token]);
+    const queue = await this.#caller.read('exitsQueues', [token]);
     if (ZERO_ADDRESS.test(queue)) return 0n;
     const queueCaller = new ContractCaller({
       adapter: this.adapter,
@@ -118,7 +119,7 @@ export class PlasmaWithdrawManager {
       isParent: true,
       logger: this.logger
     });
-    return BigInt(await queueCaller.read<bigint | string>('currentSize'));
+    return queueCaller.read('currentSize', []);
   }
 
   /**
@@ -173,7 +174,7 @@ export class PlasmaWithdrawManager {
         await this.requireGasFloor(options.gasLimit);
         const gasLimit =
           options.gasLimit ?? (await this.defaultGasLimit({ call, options, queueSize }));
-        return this.caller.write(call.method, call.args, { ...options, gasLimit });
+        return this.#caller.write(call, { ...options, gasLimit });
       }
     });
   }
@@ -203,7 +204,7 @@ export class PlasmaWithdrawManager {
         const call = callFor(tokens);
         await this.requireQueuedExits(tokens);
         await this.requireGasFloor(options.gasLimit);
-        return this.caller.prepareWrite(call.method, call.args, options);
+        return this.#caller.prepareWrite(call, options);
       }
     });
   }
@@ -276,7 +277,7 @@ export class PlasmaWithdrawManager {
     options: ContractCallerOptions;
     queueSize: bigint;
   }): Promise<bigint> {
-    const estimate = await this.caller.estimateGas(call.method, call.args, options);
+    const estimate = await this.#caller.estimateGas(call, options);
     const sized = estimate + queueSize * PROCESS_EXITS_GAS_PER_EXIT;
     return sized < MAX_PROCESS_EXITS_GAS_LIMIT ? sized : MAX_PROCESS_EXITS_GAS_LIMIT;
   }
@@ -304,7 +305,7 @@ export class PlasmaWithdrawManager {
    */
   private async fetchOnFinalizeGasLimit(): Promise<bigint> {
     try {
-      return BigInt(await this.caller.read<bigint | string | number>('ON_FINALIZE_GAS_LIMIT'));
+      return await this.#caller.read('ON_FINALIZE_GAS_LIMIT', []);
     } catch (err) {
       if (!answersWithoutConstant(err)) throw err;
       this.logger.warn(
@@ -316,10 +317,12 @@ export class PlasmaWithdrawManager {
   }
 }
 
-interface Call {
-  method: 'processExits' | 'processExitsBatch';
-  args: readonly unknown[];
-}
+/**
+ * A write of the withdraw manager that ends an exit. The descriptor ties each
+ * method to its own arguments, which an object with a method-name union and a
+ * separate argument list would not.
+ */
+type Call = WriteCall<typeof PlasmaWithdrawManagerABI>;
 
 /** One token takes the single-token entry point, any other count the batch one. */
 const callFor = (tokens: readonly Hex[]): Call => {
@@ -329,13 +332,15 @@ const callFor = (tokens: readonly Hex[]): Call => {
     : { method: 'processExitsBatch', args: [tokens] };
 };
 
+type OperationMode = 'write' | 'prepare' | 'read';
+
 const operationInfo = ({
   operation,
   mode,
   tokens
 }: {
   operation: string;
-  mode: 'write' | 'prepare' | 'read';
+  mode: OperationMode;
   tokens: readonly Hex[];
 }): OperationInfo => {
   const [only] = tokens;

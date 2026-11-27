@@ -752,6 +752,24 @@ reports the first. Deliveries that failed before PIP-36 (the Ahmedabad upgrade
 of the child chain's node software) are kept in no mapping, so the SDK cannot
 detect them and such a deposit reads as delivered.
 
+### A contract read did not match the ABI
+
+`AdapterResultMismatchError` means a contract read returned a value of the
+wrong kind for an output the ABI declares, for example a string where it
+declares a `bool`, an array of the wrong length, or a number outside the range
+of the declared integer type. Its `info` names the `method`, the `field` (the
+output, as `<method>.<output name>` or `<method>.<index>`), the `expectedType`
+the ABI declares and the `receivedType`. It never has a `cause`.
+
+- **With your own adapter**, your `read()` returned the wrong kind of value.
+  Make it return what viem or ethers produces for that output: a `bigint`, a
+  `number` or a decimal string for an integer, a `0x` string for an address or
+  bytes, a boolean for a `bool`, and an array for an array or for a read with
+  several outputs.
+- **With the viem, ethers v5 or ethers v6 adapter**, this should not happen
+  with valid data. Report it as an issue against `@polygonlabs/maticjs`,
+  with the `info` of the error.
+
 ### Operation errors
 
 An operation error's message is `<method> failed:` followed by the

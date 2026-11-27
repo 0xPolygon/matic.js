@@ -27,6 +27,7 @@ export { sanitiseError } from '../adapters/index.js';
 // imports them from the entry it already uses. Same classes as the root
 // entry's (one module), so `find` / `has` work across both imports.
 export {
+  AdapterResultMismatchError,
   AddressLookupError,
   AllowedOnChildError,
   AllowedOnRootError,
@@ -66,6 +67,7 @@ export {
   rootCause
 } from '../errors.js';
 export type {
+  AdapterResultMismatchInfo,
   BridgeEventDecodeFailedInfo,
   BurnTxNotCheckpointedInfo,
   CheckpointRangeInvalidInfo,
