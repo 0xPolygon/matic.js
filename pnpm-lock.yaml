@@ -116,8 +116,8 @@ importers:
         version: 2.54.0(typescript@5.9.3)(zod@4.6.7)
     devDependencies:
       '@polygonlabs/meta':
-        specifier: ^1.1.1
-        version: 1.1.1
+        specifier: ^1.2.1
+        version: 1.2.1
       '@tsconfig/node20':
         specifier: ^20.0.0
         version: 20.1.9
@@ -875,8 +875,8 @@ packages:
       typescript:
         optional: true
 
-  '@polygonlabs/meta@1.1.1':
-    resolution: {integrity: sha512-q+4jQ85zpUXlyjt+bxfI0o/ZZo7e+3RVIMflr58vZHR6IpG6pK3PgsXL9zWxlGpnHSuaaBZBf8Fe/h6h1vryzg==}
+  '@polygonlabs/meta@1.2.1':
+    resolution: {integrity: sha512-QVcME+UND9O6l383gATYA2h7QQWLE5M22tf8xuv3xoCYZy+cSiXJiFzAzwHMQqr/a3Zx2sCkZNir6RiU0fasXA==}
     engines: {node: '>=20'}
 
   '@polygonlabs/verror@1.1.0':
@@ -1320,6 +1320,11 @@ packages:
 
   acorn@8.16.0:
     resolution: {integrity: sha512-UVJyE9MttOsBQIDKw1skb9nAwQuR5wuGD3+82K6JgJlm/Y+KI92oNsMNGZCYdDsVtRHSak0pcV5Dno5+4jh9sw==}
+    engines: {node: '>=0.4.0'}
+    hasBin: true
+
+  acorn@8.19.0:
+    resolution: {integrity: sha512-oJlA3XiRm7Cyk6qFD2Jn8ak9B7jSy0qy00ADO3+8dpT0LSjFihQYv4C02LFCSYJV3Q37xYwwRy5m+IpIiUzqWw==}
     engines: {node: '>=0.4.0'}
     hasBin: true
 
@@ -3971,7 +3976,7 @@ snapshots:
       - eslint-plugin-import
       - supports-color
 
-  '@polygonlabs/meta@1.1.1': {}
+  '@polygonlabs/meta@1.2.1': {}
 
   '@polygonlabs/verror@1.1.0': {}
 
@@ -4334,6 +4339,9 @@ snapshots:
       acorn: 8.16.0
 
   acorn@8.16.0: {}
+
+  acorn@8.19.0:
+    optional: true
 
   aes-js@3.0.0: {}
 
@@ -5895,7 +5903,7 @@ snapshots:
   terser@5.46.1:
     dependencies:
       '@jridgewell/source-map': 0.3.11
-      acorn: 8.16.0
+      acorn: 8.19.0
       commander: 2.20.3
       source-map-support: 0.5.21
     optional: true
